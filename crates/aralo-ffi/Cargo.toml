@@ -1,0 +1,43 @@
+[package]
+name = "aralo-ffi"
+description = "UniFFI exports of aralo-core for the native shells."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "aralo_ffi"
+# staticlib goes into the XCFramework; cdylib is what uniffi-bindgen reads in
+# library mode; lib lets Rust tests link the crate.
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+aralo-core = { workspace = true }
+aralo-engine = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# Not `workspace = true`: UniFFI's generated scaffolding is `unsafe extern "C"`,
+# so this is the one crate that cannot forbid unsafe code. Hand-written unsafe
+# is still not allowed here; scripts/check-deps.sh greps for it.
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+dbg_macro = "deny"
+print_stdout = "warn"
+todo = "warn"

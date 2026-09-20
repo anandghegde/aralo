@@ -1,0 +1,23 @@
+[package]
+name = "aralo-core"
+description = "The facade the shells talk to: library, expansion sessions, settings and events."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+aralo-engine = { workspace = true }
+aralo-library = { workspace = true }
+aralo-snippet = { workspace = true }
+aralo-template = { workspace = true }
+thiserror = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

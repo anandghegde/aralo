@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/expansion-plan.schema.json",
+  "title": "Aralo expansion plan (format v0)",
+  "description": "What a shell's injector does for one expansion: a list of steps, run in order. The plan says what reaches the document; the shell picks how (typing or paste) per app. Format v0 is pre-release and may change without a migration.",
+  "$comment": "Mirrors `ExpansionPlan`, `Step` and `Key` in crates/aralo-template/src/plan.rs. Those types have no serde derive today: on macOS a plan crosses the bridge as the UniFFI enum `PlanStep` (crates/aralo-ffi/src/lib.rs), not as JSON. This schema fixes the JSON form for tools, tests and future shells: each step is an object tagged by `type`, with variant and field names in snake_case. When this file and the Rust types disagree on the steps or their fields, the Rust code wins; please report it.",
+  "type": "object",
+  "required": ["steps"],
+  "properties": {
+    "steps": {
+      "description": "The steps, in the order the injector runs them. An empty list is a valid plan that does nothing.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "step": {
+      "description": "One step, tagged by `type`.",
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        { "$ref": "#/$defs/delete" },
+        { "$ref": "#/$defs/insertText" },
+        { "$ref": "#/$defs/insertRich" },
+        { "$ref": "#/$defs/keyPress" },
+        { "$ref": "#/$defs/delay" },
+        { "$ref": "#/$defs/moveCursor" }
+      ]
+    },
+    "delete": {
+      "description": "`Step::Delete`. Press Backspace `count` times. This removes the abbreviation that already reached the document.",
+      "type": "object",
+      "required": ["type", "count"],
+      "properties": {
+        "type": { "const": "delete" },
+        "count": { "$ref": "#/$defs/u32" }
+      },
+      "additionalProperties": false
+    },
+    "insertText": {
+      "description": "`Step::InsertText`. Insert plain text. May contain newlines.",
+      "type": "object",
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "const": "insert_text" },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "insertRich": {
+      "description": "`Step::InsertRich`. Insert rich text, with the plain form for apps that refuse it. Planned for v1; nothing produces this step today.",
+      "type": "object",
+      "required": ["type", "html", "plain"],
+      "properties": {
+        "type": { "const": "insert_rich" },
+        "html": { "type": "string" },
+        "plain": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "keyPress": {
+      "description": "`Step::KeyPress`. Press a key the target app should see as a key, not as text. Used to put back a Return or Tab that triggered the expansion.",
+      "type": "object",
+      "required": ["type", "key"],
+      "properties": {
+        "type": { "const": "key_press" },
+        "key": { "$ref": "#/$defs/key" }
+      },
+      "additionalProperties": false
+    },
+    "delay": {
+      "description": "`Step::Delay`. Wait `millis` milliseconds. For per-app compatibility rules; nothing produces this step today.",
+      "type": "object",
+      "required": ["type", "millis"],
+      "properties": {
+        "type": { "const": "delay" },
+        "millis": { "$ref": "#/$defs/u32" }
+      },
+      "additionalProperties": false
+    },
+    "moveCursor": {
+      "description": "`Step::MoveCursor`. Move the cursor left by `graphemes` user-perceived characters, selecting on the way if `select`. For the `{{cursor}}` placeholder; nothing produces this step today.",
+      "type": "object",
+      "required": ["type", "graphemes", "select"],
+      "properties": {
+        "type": { "const": "move_cursor" },
+        "graphemes": { "$ref": "#/$defs/u32" },
+        "select": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "key": {
+      "description": "`Key`.",
+      "enum": ["return", "tab"]
+    }
+  },
+  "examples": [
+    {
+      "steps": [
+        { "type": "delete", "count": 3 },
+        { "type": "insert_text", "text": "Best regards, " }
+      ]
+    },
+    {
+      "steps": [
+        { "type": "delete", "count": 3 },
+        { "type": "insert_text", "text": "Best regards," },
+        { "type": "key_press", "key": "return" }
+      ]
+    },
+    { "steps": [] }
+  ]
+}

@@ -1,0 +1,6 @@
+# Belt and braces for the no_std rule: tests and benches link std, the library must not.
+disallowed-macros = [
+    { path = "std::println", reason = "aralo-engine never logs (P1)" },
+    { path = "std::eprintln", reason = "aralo-engine never logs (P1)" },
+    { path = "std::dbg", reason = "aralo-engine never logs (P1)" },
+]

@@ -1,0 +1,124 @@
+# The merge gate. Every job here must pass before a pull request merges.
+# Actions are pinned by major tag. dtolnay/rust-toolchain has no version tags:
+# its ref selects the toolchain (`@stable`), or `@master` plus a `toolchain` input.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Why: every crate and the CLI build and test on macOS, Linux and Windows from day one (plan section 10).
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      # Fixtures and golden files are compared byte for byte; keep Windows from rewriting line endings.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # Includes the privacy invariants (crates/aralo-engine/tests/privacy.rs): a privacy regression blocks merge.
+      - name: Test
+        run: cargo test --workspace
+
+  # Why: engine purity and the one-way crate graph are build properties, not promises (ADR-0005); cargo-deny covers licences, advisories and sources.
+  graph:
+    name: graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Engine purity, crate layering, no unsafe in aralo-ffi, silent engine
+        run: scripts/check-deps.sh
+      - name: Schemas are valid JSON
+        run: |
+          for schema in schemas/*.json; do
+            python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$schema"
+            echo "ok    $schema"
+          done
+      - name: cargo-deny (licences, advisories, bans, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  # Why: the browser extension compiles these two crates to WebAssembly; build them now so that path never rots.
+  wasm:
+    name: wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build aralo-engine and aralo-template for wasm32
+        run: cargo build -p aralo-engine -p aralo-template --target wasm32-unknown-unknown
+
+  # Why: the workspace declares `rust-version`; prove it still builds there. Keep in step with Cargo.toml.
+  msrv:
+    name: msrv (1.86)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.86"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check the workspace on the minimum supported Rust version
+        run: cargo check --workspace
+
+  # Why: the keystroke budget. The bench binary asserts on_key p99 < 1 ms with 10,000 abbreviations and exits non-zero on a breach.
+  bench:
+    name: bench (on_key gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: on_key p99 gate
+        run: cargo bench -p aralo-engine
+
+  # Why: the Swift shell must keep building against the generated bridge: XCFramework, Swift bindings, xcodegen project, SwiftLint, XCTest.
+  macos-app:
+    name: macos-app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # The app is a universal binary (ADR-0010), so the XCFramework needs both slices.
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Install xcodegen and SwiftLint
+        run: brew install xcodegen swiftlint
+      - name: Build the XCFramework and Swift bindings, generate the Xcode project
+        run: make bootstrap
+      - name: SwiftLint
+        run: make lint-swift
+      - name: Swift tests
+        run: make test-swift

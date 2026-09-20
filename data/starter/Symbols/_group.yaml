@@ -1,0 +1,8 @@
+name: Symbols
+icon: number
+# Symbols fire as soon as they are typed, anywhere in a word, and only in
+# the exact case written.
+defaults:
+  trigger: immediate
+  word: false
+  case: exact

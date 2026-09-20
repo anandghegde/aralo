@@ -1,0 +1,129 @@
+# cargo-deny configuration (v2-style). Run locally with `cargo deny check`.
+# CI runs it in the `graph` job of .github/workflows/check.yml.
+#
+# What this file is for (plan section 9, "Supply chain", and ADR-0008):
+#   - every dependency's licence is compatible with shipping Aralo under Apache-2.0
+#   - no dependency has a known security advisory
+#   - every crate comes from crates.io
+#   - HTTP client crates stay behind the network guard in `aralo-ai` (ADR-0007)
+#
+# The engine-purity and crate-layering rules are NOT here. cargo-deny cannot
+# express "this one crate's dependency closure must be within an allow-list";
+# scripts/check-deps.sh does that.
+
+[graph]
+# Only the targets Aralo builds for. Keeps licences and advisories of crates
+# that are never compiled (other platforms' back ends) out of the result.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "wasm32-unknown-unknown",
+]
+all-features = true
+
+[advisories]
+version = 2
+# Vulnerability and unsoundness advisories always fail the check in v2.
+# A yanked crate fails too: a yank usually means a broken or unsafe release.
+yanked = "deny"
+# "Unmaintained" advisories fail for crates the workspace depends on directly,
+# where we can act. For transitive crates they are reported upstream instead.
+unmaintained = "workspace"
+# Every entry needs the advisory ID, a reason and a date to look again.
+ignore = []
+
+[licenses]
+version = 2
+# Licences a dependency may carry. For an `A OR B` expression one allowed
+# licence is enough. Anything not listed fails the check; add a licence only
+# after reading it, and record why in the pull request.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # UniFFI (uniffi, uniffi_core, uniffi_bindgen, uniffi_macros, ...) is
+    # MPL-2.0. MPL is file-level copyleft: it covers changes to UniFFI's own
+    # files, not code that links to it, so it is compatible with shipping Aralo
+    # under Apache-2.0 as long as UniFFI is used unmodified from crates.io.
+    "MPL-2.0",
+    # Public-domain dedications. Nothing in the tree needs them today (every
+    # `Unlicense` crate is also offered under MIT). Uncomment when one does.
+    # "CC0-1.0",
+    # "Unlicense",
+]
+confidence-threshold = 0.9
+# The allow-list is a policy, not a description of today's tree, so an entry
+# that no crate uses yet is not worth a warning.
+unused-allowed-license = "allow"
+# Per-crate exceptions go here, each with a reason:
+# exceptions = [{ crate = "some-crate", allow = ["Some-Licence"] }]
+exceptions = []
+
+[licenses.private]
+# Workspace crates are `publish = false` and Apache-2.0; skip them.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+# A `*` version requirement is refused, except for path dependencies between
+# workspace crates, which have no version.
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+# Network guard rule (plan section 7.1 and 9, ADR-0007): the guard in
+# `aralo-ai` is the only constructor of HTTP clients in the workspace, and
+# there is one client type, reqwest with rustls.
+#
+# What cargo-deny can express of that rule: WHICH CRATES may depend on an HTTP
+# client. `wrappers` lists the only crates allowed to have the banned crate as
+# a direct dependency; any other direct dependent fails the check.
+#
+# What it cannot express: WHO CALLS `reqwest::Client::new` or
+# `reqwest::Client::builder`. That is the clippy `disallowed-methods` lint the
+# plan calls for. It does not exist yet; it lands with the guard in M4.
+deny = [
+    # Other HTTP clients: never, anywhere. One client type is what makes the
+    # guard enforceable.
+    { crate = "ureq", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    { crate = "isahc", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    { crate = "surf", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    { crate = "attohttpc", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    { crate = "minreq", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    { crate = "curl", reason = "HTTP goes through the network guard in aralo-ai, which uses reqwest (ADR-0007)" },
+    # TLS: rustls only, so there is no OpenSSL to bundle, sign or notarise
+    # (plan section 2, "HTTP and streaming").
+    { crate = "openssl-sys", reason = "rustls only; no OpenSSL to bundle (plan section 2)" },
+    { crate = "native-tls", reason = "rustls only; no OpenSSL to bundle (plan section 2)" },
+
+    # PLACEHOLDER, not active yet. `aralo-ai` has no dependencies today, so
+    # there is nothing for this entry to check, and cargo-deny reports a
+    # wrapper it never encounters. Uncomment it in the pull request that adds
+    # reqwest to `aralo-ai` (M4, task 4.1). From then on, reqwest as a direct
+    # dependency of any crate other than `aralo-ai` fails the check.
+    #
+    # If the adapters in `aralo-providers` need reqwest's types, do not add
+    # that crate to `wrappers` without a new ADR: it widens the set of crates
+    # that can construct a client, which is the thing the guard exists to
+    # prevent. Prefer passing them a client, or a wrapper type, from the guard.
+    #
+    # { crate = "reqwest", wrappers = ["aralo-ai"], reason = "only the network guard in aralo-ai may construct HTTP clients (ADR-0007)" },
+]
+
+# Duplicate versions we accept, each with a reason.
+skip = []
+skip-tree = []
+
+[sources]
+# crates.io only. No git dependencies and no alternative registries: both would
+# bypass the licence and advisory data above.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

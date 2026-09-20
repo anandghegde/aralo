@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.86"
+license = "Apache-2.0"
+repository = "https://github.com/OWNER/aralo"
+publish = false
+
+# Internal crates. The allowed dependency direction is documented in
+# docs/architecture.md and enforced by scripts/check-deps.sh:
+#   engine, snippet, template   pure base, no dependency on anything below
+#   library, ai, ...            sit above the base
+#   core                        composes
+#   ffi, cli                    sit on core
+[workspace.dependencies]
+aralo-engine = { path = "crates/aralo-engine" }
+aralo-snippet = { path = "crates/aralo-snippet" }
+aralo-template = { path = "crates/aralo-template" }
+aralo-library = { path = "crates/aralo-library" }
+aralo-embed = { path = "crates/aralo-embed" }
+aralo-ai = { path = "crates/aralo-ai" }
+aralo-providers = { path = "crates/aralo-providers" }
+aralo-import = { path = "crates/aralo-import" }
+aralo-script = { path = "crates/aralo-script" }
+aralo-core = { path = "crates/aralo-core" }
+
+clap = { version = "4.6", features = ["derive"] }
+criterion = "0.8"
+proptest = "1.11"
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+tempfile = "3"
+thiserror = "2"
+ulid = { version = "3", default-features = false }
+unicode-segmentation = "1.12"
+uniffi = "0.32"
+zeroize = { version = "1.9", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+print_stdout = "warn"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Unwinding stays on: UniFFI turns a Rust panic into a Swift error instead of
+# killing the agent that hosts the event tap.
+strip = "symbols"
+
+[profile.bench]
+debug = true

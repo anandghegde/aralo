@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/snippet.schema.json",
+  "title": "Aralo snippet front matter (format v0)",
+  "description": "The YAML block between the two `---` lines at the top of a snippet file (`*.md`). The body that follows the closing `---` is not described here; see docs/format/snippet.md. Every key is optional. A key left out of `trigger`, `case`, `word` or `keep_delimiter` inherits from the group. Unknown keys are accepted and written back unchanged. An empty block is valid. Format v0 is pre-release and may change without a migration.",
+  "$comment": "Mirrors `FrontMatter` in crates/aralo-snippet/src/snippet.rs. When the two disagree, the Rust code wins; please report it.",
+  "type": ["object", "null"],
+  "properties": {
+    "id": {
+      "description": "The snippet's identity: a ULID that survives renames and moves. Hand-written files may leave it out; Aralo assigns one on the first save. Aralo writes upper case; lower case is accepted on read.",
+      "oneOf": [{ "$ref": "#/$defs/ulid" }, { "type": "null" }]
+    },
+    "label": {
+      "description": "Human-readable name shown in lists and search. Default: empty.",
+      "type": "string",
+      "default": ""
+    },
+    "abbr": {
+      "description": "The abbreviation or abbreviations that expand this snippet. A single string is accepted on read; Aralo always writes a list. A snippet with no abbreviation is reachable through search only. The engine rejects an abbreviation that is empty or longer than 63 characters (Unicode scalar values); see docs/format/matching.md.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ],
+      "default": []
+    },
+    "type": {
+      "description": "What kind of snippet this is. Default: `text`.",
+      "enum": ["text", "rich", "command", "prompt", "script"],
+      "default": "text"
+    },
+    "trigger": {
+      "description": "`immediate`: expand as soon as the last character of the abbreviation is typed. `delimiter`: expand when a delimiter is typed after it. Absent or null: inherit from the group; the built-in default is `delimiter`.",
+      "enum": ["immediate", "delimiter", null]
+    },
+    "case": {
+      "description": "`exact`: the abbreviation must be typed exactly as defined. `ignore`: any case matches and the expansion is unchanged. `adaptive`: any case matches and the typed pattern (as defined, Title, UPPER) re-cases the expansion. Absent or null: inherit; the built-in default is `adaptive`.",
+      "enum": ["exact", "ignore", "adaptive", null]
+    },
+    "word": {
+      "description": "Whole-word rule: expand only when the character before the abbreviation is not a word character (alphanumeric or `_`). Absent or null: inherit; the built-in default is `true`.",
+      "type": ["boolean", "null"]
+    },
+    "keep_delimiter": {
+      "description": "Re-insert the delimiter that triggered the expansion, after the expansion. Only read for `trigger: delimiter`. Absent or null: inherit; the built-in default is `true`.",
+      "type": ["boolean", "null"]
+    },
+    "enabled": {
+      "description": "`false` switches this snippet off. Absent or null: enabled, unless a group above it is disabled.",
+      "type": ["boolean", "null"]
+    },
+    "tags": {
+      "description": "Free-form tags for search and filtering. Default: none.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "ai": {
+      "description": "What an AI block in this snippet may see and which provider profile runs it (PRD P4). Absent or null: the snippet declares no context.",
+      "oneOf": [{ "$ref": "#/$defs/aiSettings" }, { "type": "null" }]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "ulid": {
+      "description": "A ULID: 26 characters of Crockford base32 (digits and letters without I, L, O and U).",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$"
+    },
+    "aiSettings": {
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "Context kinds the snippet declares. Nothing else may be requested from the shell or sent to a model. The plan names `fillins`, `selection`, `clipboard`, `app` and `window`; this version stores the strings without checking them.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "profile": {
+          "description": "Name of the provider profile to use. Profiles live outside the library folder. Absent or null: the profile chosen in settings.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "examples": [
+    {
+      "id": "01J8ZK3V5Q8W6T9X2N4R7M0ABC",
+      "label": "Enterprise refund reply",
+      "abbr": [";refund", ";rf"],
+      "type": "text",
+      "trigger": "delimiter",
+      "case": "adaptive",
+      "word": true,
+      "tags": ["support", "billing"],
+      "ai": { "context": ["fillins", "selection"], "profile": "default" }
+    },
+    { "abbr": ";sig" }
+  ]
+}

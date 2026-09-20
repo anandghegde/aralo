@@ -1,0 +1,16 @@
+[package]
+name = "aralo-template"
+description = "Placeholder grammar, evaluator and the ExpansionPlan the shells execute."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Pure tables, no I/O: this crate also compiles to WebAssembly.
+unicode-segmentation = { workspace = true }
+
+[lints]
+workspace = true

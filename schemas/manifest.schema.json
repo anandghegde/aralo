@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/manifest.schema.json",
+  "title": "Aralo library manifest `aralo.yaml` (format v0)",
+  "description": "The file at the root of a folder that marks it as an Aralo library. Unknown keys are accepted and written back unchanged. Format v0 is pre-release and may change without a migration.",
+  "$comment": "Mirrors `Manifest` in crates/aralo-snippet/src/manifest.rs. When the two disagree, the Rust code wins; please report it.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "format": {
+      "description": "The library format version. This schema describes version 0. A build refuses to open a library whose `format` is newer than it understands, so an old Aralo never rewrites a library it only half understands.",
+      "type": "integer",
+      "const": 0
+    },
+    "id": {
+      "description": "Names this library in the caches Aralo keeps outside the folder (index, vectors, merge bases). Aralo writes a ULID when it creates a library; this version accepts any string. Absent or null: no ID yet.",
+      "type": ["string", "null"]
+    },
+    "name": {
+      "description": "Display name of the library. Absent or null: none.",
+      "type": ["string", "null"]
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    { "format": 0, "id": "01J8ZK3V5Q8W6T9X2N4R7M0ABD", "name": "My Library" },
+    { "format": 0 }
+  ]
+}

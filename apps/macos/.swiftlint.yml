@@ -1,0 +1,31 @@
+# Run from apps/macos: `swiftlint --strict`, or `make lint-swift` at the root.
+included:
+  - Aralo
+  - Packages/AraloKit/Sources
+  - Packages/AraloKit/Tests
+excluded:
+  - Generated # UniFFI output
+  - Packages/AraloKit/.build
+
+line_length:
+  warning: 120
+  error: 160
+  ignores_comments: true
+identifier_name:
+  excluded: [id]
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - sorted_imports
+  - redundant_nil_coalescing
+  - toggle_bool
+
+custom_rules:
+  # Privacy invariant P1: the shell never prints or logs. A keystroke in a log
+  # line is a keystroke on disk.
+  no_logging:
+    included: "(Aralo|Sources)/.*\\.swift"
+    regex: '\b(print|debugPrint|dump|NSLog|os_log)\s*\('
+    message: "No printing or logging in the app: typed text must never reach a log."
+    severity: error

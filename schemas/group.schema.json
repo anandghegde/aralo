@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/group.schema.json",
+  "title": "Aralo group file `_group.yaml` (format v0)",
+  "description": "Describes one group, which is one folder of a library. The file is optional and so is every key in it: a folder without `_group.yaml`, or with an empty one, is a group named after the folder that inherits everything. Unknown keys at the top level and inside `defaults` are accepted and written back unchanged. Format v0 is pre-release and may change without a migration.",
+  "$comment": "Mirrors `GroupFile`, `ScopeSpec` and `Defaults` in crates/aralo-snippet/src/group.rs. When the two disagree, the Rust code wins; please report it.",
+  "type": ["object", "null"],
+  "properties": {
+    "name": {
+      "description": "Display name. Absent or null: the folder name.",
+      "type": ["string", "null"]
+    },
+    "colour": {
+      "description": "Display colour, for example `\"#3478F6\"`. Stored as written; this version does not check the value. Quote it: an unquoted `#` starts a YAML comment.",
+      "type": ["string", "null"]
+    },
+    "icon": {
+      "description": "Display icon name. Stored as written; this version does not check the value.",
+      "type": ["string", "null"]
+    },
+    "enabled": {
+      "description": "`false` switches off this group and everything beneath it: its snippets, its sub-groups and their snippets. Absent or null: enabled, unless a group above it is disabled.",
+      "type": ["boolean", "null"]
+    },
+    "scope": {
+      "description": "The apps this group's snippets work in. Absent or null: inherit the parent group's scope. `{}`: everywhere, whatever the parent group says.",
+      "oneOf": [{ "$ref": "#/$defs/scope" }, { "type": "null" }]
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "scope": {
+      "description": "App scope. Entries are bundle IDs on macOS (executable names on Windows, later) and are compared without regard to ASCII case. Set `only` or `except`, never both. Unknown keys inside `scope` are accepted but, unlike elsewhere, are not written back.",
+      "type": "object",
+      "properties": {
+        "only": {
+          "description": "The group works in these apps and nowhere else.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "except": {
+          "description": "The group works everywhere but in these apps.",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "not": {
+        "$comment": "Rejected with `ConflictingScope`: both lists present and both non-empty.",
+        "required": ["only", "except"],
+        "properties": {
+          "only": { "minItems": 1 },
+          "except": { "minItems": 1 }
+        }
+      },
+      "additionalProperties": true
+    },
+    "defaults": {
+      "description": "Values this group's snippets and sub-groups inherit unless they set their own. Resolution order for each key: the snippet's own value, then the nearest group's `defaults`, then each parent group in turn, then the built-in default.",
+      "type": "object",
+      "properties": {
+        "trigger": {
+          "description": "Built-in default: `delimiter`.",
+          "enum": ["immediate", "delimiter", null]
+        },
+        "case": {
+          "description": "Built-in default: `adaptive`.",
+          "enum": ["exact", "ignore", "adaptive", null]
+        },
+        "word": {
+          "description": "Whole-word rule. Built-in default: `true`.",
+          "type": ["boolean", "null"]
+        },
+        "keep_delimiter": {
+          "description": "Re-insert the triggering delimiter after the expansion. Built-in default: `true`.",
+          "type": ["boolean", "null"]
+        },
+        "delimiters": {
+          "description": "Every character of this string is a delimiter, for example `\" \\t\\n.,;\"`. Use a double-quoted YAML string so that `\\t` and `\\n` are read as tab and newline. Group-level only: a snippet cannot set its own delimiter set. Built-in default: the engine's `DEFAULT_DELIMITERS`, listed in docs/format/matching.md.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "examples": [
+    {
+      "name": "Support",
+      "colour": "#3478F6",
+      "icon": "lifepreserver",
+      "enabled": true,
+      "scope": { "only": ["com.apple.mail", "com.tinyspeck.slackmacgap"] },
+      "defaults": { "trigger": "immediate", "case": "exact", "word": false, "delimiters": " \t." }
+    },
+    { "scope": {} },
+    null
+  ]
+}

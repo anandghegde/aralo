@@ -1,0 +1,18 @@
+[package]
+name = "aralo-snippet"
+description = "Aralo's snippet data model: snippet files, group files and the library manifest."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_yaml_ng = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

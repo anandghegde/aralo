@@ -1,0 +1,85 @@
+name: Provider quirk
+description: A model endpoint behaves differently from what Aralo expects. These reports feed the quirks table (data/quirks/providers.toml).
+title: "[quirk] <provider or host>: "
+labels: ["provider-quirk"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        "OpenAI-compatible" endpoints differ. Aralo records the differences per host in a quirks table. Your report helps fill it.
+
+        **Never paste an API key.** Not in a header, not in a URL, not in a request excerpt, not in a conformance report. Remove `Authorization`, `x-api-key` and any other secret-bearing value before pasting. If you posted a key by mistake, revoke it with your provider at once; editing the issue does not remove it from history.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or host
+      description: The service name or the host name of the endpoint. No keys. For a private company proxy, describe what it fronts instead of giving its address.
+      placeholder: "Example: openrouter.ai, or Ollama 0.5 on localhost"
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter
+      options:
+        - openai_compat
+        - anthropic
+        - local server
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The model name exactly as you entered it in the profile.
+    validations:
+      required: true
+  - type: input
+    id: aralo-version
+    attributes:
+      label: Aralo version
+    validations:
+      required: true
+  - type: dropdown
+    id: what-differs
+    attributes:
+      label: What differs
+      options:
+        - Streaming framing
+        - Error body shape
+        - Unsupported parameter
+        - Models route
+        - System prompt handling
+        - Embeddings
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What you expected and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: excerpt
+    attributes:
+      label: Request and response excerpt, with secrets removed
+      description: The smallest excerpt that shows the difference, such as the raw stream lines or the error body. Remove keys, tokens, account IDs and any private prompt content first.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: conformance
+    attributes:
+      label: Conformance report JSON (optional)
+      description: Output of `aralo conformance --profile <name>`. Check it for secrets before pasting.
+      render: json
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed every API key, token and secret header from this report.
+          required: true

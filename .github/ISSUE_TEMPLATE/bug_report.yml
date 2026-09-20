@@ -1,0 +1,82 @@
+name: Bug report
+description: Something in Aralo does not work as documented.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for general bugs.
+
+        - Expansion misbehaves in one specific app? Use **App compatibility report** instead.
+        - A model endpoint behaves differently from what Aralo expects? Use **Provider quirk** instead.
+        - A security problem? Do not file it here. See SECURITY.md.
+
+        **Never paste API keys or private snippet content into an issue.**
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Expansion engine (matching, triggers, case, undo)
+        - Dynamic content (placeholders, forms, dates)
+        - Library (files, groups, index, search)
+        - Folder sync and conflicts
+        - Import and export
+        - AI (gateway, profiles, commands, AI snippets)
+        - App UI (editor, panels, settings, onboarding)
+        - CLI
+        - Build, CI or packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: aralo-version
+    attributes:
+      label: Aralo version
+      description: From the app's About window, or `aralo --version` for the CLI.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      description: For example "macOS 14.6, Apple silicon". For the CLI or crates, Linux and Windows are fine too.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the problem. A minimal snippet file helps. Use made-up content, not a private snippet.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report (optional)
+      description: Paste the output of "Copy diagnostics". It is content-free - versions, tap health counters, per-app counts and latency histograms.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a duplicate.
+          required: true
+        - label: This issue contains no API keys and no private snippet content.
+          required: true

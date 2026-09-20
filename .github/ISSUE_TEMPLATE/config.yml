@@ -1,0 +1,7 @@
+# OWNER is a placeholder. Replace it with the real GitHub owner or organisation
+# before the repository goes public.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/OWNER/aralo/security/advisories/new
+    about: Do not open a public issue for a vulnerability. Report it privately here. See SECURITY.md for what is in scope.

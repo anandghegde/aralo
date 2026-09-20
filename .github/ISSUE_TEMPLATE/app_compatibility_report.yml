@@ -1,0 +1,91 @@
+name: App compatibility report
+description: Expansion misbehaves in one specific app. These reports feed the compatibility table (data/compat/apps.toml).
+title: "[compat] <app name>: "
+labels: ["app-compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One report per app. Aralo picks an insert method, delays and an undo style per app from a compatibility table. Your report helps set those values.
+
+        **Do not paste private snippet content.** Reproduce with a harmless test snippet.
+  - type: input
+    id: app
+    attributes:
+      label: App name and version
+      placeholder: "Example: Slack 4.40.1"
+    validations:
+      required: true
+  - type: input
+    id: bundle-id
+    attributes:
+      label: Bundle ID
+      description: "Run `osascript -e 'id of app \"App Name\"'` in Terminal."
+      placeholder: "Example: com.tinyspeck.slackmacgap"
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "Example: 14.6, Apple silicon"
+    validations:
+      required: true
+  - type: input
+    id: aralo-version
+    attributes:
+      label: Aralo version
+    validations:
+      required: true
+  - type: checkboxes
+    id: what-failed
+    attributes:
+      label: What failed
+      description: Tick everything that applies.
+      options:
+        - label: Text not inserted
+        - label: Partial or garbled text
+        - label: Abbreviation not deleted
+        - label: Clipboard not restored
+        - label: Undo misbehaves
+        - label: Cursor marker wrong
+        - label: Expansion slow
+  - type: dropdown
+    id: insert-method
+    attributes:
+      label: Insert method in use
+      options:
+        - Typing
+        - Paste
+        - Don't know
+    validations:
+      required: true
+  - type: textarea
+    id: typed-vs-appeared
+    attributes:
+      label: What you typed and what appeared
+      description: |
+        Give the abbreviation you typed, what you expected, and what appeared in the app. Say where in the app you were typing (message box, search field, code editor, terminal).
+        Do NOT paste private snippet content. Use a test snippet with made-up text.
+      placeholder: |
+        Typed: ;test then Space
+        Expected: Hello from Aralo
+        Appeared: ;testHello from Ara
+        Where: message composer
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report (optional)
+      description: Paste the output of "Copy diagnostics". It is content-free - versions, tap health counters, per-app expansion and undo counts, and latency histograms.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: This report contains no private snippet content.
+          required: true
