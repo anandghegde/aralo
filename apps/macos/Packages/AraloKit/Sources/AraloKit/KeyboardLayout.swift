@@ -51,16 +51,55 @@ public enum KeyboardLayout {
         return found
     }
 
-    /// The same, for the keyboard layout in use now. Text Input Sources calls
-    /// are only safe on the main thread.
+    /// The keyboard layout in use now. With an input method selected, this is
+    /// the layout underneath it. Text Input Sources calls are only safe on the
+    /// main thread.
+    @MainActor
+    public static func currentLayout() -> KeyTranslator.Layout? {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return nil }
+        return layout(of: source)
+    }
+
+    /// Nil for a layout with no Unicode data, which only old third-party
+    /// layouts are.
+    @MainActor
+    static func layout(of source: TISInputSource) -> KeyTranslator.Layout? {
+        guard let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
+        return KeyTranslator.Layout(data: data, keyboardType: UInt32(LMGetKbdType()))
+    }
+
+    /// Whether the selected input source composes text in a window of its own
+    /// before the document gets any: Japanese, Chinese, Korean and the like.
+    /// A plain layout does not, and neither does an input method's Roman mode,
+    /// which types the letters on the keys.
+    @MainActor
+    public static func currentInputSourceComposes() -> Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return false }
+        return composes(type: string(kTISPropertyInputSourceType, of: source),
+                        inputMode: string(kTISPropertyInputModeID, of: source))
+    }
+
+    static func composes(type: String?, inputMode: String?) -> Bool {
+        guard let type, type != kTISTypeKeyboardLayout as String else { return false }
+        return inputMode != romanInputMode
+    }
+
+    /// `kTextServiceInputModeRoman`.
+    static let romanInputMode = "com.apple.inputmethod.Roman"
+
+    @MainActor
+    private static func string(_ key: CFString, of source: TISInputSource) -> String? {
+        guard let property = TISGetInputSourceProperty(source, key) else { return nil }
+        return Unmanaged<CFString>.fromOpaque(property).takeUnretainedValue() as String
+    }
+
+    /// The same, for the keyboard layout in use now.
     @MainActor
     public static func currentKeyCodes(for characters: Set<Character> = shortcutCharacters) -> [Character: CGKeyCode] {
-        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
-        else { return [:] }
-        let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
-        let keyboardType = UInt32(LMGetKbdType())
-        return data.withUnsafeBytes { bytes -> [Character: CGKeyCode] in
+        guard let current = currentLayout() else { return [:] }
+        let keyboardType = current.keyboardType
+        return current.data.withUnsafeBytes { bytes -> [Character: CGKeyCode] in
             guard let layout = bytes.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return [:] }
             return keyCodes(for: characters) { keyCode, command in
                 var deadKeys: UInt32 = 0

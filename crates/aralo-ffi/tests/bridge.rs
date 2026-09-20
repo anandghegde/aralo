@@ -1,6 +1,9 @@
 //! The bridge as Swift will use it, driven from Rust.
 
-use aralo_ffi::{Core, InsertMethod, KeyAction, KeyInput, PlanKey, PlanStep, ResetReason};
+use aralo_ffi::{
+    Core, DeleteStrategy, InsertChoice, InsertMethod, KeyAction, KeyInput, PlanKey, PlanStep,
+    ResetReason, UndoStyle,
+};
 
 fn key(c: char) -> KeyInput {
     KeyInput::Char { scalar: c as u32 }
@@ -32,6 +35,7 @@ fn a_match_comes_back_with_its_plan() {
         consume: true,
         steps,
         undo_delete_count: Some(10),
+        profile,
     }] = actions.as_slice()
     else {
         panic!("{actions:?}");
@@ -53,8 +57,86 @@ fn a_match_comes_back_with_its_plan() {
             delete_count: 10,
             retype: "Ty ".into(),
             method: InsertMethod::Typed,
+            profile: *profile,
         }
     );
+}
+
+#[test]
+fn a_plan_carries_the_front_apps_row_of_the_compatibility_table() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    let textedit = engine.injection_profile();
+    assert_eq!(textedit.insert, InsertChoice::Auto);
+    assert_eq!(textedit.undo, UndoStyle::Native);
+
+    engine.set_front_app("com.apple.Terminal".into());
+    let actions = type_str(&engine, "ty ");
+    let [KeyAction::Expand { profile, .. }] = actions.as_slice() else {
+        panic!("{actions:?}");
+    };
+    assert_eq!(profile.insert, InsertChoice::Type);
+    assert_eq!(profile.undo, UndoStyle::Backspace);
+
+    // An app the table has never heard of gets the defaults.
+    engine.set_front_app("com.example.unheard-of".into());
+    assert_eq!(engine.injection_profile(), textedit);
+}
+
+#[test]
+fn a_compat_file_replaces_the_table_and_a_bad_one_changes_nothing() {
+    let (folder, core) = open();
+    let engine = core.engine();
+    let path = folder.path().join("apps.toml");
+    let load = || core.load_compat_table(path.to_string_lossy().into_owned());
+
+    std::fs::write(
+        &path,
+        "version = 0
+[[app]]
+bundle_id = \"com.apple.TextEdit\"
+delete = \"select\"
+key_delay_ms = 7
+",
+    )
+    .unwrap();
+    load().unwrap();
+    // The front app did not change, but its row did.
+    let profile = engine.injection_profile();
+    assert_eq!(profile.delete, DeleteStrategy::Select);
+    assert_eq!(profile.key_delay_ms, 7);
+
+    std::fs::write(
+        &path,
+        "version = 0
+[defaults]
+key_delay_ms = 99999
+",
+    )
+    .unwrap();
+    assert!(load().is_err());
+    std::fs::remove_file(&path).unwrap();
+    assert!(load().is_err());
+    assert_eq!(engine.injection_profile(), profile);
+}
+
+#[test]
+fn the_tables_apps_are_listed_for_the_matrix() {
+    let apps = aralo_ffi::compat_apps(None).unwrap();
+    assert_eq!(apps.len(), 15);
+    assert_eq!(apps[0].name, "TextEdit");
+    let terminal = apps
+        .iter()
+        .find(|app| app.bundle_id == "com.apple.Terminal")
+        .unwrap();
+    assert_eq!(terminal.profile.insert, InsertChoice::Type);
+
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("apps.toml");
+    std::fs::write(&path, "version = 0\n[defaults]\ninsert = \"paste\"\n").unwrap();
+    let path = path.to_string_lossy().into_owned();
+    assert!(aralo_ffi::compat_apps(Some(path)).unwrap().is_empty());
+    assert!(aralo_ffi::compat_apps(Some("/nowhere/apps.toml".into())).is_err());
 }
 
 #[test]

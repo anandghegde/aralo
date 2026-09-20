@@ -2,7 +2,10 @@
 
 An `ExpansionPlan` is what the core hands a shell for one expansion: a list
 of steps that the shell's injector runs in order. The plan says **what**
-reaches the document. The shell picks **how**, typing or paste, per app.
+reaches the document. **How** it gets there, typing or paste, comes with the
+plan as the front app's injection profile, a row of
+[the compatibility table](../architecture.md#the-compatibility-table). The
+shell follows both and decides nothing.
 
 The reference implementation is `crates/aralo-template/src/plan.rs`. The JSON
 form is described by
@@ -12,7 +15,7 @@ form is described by
 
 | Step | Fields | Meaning | Produced today |
 | --- | --- | --- | --- |
-| `Delete` | `count` | Press Backspace `count` times. Removes the abbreviation that already reached the document | Yes |
+| `Delete` | `count` | Remove `count` characters before the cursor: the abbreviation that already reached the document. Backspace `count` times, or select and delete once where the profile says `delete = "select"` | Yes |
 | `InsertText` | `text` | Insert plain text. May contain newlines | Yes |
 | `KeyPress` | `key`: `Return` or `Tab` | Press a key the app should see as a key, not as text | Yes |
 | `InsertRich` | `html`, `plain` | Insert rich text, with the plain form for apps that refuse it | No. v1 |
@@ -75,6 +78,9 @@ A plan reports how many Backspaces remove what it inserted
 - It is **absent** when the plan contains an `InsertRich` or a `KeyPress`.
   Backspace cannot be trusted to remove rich text, or a Return or Tab the app
   may have acted on. The shell then does not offer undo for that expansion.
+- For the same reason the shell does not offer undo, whatever the count,
+  when the profile made it type a line break of an `InsertText` as a Return
+  key (`insert = "type"`).
 - `Delete`, `Delay` and `MoveCursor` do not change the count.
 
 When the count is present, the shell reports the finished expansion with
@@ -83,7 +89,7 @@ When the count is present, the shell reports the finished expansion with
 
 ## Rules for a shell
 
-1. Run the steps in order.
+1. Run the steps in order, the way the injection profile says.
 2. Swallow the key that completed the match when the action says `consume`.
 3. Tag every synthetic event so that the shell's own key capture ignores it.
 4. The plan is the whole instruction. A shell must not look at a snippet body

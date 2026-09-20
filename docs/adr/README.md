@@ -21,7 +21,8 @@ Consequences, Alternatives rejected.
 | [0008](0008-library-choices.md) | Third-party library choices | Accepted |
 | [0009](0009-apache-2-licence.md) | Apache-2.0 licence | Accepted (confirmed by the project owner, 2026-09-20) |
 | [0010](0010-minimum-macos-14.md) | Minimum macOS 14, universal binary | Accepted (confirmed by the project owner, 2026-09-20) |
-| [0011](0011-shell-defaults.md) | Defaults of the first Mac shell | Accepted (confirmed by the project owner, 2026-09-20) |
+| [0011](0011-shell-defaults.md) | Defaults of the first Mac shell | Accepted (confirmed by the project owner, 2026-09-20). Amended by 0012 |
+| [0012](0012-injection-and-input-defaults.md) | Per-app injection is data; input defaults of the M1 shell | Accepted (not yet confirmed by the project owner) |
 
 ADRs 0001, 0009 and 0010 began as assumptions the plan made where the PRD left
 a question open. The project owner confirmed all three on 2026-09-20.

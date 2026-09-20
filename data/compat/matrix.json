@@ -1,0 +1,41 @@
+{
+  "$comment": "How the injection matrix (apps/macos/Packages/AraloHarness) gets a text field with the keyboard in each app of apps.toml. `open` is one of: document (open an empty scratch file with the app; `extension` names its type), web-page (open a scratch page whose text area takes the focus), shell (open a scratch script in the terminal: a zsh line editor that runs nothing), keys (bring the app forward and press `keys`), manual (a person clicks into a field; skipped when nobody is there). `clear` is select-all (Cmd+A, Delete; the default) or kill-line (Ctrl+U). `settle_ms` is how long the app gets after it comes forward [1500]. None of these recipes has been run yet: the first matrix run corrects them. An app of apps.toml with no recipe here is treated as manual.",
+  "version": 0,
+  "recipes": [
+    { "bundle_id": "com.apple.TextEdit", "open": "document", "extension": "txt" },
+    { "bundle_id": "com.apple.Notes", "open": "keys", "keys": ["cmd+n"], "note": "Leaves an empty note behind." },
+    {
+      "bundle_id": "com.apple.mail",
+      "open": "keys",
+      "keys": ["cmd+n", "tab", "tab", "tab"],
+      "settle_ms": 3000,
+      "note": "To, Cc, Subject, then the body. The number of tabs depends on which header fields Mail shows."
+    },
+    { "bundle_id": "com.apple.Safari", "open": "web-page", "settle_ms": 3000 },
+    { "bundle_id": "com.google.Chrome", "open": "web-page", "settle_ms": 3000 },
+    { "bundle_id": "org.mozilla.firefox", "open": "web-page", "settle_ms": 4000 },
+    { "bundle_id": "com.microsoft.VSCode", "open": "document", "extension": "txt", "settle_ms": 5000 },
+    {
+      "bundle_id": "com.tinyspeck.slackmacgap",
+      "open": "manual",
+      "note": "Needs a signed-in workspace. Click into the message field of a direct message to yourself."
+    },
+    { "bundle_id": "com.apple.Terminal", "open": "shell", "clear": "kill-line", "settle_ms": 2500 },
+    { "bundle_id": "com.googlecode.iterm2", "open": "shell", "clear": "kill-line", "settle_ms": 2500 },
+    {
+      "bundle_id": "com.microsoft.Word",
+      "open": "keys",
+      "keys": ["cmd+n"],
+      "settle_ms": 6000,
+      "note": "A scratch .txt would raise Word's file conversion sheet."
+    },
+    { "bundle_id": "com.apple.iWork.Pages", "open": "document", "extension": "txt", "settle_ms": 4000 },
+    { "bundle_id": "com.apple.dt.Xcode", "open": "document", "extension": "txt", "settle_ms": 6000 },
+    { "bundle_id": "md.obsidian", "open": "manual", "note": "Needs a vault. Click into an open note." },
+    {
+      "bundle_id": "com.microsoft.rdc.macos",
+      "open": "manual",
+      "note": "Needs a session to another machine. Click into a text editor there."
+    }
+  ]
+}

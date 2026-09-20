@@ -1,0 +1,73 @@
+# The injection matrix and the latency harness (plan section 11, task 1.10).
+# They type into real apps with real key events, so they need a Mac with a
+# logged-in desktop, the matrix apps installed, and Accessibility and Input
+# Monitoring already granted. A hosted runner has none of that: this workflow
+# runs on a self-hosted Mac. docs/architecture.md, "The injection matrix", says
+# how to set one up.
+#
+# It never runs for a pull request, and must not be made to: a self-hosted
+# runner on a public repository would run whatever code a fork sends. Schedule
+# and manual runs use the default branch only.
+name: matrix
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # nightly, off the hour
+  workflow_dispatch:
+    inputs:
+      method:
+        description: "The table as shipped, or one insert method forced on every app"
+        type: choice
+        options: [chosen, type, paste]
+        default: chosen
+
+concurrency:
+  group: matrix
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: injection matrix
+    # Without a runner the job would sit in the queue for a day and then fail.
+    # Set the repository variable MATRIX_RUNNER to "true" once a Mac is registered.
+    if: vars.MATRIX_RUNNER == 'true' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, macOS, aralo-matrix]
+    timeout-minutes: 90
+    env:
+      # A certificate in the runner's keychain. An ad hoc signed build would
+      # lose its permission grants with every rebuild.
+      SIGN_IDENTITY: ${{ vars.MATRIX_SIGN_IDENTITY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the XCFramework, the Swift bindings and the Xcode project
+        run: make bootstrap
+      - name: Build Aralo.app
+        run: make app SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+      - name: Injection matrix
+        id: matrix
+        env:
+          METHOD: ${{ inputs.method || 'chosen' }}
+        # 13 of 15 is the M1 exit criterion.
+        run: make matrix ARGS="--method $METHOD --require 13 --markdown matrix.md --json matrix.json"
+      - name: Typed-to-inserted latency
+        if: always() && steps.matrix.outcome != 'skipped'
+        run: make latency ARGS="--gate --markdown latency.md --json latency.json"
+      - name: Publish the results table
+        if: always()
+        run: |
+          for page in matrix.md latency.md; do
+            if [ -f "$page" ]; then cat "$page" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matrix-results
+          path: |
+            matrix.md
+            matrix.json
+            latency.md
+            latency.json
+          if-no-files-found: ignore

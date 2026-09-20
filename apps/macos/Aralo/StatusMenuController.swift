@@ -5,6 +5,8 @@ import AraloKit
 @MainActor
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private let service: AraloService
+    /// Opens the first-run flow, at whatever still needs doing.
+    var onSetUp: (() -> Void)?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
     init(service: AraloService) {
@@ -32,20 +34,25 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// Rebuilt each time it opens, so it never shows a stale state.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(disabled(headline))
+        let top = disabled(headline)
+        if service.state == .secureInput {
+            top.toolTip = "macOS hides every key from Aralo while an app has secure input on. "
+                + "If no password field is open, quitting that app turns it off."
+        }
+        menu.addItem(top)
 
         switch service.state {
         case .active, .paused, .secureInput:
             let title = service.isPaused ? "Resume Aralo" : "Pause Aralo"
-            menu.addItem(command(title, #selector(togglePause)))
+            let pause = command(title, #selector(togglePause))
+            if let shortcut = service.pauseShortcut {
+                // Shown for the user to learn. The hot key itself is global.
+                pause.keyEquivalent = String(shortcut.character)
+                pause.keyEquivalentModifierMask = shortcut.modifiers
+            }
+            menu.addItem(pause)
         case .needsPermissions:
-            let status = Permissions.status
-            if !status.accessibility {
-                menu.addItem(command("Allow Accessibility…", #selector(openAccessibility)))
-            }
-            if !status.inputMonitoring {
-                menu.addItem(command("Allow Input Monitoring…", #selector(openInputMonitoring)))
-            }
+            menu.addItem(command("Set Up Aralo…", #selector(setUp)))
         case .failed:
             break
         }
@@ -56,6 +63,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let files = problems.count == 1 ? "1 file" : "\(problems.count) files"
             let entry = disabled("\(files) could not be loaded")
             entry.toolTip = problems.map { "\($0.path): \($0.message)" }.joined(separator: "\n")
+            menu.addItem(entry)
+        }
+        if let problem = service.compatTableProblem {
+            let entry = disabled("Compatibility table override not loaded")
+            entry.toolTip = problem
             menu.addItem(entry)
         }
         menu.addItem(command("Open Library Folder", #selector(openLibrary)))
@@ -71,7 +83,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let count = service.snippetCount
             return count == 1 ? "On · 1 snippet" : "On · \(count) snippets"
         case .paused: return "Paused"
-        case .secureInput: return "Off while a password field has the keyboard"
+        case .secureInput:
+            guard let holder = service.secureInputHolder else {
+                return "Off while a password field has the keyboard"
+            }
+            return "Off while \(holder.name ?? "process \(holder.pid)") has secure input on"
         case .needsPermissions: return "Waiting for permission"
         case .failed(let message): return "Library problem: \(message)"
         }
@@ -92,6 +108,5 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func togglePause() { service.setPaused(!service.isPaused) }
     @objc private func reloadLibrary() { service.reloadLibrary() }
     @objc private func openLibrary() { NSWorkspace.shared.open(service.libraryURL) }
-    @objc private func openAccessibility() { Permissions.openSettings(.accessibility) }
-    @objc private func openInputMonitoring() { Permissions.openSettings(.inputMonitoring) }
+    @objc private func setUp() { onSetUp?() }
 }

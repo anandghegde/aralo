@@ -42,6 +42,14 @@ public enum KeyClassifier {
     /// Function keys and arrows arrive as characters in this private-use range.
     private static let functionKeyScalars: ClosedRange<UInt32> = 0xF700...0xF8FF
 
+    /// Whether the key can add text to the document, so that its text is
+    /// worth translating. A shortcut, an arrow or Delete cannot.
+    public static func typesText(_ stroke: KeyStroke) -> Bool {
+        let keyCode = Int(stroke.keyCode)
+        return stroke.flags.isDisjoint(with: [.maskCommand, .maskControl])
+            && !navigationKeys.contains(keyCode) && keyCode != kVK_Delete
+    }
+
     public static func classify(_ stroke: KeyStroke) -> KeyClassification {
         let flags = stroke.flags
         if flags.contains(.maskCommand) {

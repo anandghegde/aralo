@@ -15,9 +15,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
+use aralo_core::compat;
 use aralo_core::engine as matcher;
 use aralo_core::snippet::SnippetId;
-use aralo_core::{MatchInfo, Step};
+use aralo_core::{CompatTable, MatchInfo, Step};
 
 uniffi::setup_scaffolding!();
 
@@ -25,6 +26,8 @@ uniffi::setup_scaffolding!();
 pub enum BridgeError {
     #[error("{message}")]
     Library { message: String },
+    #[error("{message}")]
+    CompatTable { message: String },
 }
 
 impl From<aralo_core::CoreError> for BridgeError {
@@ -56,20 +59,65 @@ pub enum KeyInput {
 pub enum KeyAction {
     /// Let the key through.
     Pass,
-    /// Swallow the key if `consume`, run the steps in order, then call
-    /// `expansion_done` when `undo_delete_count` is present.
+    /// Swallow the key if `consume`, run the steps in order the way `profile`
+    /// says, then call `expansion_done` when `undo_delete_count` is present.
     Expand {
         snippet_id: String,
         consume: bool,
         steps: Vec<PlanStep>,
         undo_delete_count: Option<u32>,
+        profile: InjectionProfile,
     },
-    /// Swallow the key, send `delete_count` Backspaces, type `retype`.
+    /// Swallow the key, take the expansion back the way `profile` says
+    /// (`delete_count` Backspaces, or one undo shortcut), type `retype`.
     UndoExpansion {
         delete_count: u32,
         retype: String,
         method: InsertMethod,
+        profile: InjectionProfile,
     },
+}
+
+/// How to insert, delete and undo in the app that has the keyboard; one row of
+/// the compatibility table (`data/compat/apps.toml`). The shell follows it and
+/// chooses nothing itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct InjectionProfile {
+    pub insert: InsertChoice,
+    /// The longest text `Auto` still types, in UTF-16 units.
+    pub typing_limit: u32,
+    /// Pause after every synthetic key.
+    pub key_delay_ms: u32,
+    /// How long the app gets to read the pasteboard before it is restored.
+    pub paste_settle_ms: u32,
+    pub undo: UndoStyle,
+    pub delete: DeleteStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InsertChoice {
+    /// Type short single-line text, paste the rest.
+    Auto,
+    /// Always type. A line break is a Return key.
+    Type,
+    /// Always paste.
+    Paste,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum UndoStyle {
+    /// A pasted expansion is undone with one undo shortcut.
+    Native,
+    /// Every expansion is undone with Backspace.
+    Backspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DeleteStrategy {
+    /// One Backspace per character.
+    Backspace,
+    /// Shift+Left over the characters, then one Backspace.
+    Select,
 }
 
 /// One step of an expansion plan; see `docs/format/expansion-plan.md`.
@@ -81,6 +129,14 @@ pub enum PlanStep {
     KeyPress { key: PlanKey },
     Delay { millis: u32 },
     MoveCursor { graphemes: u32, select: bool },
+}
+
+/// One app the compatibility table names, with its row resolved.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CompatApp {
+    pub name: String,
+    pub bundle_id: String,
+    pub profile: InjectionProfile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -142,18 +198,31 @@ pub struct LibraryDiagnostic {
 /// path only ever waits for a pointer swap, never for the disk.
 struct Shared {
     library: RwLock<aralo_core::Core>,
+    compat: RwLock<CompatTable>,
 }
 
 impl Shared {
     fn library(&self) -> RwLockReadGuard<'_, aralo_core::Core> {
         self.library.read().unwrap_or_else(PoisonError::into_inner)
     }
+
+    fn compat(&self) -> RwLockReadGuard<'_, CompatTable> {
+        self.compat.read().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The app that receives keys, and its row of the compatibility table. Looked
+/// up when the app changes, so a match only has to copy it.
+struct FrontApp {
+    bundle_id: String,
+    profile: compat::InjectionProfile,
 }
 
 /// The keystroke path.
 #[derive(uniffi::Object)]
 pub struct Engine {
     matcher: Mutex<matcher::Engine>,
+    front_app: Mutex<FrontApp>,
     shared: Arc<Shared>,
 }
 
@@ -166,6 +235,23 @@ impl std::fmt::Debug for Engine {
 impl Engine {
     fn matcher(&self) -> MutexGuard<'_, matcher::Engine> {
         self.matcher.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn front_app(&self) -> MutexGuard<'_, FrontApp> {
+        self.front_app
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Not taken on the way in: only a match or an undo needs it.
+    fn profile(&self) -> InjectionProfile {
+        self.front_app().profile.into()
+    }
+
+    /// Looks the front app up again, after the table changed.
+    fn refresh_profile(&self) {
+        let mut front_app = self.front_app();
+        front_app.profile = self.shared.compat().profile_for(&front_app.bundle_id);
     }
 }
 
@@ -211,6 +297,7 @@ impl Engine {
                             .map(PlanStep::from)
                             .collect(),
                         undo_delete_count: expansion.undo_delete_count,
+                        profile: self.profile(),
                     },
                     // The snippet went away between the snapshot and now.
                     None => KeyAction::Pass,
@@ -227,6 +314,7 @@ impl Engine {
                     matcher::InsertMethod::Typed => InsertMethod::Typed,
                     matcher::InsertMethod::Pasted => InsertMethod::Pasted,
                 },
+                profile: self.profile(),
             },
         }
     }
@@ -263,6 +351,13 @@ impl Engine {
     /// The bundle ID of the app that now receives keys.
     pub fn set_front_app(&self, bundle_id: String) {
         self.matcher().set_front_app(&bundle_id);
+        let profile = self.shared.compat().profile_for(&bundle_id);
+        *self.front_app() = FrontApp { bundle_id, profile };
+    }
+
+    /// How text goes into the app that has the keyboard now.
+    pub fn injection_profile(&self) -> InjectionProfile {
+        self.profile()
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -308,11 +403,18 @@ impl Core {
     pub fn open_library(path: String) -> Result<Arc<Self>, BridgeError> {
         let library = aralo_core::Core::open(&PathBuf::from(path))?;
         let matcher = library.engine();
+        let compat = CompatTable::bundled();
+        let front_app = FrontApp {
+            bundle_id: String::new(),
+            profile: compat.defaults(),
+        };
         let shared = Arc::new(Shared {
             library: RwLock::new(library),
+            compat: RwLock::new(compat),
         });
         let engine = Arc::new(Engine {
             matcher: Mutex::new(matcher),
+            front_app: Mutex::new(front_app),
             shared: Arc::clone(&shared),
         });
         Ok(Arc::new(Self { shared, engine }))
@@ -336,6 +438,20 @@ impl Core {
             .write()
             .unwrap_or_else(PoisonError::into_inner) = fresh;
         self.engine.matcher().set_snapshot(snapshot);
+        Ok(())
+    }
+
+    /// Replaces the built-in compatibility table with the file at `path`, for
+    /// trying an app's settings without rebuilding the core. A file that does
+    /// not parse changes nothing.
+    pub fn load_compat_table(&self, path: String) -> Result<(), BridgeError> {
+        let table = read_compat_table(&path)?;
+        *self
+            .shared
+            .compat
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = table;
+        self.engine.refresh_profile();
         Ok(())
     }
 
@@ -391,6 +507,58 @@ pub fn excluded_app_presets() -> Vec<String> {
         .iter()
         .map(|id| (*id).to_owned())
         .collect()
+}
+
+/// The apps a compatibility table names, in file order: the table built into
+/// the core, or the file at `path`. The injection matrix walks this list, so
+/// it tests the apps the table makes claims about.
+#[uniffi::export]
+pub fn compat_apps(path: Option<String>) -> Result<Vec<CompatApp>, BridgeError> {
+    let table = match path {
+        Some(path) => read_compat_table(&path)?,
+        None => CompatTable::bundled(),
+    };
+    Ok(table
+        .apps()
+        .iter()
+        .map(|app| CompatApp {
+            name: app.name.clone(),
+            bundle_id: app.bundle_id.clone(),
+            profile: app.profile.into(),
+        })
+        .collect())
+}
+
+fn read_compat_table(path: &str) -> Result<CompatTable, BridgeError> {
+    let text = std::fs::read_to_string(path).map_err(|error| BridgeError::CompatTable {
+        message: format!("cannot read {path}: {error}"),
+    })?;
+    CompatTable::parse(&text).map_err(|error| BridgeError::CompatTable {
+        message: format!("{path}: {error}"),
+    })
+}
+
+impl From<compat::InjectionProfile> for InjectionProfile {
+    fn from(profile: compat::InjectionProfile) -> Self {
+        Self {
+            insert: match profile.insert {
+                compat::InsertChoice::Auto => InsertChoice::Auto,
+                compat::InsertChoice::Type => InsertChoice::Type,
+                compat::InsertChoice::Paste => InsertChoice::Paste,
+            },
+            typing_limit: profile.typing_limit,
+            key_delay_ms: profile.key_delay_ms,
+            paste_settle_ms: profile.paste_settle_ms,
+            undo: match profile.undo {
+                compat::UndoStyle::Native => UndoStyle::Native,
+                compat::UndoStyle::Backspace => UndoStyle::Backspace,
+            },
+            delete: match profile.delete {
+                compat::DeleteStrategy::Backspace => DeleteStrategy::Backspace,
+                compat::DeleteStrategy::Select => DeleteStrategy::Select,
+            },
+        }
+    }
 }
 
 impl From<Step> for PlanStep {

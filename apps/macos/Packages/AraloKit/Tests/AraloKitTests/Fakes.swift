@@ -1,5 +1,14 @@
 @testable import AraloKit
+import Carbon.HIToolbox
 import Foundation
+
+/// A layout that ships with macOS, whether or not the user has enabled it.
+@MainActor
+func systemLayout(_ inputSourceID: String) -> KeyTranslator.Layout? {
+    let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
+    let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource]
+    return sources?.first.flatMap(KeyboardLayout.layout(of:))
+}
 
 final class RecordingSink: EventSink {
     private(set) var keys: [SyntheticKey] = []

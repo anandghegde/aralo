@@ -31,6 +31,7 @@ the change.
 | Script sandbox (v1) | `rquickjs` | QuickJS is an interpreter with no JIT, so the hardened runtime needs no JIT entitlement. It has memory and interrupt limits |
 | Git groups (v1) | `git2` | Works without Git installed on the user's machine |
 | MCP server (v1) | `rmcp`, the official Rust SDK | Runs inside the CLI over stdio |
+| Data tables | `toml`, parse only, for `data/compat/apps.toml` and later the provider quirks table | Tables that people edit by hand and review in pull requests need comments and no indentation rules. Library files stay YAML |
 | App updates | Sparkle 2 with EdDSA-signed appcasts on GitHub | The standard updater for apps outside the Mac App Store |
 
 Two things are deliberately not libraries:

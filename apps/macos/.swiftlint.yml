@@ -3,9 +3,12 @@ included:
   - Aralo
   - Packages/AraloKit/Sources
   - Packages/AraloKit/Tests
+  - Packages/AraloHarness/Sources
+  - Packages/AraloHarness/Tests
 excluded:
   - Generated # UniFFI output
   - Packages/AraloKit/.build
+  - Packages/AraloHarness/.build
 
 line_length:
   warning: 120

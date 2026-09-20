@@ -13,8 +13,10 @@ It is a Rust core behind a thin native shell. macOS comes first.
 
 What exists today is the Rust base: the matching engine, the file format, the
 library loader, a placeholder parser, the bridge to Swift and a command-line
-tool that expands snippets in an imaginary text field. The Mac app is being
-written. There is no AI code yet. Expect everything to change, including the
+tool that expands snippets in an imaginary text field. The Mac app is a first
+slice you build yourself: a menu bar agent that expands plain-text snippets
+and walks you through the permissions on first run, with no editor and no
+settings yet. There is no AI code yet. Expect everything to change, including the
 file format, which is at version 0.
 
 ## Privacy, as build properties
@@ -125,14 +127,24 @@ make test-swift  # Swift tests, which call the real Rust core
 make run         # build Aralo.app (Debug) and launch it
 ```
 
+`make matrix` and `make latency` measure injection in real apps. They take
+over the keyboard, so they are for a Mac set aside for it; see "The injection
+matrix" in [docs/architecture.md](docs/architecture.md). So far they have
+been run against TextEdit only.
+
 `make help` lists every target.
 
-On first launch the app asks for Accessibility access, which macOS requires
-before any app may watch and post keys. It keeps its library in `~/Aralo` and
+On first launch a four-step window says what Aralo reads and never keeps,
+walks through the Accessibility and Input Monitoring grants that macOS
+requires before any app may watch and post keys, and ends in a field where
+you try a snippet. Control+Option+Command+P pauses from any app. It keeps its library in `~/Aralo` and
 writes the starter snippets there if the folder is new. Set `ARALO_LIBRARY` to
-use another folder. Then type `ty` and a space in any text field. A local
-build is ad-hoc signed, so macOS may ask for the permission again after a
-rebuild.
+use another folder, and `ARALO_COMPAT` to try a compatibility table other
+than the built-in `data/compat/apps.toml`. Then type `ty` and a space in any
+text field. A local
+build is ad-hoc signed, so macOS forgets the permission after a rebuild. To
+keep it, sign with a certificate from your keychain:
+`make run SIGN_IDENTITY="Your Certificate"`.
 
 `apps/macos/Generated/` and the `.xcodeproj` are build output. They are not
 committed; `make bootstrap` rebuilds them.
@@ -146,10 +158,13 @@ aralo/
   deny.toml             cargo-deny: licences, advisories, bans, sources
   crates/               the Rust core; see the table above
   apps/
-    macos/              the Mac app and AraloKit (tap, injector)
+    macos/              the Mac app, AraloKit (tap, injector) and
+                        AraloHarness (injection matrix, latency)
   data/
     starter/            the snippets a new library starts with
-  schemas/              JSON Schemas for the file format
+    compat/apps.toml    how text goes into each app, by bundle ID
+    compat/matrix.json  how the injection matrix reaches a text field in each
+  schemas/              JSON Schemas for the file format and the data tables
   scripts/
     check-deps.sh       engine purity, crate layering, no unsafe in the bridge
     build-xcframework.sh
@@ -158,7 +173,9 @@ aralo/
     format/             the file format specification
     adr/                architecture decision records
   conformance/          provider protocol checks (M4)
-  fixtures/             import corpora, golden expansions (M2, M3)
+  fixtures/
+    matrix/library/     the snippets the injection matrix types
+    ...                 import corpora, golden expansions (M2, M3)
 ```
 
 ## Roadmap
@@ -204,8 +221,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Most contributions need only
 `cargo test --workspace`. Changes to `aralo-engine`, the event tap or the
 network guard need code-owner review.
 
-The repository placeholder is `https://github.com/OWNER/aralo` until the
-project has a home.
+The project lives at <https://github.com/anandghegde/aralo>.
 
 ## Licence
 

@@ -1,5 +1,7 @@
 [workspace]
-resolver = "2"
+# "3" resolves with rust-version in mind, so `cargo update` cannot pick a
+# dependency that needs a newer compiler than the MSRV job has.
+resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
@@ -7,7 +9,7 @@ version = "0.0.1"
 edition = "2021"
 rust-version = "1.86"
 license = "Apache-2.0"
-repository = "https://github.com/OWNER/aralo"
+repository = "https://github.com/anandghegde/aralo"
 publish = false
 
 # Internal crates. The allowed dependency direction is documented in
@@ -35,6 +37,7 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 tempfile = "3"
 thiserror = "2"
+toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
 ulid = { version = "3", default-features = false }
 unicode-segmentation = "1.12"
 uniffi = "0.32"

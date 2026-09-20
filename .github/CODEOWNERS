@@ -1,35 +1,31 @@
 # CODEOWNERS
 #
-# @OWNER is a placeholder. Replace every @OWNER below with real GitHub users or
-# teams before the repository goes public. Until then GitHub treats these lines
-# as invalid and requests no reviews.
-#
 # The last matching pattern wins, so the default comes first and the protected
 # paths follow it.
 
 # Default owner for everything.
-*                                               @OWNER
+*                                               @anandghegde
 
 # Protected paths. Changes here need code-owner review because they carry the
 # project's privacy promises (see docs/adr/0005 and docs/adr/0007).
 
 # The only Rust code that sees keystrokes. Must stay free of I/O, clock,
 # network and logging dependencies.
-/crates/aralo-engine/                           @OWNER
+/crates/aralo-engine/                           @anandghegde
 
 # The bridge every key crosses on its way to the engine.
-/crates/aralo-ffi/                              @OWNER
+/crates/aralo-ffi/                              @anandghegde
 
 # The only Swift code that sees keystrokes: the event tap, the classifier that
 # turns an event into one scalar, and the controller that hands it to the
 # engine. None of them keeps a copy.
-/apps/macos/Packages/AraloKit/Sources/AraloKit/EventTap.swift            @OWNER
-/apps/macos/Packages/AraloKit/Sources/AraloKit/KeyClassifier.swift       @OWNER
-/apps/macos/Packages/AraloKit/Sources/AraloKit/ExpansionController.swift @OWNER
+/apps/macos/Packages/AraloKit/Sources/AraloKit/EventTap.swift            @anandghegde
+/apps/macos/Packages/AraloKit/Sources/AraloKit/KeyClassifier.swift       @anandghegde
+/apps/macos/Packages/AraloKit/Sources/AraloKit/ExpansionController.swift @anandghegde
 
 # The network guard: the only constructor of HTTP clients, and the enforcement
 # point for local-only mode.
-/crates/aralo-ai/src/guard/                     @OWNER
+/crates/aralo-ai/src/guard/                     @anandghegde
 
 # Keep the ownership rules themselves under review.
-/.github/CODEOWNERS                             @OWNER
+/.github/CODEOWNERS                             @anandghegde

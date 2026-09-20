@@ -59,6 +59,62 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(sink.typedText, "ty ")
     }
 
+    /// A controller that translates keys itself, on the US layout, the way
+    /// the app does.
+    @MainActor
+    private func controllerOnTheUSLayout(_ translator: KeyTranslator? = nil) throws -> ExpansionController {
+        let layout = try XCTUnwrap(systemLayout("com.apple.keylayout.US"))
+        let injector = Injector(sink: sink, pasteboard: FakePasteboard(), sleep: { _ in })
+        let translator = translator ?? KeyTranslator(layout: layout)
+        return ExpansionController(engine: core.engine(), injector: injector, translator: translator) { $0() }
+    }
+
+    /// Presses keys by key code. The event's own string is left wrong on
+    /// purpose: with a layout, the controller must not use it.
+    private func press(_ keys: [(Int, CGEventFlags)], on controller: ExpansionController) -> [Bool] {
+        keys.map { controller.handle(.key(KeyStroke(keyCode: CGKeyCode($0.0), flags: $0.1, text: "?"))) }
+    }
+
+    @MainActor
+    func testAnAbbreviationWithAnAccentMatchesWhenTypedWithADeadKey() throws {
+        try "---\nabbr: né\n---\nnée".write(
+            to: folder.appendingPathComponent("nee.md"), atomically: true, encoding: .utf8
+        )
+        try core.reload()
+        let consumed = press(
+            [(kVK_ANSI_N, []), (kVK_ANSI_E, .maskAlternate), (kVK_ANSI_E, []), (kVK_Space, [])],
+            on: try controllerOnTheUSLayout()
+        )
+        XCTAssertEqual(consumed, [false, false, false, true])
+        XCTAssertEqual(sink.keys, [.backspace, .backspace, .text("née ")])
+    }
+
+    @MainActor
+    func testBackspaceOverAWaitingAccentForgetsWhatWasTyped() throws {
+        let controller = try controllerOnTheUSLayout()
+        // "t", the accent, Backspace (removes the accent, not the "t"), "y":
+        // the document says "ty", but Aralo can no longer be sure of it.
+        let consumed = press(
+            [(kVK_ANSI_T, []), (kVK_ANSI_E, .maskAlternate), (kVK_Delete, []), (kVK_ANSI_Y, []), (kVK_Space, [])],
+            on: controller
+        )
+        XCTAssertEqual(consumed, [false, false, false, false, false])
+        XCTAssertTrue(sink.keys.isEmpty)
+    }
+
+    @MainActor
+    func testNothingIsMatchedWhileAnInputMethodComposes() throws {
+        let layout = try XCTUnwrap(systemLayout("com.apple.keylayout.US"))
+        let translator = KeyTranslator(layout: layout, composing: true)
+        let controller = try controllerOnTheUSLayout(translator)
+        let keys: [(Int, CGEventFlags)] = [(kVK_ANSI_T, []), (kVK_ANSI_Y, []), (kVK_Space, [])]
+        XCTAssertEqual(press(keys, on: controller), [false, false, false])
+        XCTAssertTrue(core.engine().holdsNoKeystrokes())
+
+        translator.replace(layout: layout, composing: false)
+        XCTAssertEqual(press(keys, on: controller), [false, false, true])
+    }
+
     func testAMouseClickOrAnArrowKeyForgetsWhatWasTyped() {
         type("t")
         XCTAssertFalse(controller.handle(.mouseDown))

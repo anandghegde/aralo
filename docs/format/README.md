@@ -31,13 +31,14 @@ Machine-readable JSON Schemas (draft 2020-12) live in [`schemas/`](../../schemas
 | [`group.schema.json`](../../schemas/group.schema.json) | `_group.yaml` |
 | [`manifest.schema.json`](../../schemas/manifest.schema.json) | `aralo.yaml` |
 | [`expansion-plan.schema.json`](../../schemas/expansion-plan.schema.json) | `ExpansionPlan` as JSON |
+| [`compat.schema.json`](../../schemas/compat.schema.json) | The app compatibility table, `data/compat/apps.toml` ([architecture](../architecture.md#the-compatibility-table)) |
 
-The files are YAML; the schemas apply to the data after YAML parsing. The
-`$id` values use the placeholder domain `aralo.invalid` until the project has
-a domain. They do not resolve.
+The library files are YAML and the compatibility table is TOML; the schemas
+apply to the data after parsing. The `$id` values use the placeholder domain
+`aralo.invalid` until the project has a domain. They do not resolve.
 
-Schemas for the policy file, the app compatibility table and the provider
-quirks table are planned (plan section 5.2) and not written yet.
+Schemas for the policy file and the provider quirks table are planned (plan
+section 5.2) and not written yet.
 
 ## Reference implementation
 

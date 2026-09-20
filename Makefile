@@ -6,12 +6,18 @@
 
 MACOS     := apps/macos
 KIT       := $(MACOS)/Packages/AraloKit
+HARNESS   := $(MACOS)/Packages/AraloHarness
 GENERATED := $(MACOS)/Generated/AraloBridge
 PROJECT   := $(MACOS)/Aralo.xcodeproj
 DERIVED   := target/xcode
 APP       := $(DERIVED)/Build/Products/Debug/Aralo.app
+# "-" signs ad hoc, and macOS then forgets the app's permission grants at every
+# rebuild. Name a certificate from your keychain to keep them:
+# `make app SIGN_IDENTITY="My Self-Signed Cert"`.
+SIGN_IDENTITY ?= -
 
-.PHONY: help bootstrap xcframework xcframework-debug project app run test test-swift lint lint-swift check clean
+.PHONY: help bootstrap xcframework xcframework-debug project app run test test-swift lint lint-swift check \
+	matrix latency clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -29,7 +35,7 @@ project: ## Generate apps/macos/Aralo.xcodeproj from project.yml
 
 app: $(GENERATED) project ## Build Aralo.app (Debug, signed ad hoc)
 	xcodebuild -project $(PROJECT) -scheme Aralo -configuration Debug \
-		-derivedDataPath $(DERIVED) -quiet build
+		-derivedDataPath $(DERIVED) -quiet CODE_SIGN_IDENTITY="$(SIGN_IDENTITY)" build
 	@echo "Built $(APP)"
 
 run: app ## Build and launch the app
@@ -40,6 +46,7 @@ test: ## Rust tests, all crates
 
 test-swift: $(GENERATED) ## Swift tests, which call the real Rust core
 	swift test --package-path $(KIT)
+	swift test --package-path $(HARNESS)
 
 lint: ## rustfmt and clippy, as CI runs them
 	cargo fmt --all --check
@@ -51,9 +58,19 @@ lint-swift: ## SwiftLint, strict
 check: lint test ## What CI's Rust jobs run, plus the dependency rules
 	scripts/check-deps.sh
 
+# The two targets below take over the keyboard of the Mac they run on: they
+# launch apps and type into them with real key events. Run them at a Mac set
+# aside for it, with Accessibility granted to the terminal and to Aralo.app.
+# ARGS passes options through: `make matrix ARGS="--only com.apple.TextEdit"`.
+matrix: app ## Injection matrix: type every case into every app of the table (takes over the keyboard)
+	swift run --package-path $(HARNESS) aralo-harness matrix --aralo $(APP) $(ARGS)
+
+latency: app ## Typed-to-inserted latency in TextEdit, p50/p95/p99 (takes over the keyboard)
+	swift run --package-path $(HARNESS) aralo-harness latency --aralo $(APP) $(ARGS)
+
 clean: ## Remove build output, including the generated bridge and project
 	cargo clean
-	rm -rf $(MACOS)/Generated $(PROJECT) $(KIT)/.build
+	rm -rf $(MACOS)/Generated $(PROJECT) $(KIT)/.build $(HARNESS)/.build
 
 # The bridge is generated; build it on demand for targets that need it.
 $(GENERATED):

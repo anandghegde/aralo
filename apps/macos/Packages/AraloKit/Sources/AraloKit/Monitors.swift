@@ -15,6 +15,28 @@ public final class SecureInputMonitor {
 
     public var isSecureInputOn: Bool { IsSecureEventInputEnabled() }
 
+    /// The app that turned secure input on, when the system says. An app can
+    /// leave it on by mistake, long after its password field is gone, and the
+    /// user can only fix what has a name.
+    public var holder: SecureInputHolder? {
+        guard isSecureInputOn,
+              let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              let pid = Self.holderPID(in: session)
+        else { return nil }
+        let app = NSRunningApplication(processIdentifier: pid)
+        return SecureInputHolder(pid: pid, name: app?.localizedName, bundleID: app?.bundleIdentifier)
+    }
+
+    /// The window server's session dictionary carries the process under this
+    /// key while secure input is on. The key is not in a public header, so its
+    /// absence is an ordinary answer: the menu then names nobody.
+    nonisolated static func holderPID(in session: [String: Any]) -> pid_t? {
+        guard let pid = (session["kCGSSessionSecureInputPID"] as? NSNumber)?.int32Value, pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
     public func start(interval: TimeInterval = 1) {
         stop()
         check()
@@ -35,6 +57,13 @@ public final class SecureInputMonitor {
             onChange(now)
         }
     }
+}
+
+public struct SecureInputHolder: Equatable, Sendable {
+    public let pid: pid_t
+    /// Absent for a process that is not an app, a login window for example.
+    public let name: String?
+    public let bundleID: String?
 }
 
 /// Tells the engine which app receives keys. A change of app resets the buffer.
@@ -71,11 +100,16 @@ public final class FrontAppMonitor {
     }
 }
 
-/// Keeps the shortcut key codes in step with the keyboard layout, so Cmd+V is
-/// still paste after the user switches from US to Dvorak or AZERTY.
+/// Keeps the shortcut key codes and the key translator in step with the input
+/// source, so Cmd+V is still paste after the user switches from US to Dvorak
+/// or AZERTY, dead keys follow the new layout, and matching pauses while an
+/// input method composes.
 @MainActor
 public final class KeyboardLayoutMonitor {
     public let shortcuts = ShortcutKeyCodes()
+    public let translator = KeyTranslator()
+    /// Called after every change, and once from `start`.
+    public var onChange: (@MainActor () -> Void)?
     private var observer: NSObjectProtocol?
 
     public init() {}
@@ -100,5 +134,9 @@ public final class KeyboardLayoutMonitor {
 
     private func refresh() {
         shortcuts.replace(with: KeyboardLayout.currentKeyCodes())
+        translator.replace(
+            layout: KeyboardLayout.currentLayout(), composing: KeyboardLayout.currentInputSourceComposes()
+        )
+        onChange?()
     }
 }

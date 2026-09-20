@@ -5,6 +5,7 @@
 //! (forms, AI, scripts), settings and events arrive with the milestones that
 //! need them.
 
+pub mod compat;
 mod simulate;
 mod starter;
 
@@ -19,6 +20,7 @@ pub use aralo_engine as engine;
 pub use aralo_library::{Diagnostic, Issue, Settings};
 pub use aralo_snippet as snippet;
 pub use aralo_template::{ExpansionPlan, Key, Step};
+pub use compat::{CompatError, CompatTable, InjectionProfile};
 pub use simulate::Simulator;
 pub use starter::FILES as STARTER_FILES;
 

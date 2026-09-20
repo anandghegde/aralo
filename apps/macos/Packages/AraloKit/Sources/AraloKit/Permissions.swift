@@ -17,21 +17,25 @@ public enum Permissions {
         Status(accessibility: AXIsProcessTrusted(), inputMonitoring: CGPreflightListenEventAccess())
     }
 
-    /// Shows the system prompts for whatever is missing. Call only after the
-    /// app has explained what it reads and what it never stores.
-    public static func request() {
-        if !AXIsProcessTrusted() {
+    /// Shows the system prompt for one grant, if it is missing. Call only
+    /// after the app has explained what it reads and what it never stores.
+    /// macOS shows each prompt once; after that the user has to be sent to
+    /// System Settings, which `openSettings` does.
+    public static func request(_ pane: Pane) {
+        switch pane {
+        case .accessibility where !AXIsProcessTrusted():
             // The value of kAXTrustedCheckOptionPrompt, spelled out because the
             // global is not concurrency-safe to import.
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
-        }
-        if !CGPreflightListenEventAccess() {
+        case .inputMonitoring where !CGPreflightListenEventAccess():
             _ = CGRequestListenEventAccess()
+        default:
+            break
         }
     }
 
-    public enum Pane: String {
+    public enum Pane: String, Sendable {
         case accessibility = "Privacy_Accessibility"
         case inputMonitoring = "Privacy_ListenEvent"
     }

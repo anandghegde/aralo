@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/compat.schema.json",
+  "title": "Aralo compatibility table `apps.toml` (format v0)",
+  "description": "How the injector puts text into each app: the insert method, the delays, the undo style and the delete strategy, by bundle ID. Every app gets `defaults`; an `app` entry lists only what differs. The file is TOML; this schema describes it once parsed. Unlike a library file, an unknown key is an error, so that a typo cannot pass in silence. Format v0 is pre-release and may change without a migration.",
+  "$comment": "Mirrors `File`, `App` and `Overrides` in crates/aralo-core/src/compat.rs; the table that ships is data/compat/apps.toml. Two rules are outside what a schema can say: bundle IDs are compared without regard to ASCII case, and no two entries may share one. When this file and the Rust types disagree, the Rust code wins; please report it.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "The table format version. This schema describes version 0. A build refuses a table whose `version` is newer than it understands and keeps the one it has.",
+      "type": "integer",
+      "const": 0
+    },
+    "defaults": {
+      "description": "What every app gets unless its entry says otherwise. A setting left out here takes the value built into the core, which is the `default` given for it below.",
+      "$ref": "#/$defs/settings",
+      "unevaluatedProperties": false
+    },
+    "app": {
+      "description": "One entry per app that needs naming, in any order. In TOML, a list of `[[app]]` tables.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/app" }
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "required": ["bundle_id"],
+      "$ref": "#/$defs/settings",
+      "properties": {
+        "name": {
+          "description": "What people call the app. For readers of the file and for the injection matrix report; never used to find the app.",
+          "type": "string"
+        },
+        "bundle_id": {
+          "description": "The app's bundle identifier, for example `com.apple.Terminal`.",
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "insert": {
+          "description": "`auto`: type text up to `typing_limit`, paste longer text and anything with a line break. `type`: always type; a line break is sent as a Return key, and an expansion that pressed Return offers no undo. `paste`: always paste.",
+          "enum": ["auto", "type", "paste"],
+          "default": "auto"
+        },
+        "typing_limit": {
+          "description": "The longest text `auto` still types, in UTF-16 units.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 120
+        },
+        "key_delay_ms": {
+          "description": "Pause after every synthetic key, in milliseconds. Apps drop events that arrive faster than they read them.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 250,
+          "default": 1
+        },
+        "paste_settle_ms": {
+          "description": "How long the app gets to read the pasteboard before the user's clipboard is put back, in milliseconds.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000,
+          "default": 250
+        },
+        "undo": {
+          "description": "`native`: a pasted expansion is one undo step in the app, so one Cmd+Z takes it back. `backspace`: every expansion is taken back with the delete strategy, for apps whose own undo cannot be trusted.",
+          "enum": ["native", "backspace"],
+          "default": "native"
+        },
+        "delete": {
+          "description": "`backspace`: one Backspace per character. `select`: Shift+Left over the characters, then one Backspace.",
+          "enum": ["backspace", "select"],
+          "default": "backspace"
+        }
+      }
+    }
+  }
+}
