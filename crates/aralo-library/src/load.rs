@@ -8,13 +8,11 @@ use aralo_snippet::{
 };
 
 use crate::{
-    Diagnostic, Issue, Library, LibraryError, LoadedSnippet, Settings, MAX_DEPTH, MAX_SNIPPET_BYTES,
+    Diagnostic, Issue, Library, LibraryError, LoadedSnippet, OwnWrites, Settings, ASSETS_FOLDER,
+    MAX_DEPTH, MAX_SNIPPET_BYTES,
 };
 
-/// Reserved at the library root for images of rich snippets (v1).
-const ASSETS_FOLDER: &str = "assets";
-
-pub(crate) fn load(root: &Path) -> Result<Library, LibraryError> {
+pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryError> {
     // Fail early and clearly when the folder itself is the problem.
     fs::read_dir(root).map_err(|source| LibraryError::Unreadable {
         path: root.to_owned(),
@@ -71,6 +69,7 @@ pub(crate) fn load(root: &Path) -> Result<Library, LibraryError> {
         snippets: kept,
         by_id,
         diagnostics,
+        writes,
     })
 }
 
@@ -207,7 +206,7 @@ impl Loader<'_> {
             Some(id) => (id, false),
             None => {
                 self.report(relative, Issue::MissingId);
-                (SnippetId::generate(), true)
+                (temporary_id(relative), true)
             }
         };
         self.snippets.push(LoadedSnippet {
@@ -219,4 +218,20 @@ impl Loader<'_> {
             file,
         });
     }
+}
+
+/// The identity of a snippet whose file carries none.
+///
+/// A file with no `id` has no durable identity beyond where it sits, so its ID
+/// is derived from its path. That makes it the same on every load, which keeps
+/// the index from treating a file nobody touched as a new snippet each time,
+/// and it changes when the file moves, which is the whole truth about a file
+/// with nothing else to go on. The first save Aralo makes writes a real ULID
+/// and this is never used for that snippet again.
+fn temporary_id(relative: &Path) -> SnippetId {
+    let hash = blake3::hash(relative.as_os_str().as_encoded_bytes());
+    let bytes: [u8; 16] = hash.as_bytes()[..16]
+        .try_into()
+        .expect("blake3 produces 32 bytes");
+    SnippetId::from_u128(u128::from_be_bytes(bytes))
 }

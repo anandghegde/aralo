@@ -1,14 +1,17 @@
 //! The library folder: the only source of truth for snippets.
 //!
-//! This is the M1 slice of the crate: load a folder, resolve group
-//! inheritance, build the engine's snapshot, and write files atomically. The
-//! watcher, the SQLite index, search and conflict merging arrive in M2.
+//! Load a folder, resolve group inheritance, build the engine's snapshot, write
+//! files atomically, watch for changes from elsewhere, index what is there and
+//! find a snippet again. Conflict merging is the rest of M2.
 //!
 //! Loading never fails because of one bad file. Whatever cannot be read becomes
 //! a [`Diagnostic`] and the rest of the library still works.
 
+mod index;
 mod load;
+mod search;
 mod settings;
+mod watch;
 mod write;
 
 use std::collections::HashMap;
@@ -17,8 +20,15 @@ use std::path::{Path, PathBuf};
 use aralo_engine::{Abbreviation, Rejection, Snapshot, SnapshotBuilder};
 use aralo_snippet::{Manifest, SnippetFile, SnippetId, SnippetKind};
 
+pub use index::{Index, IndexError, Indexed, Recent, Stats};
+pub use search::{Field, Hit, Query, Searcher};
 pub use settings::Settings;
+pub use watch::{Changes, OwnWrites, Watch, WatchError, DEFAULT_DEBOUNCE};
 pub use write::write_atomic;
+
+/// Reserved at the library root for images of rich snippets (v1). The loader
+/// does not walk into it and the watcher does not report changes inside it.
+pub(crate) const ASSETS_FOLDER: &str = "assets";
 
 /// Snippet files larger than this are skipped: a snippet is typed text, and a
 /// stray multi-megabyte Markdown file should not stall the load.
@@ -59,6 +69,9 @@ pub struct Library {
     snippets: Vec<LoadedSnippet>,
     by_id: HashMap<SnippetId, usize>,
     diagnostics: Vec<Diagnostic>,
+    /// What Aralo has saved here, so a watch on this folder can ignore its own
+    /// echo. Shared with every reload of the same folder.
+    writes: OwnWrites,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +86,21 @@ pub struct LoadedSnippet {
     pub file: SnippetFile,
     /// Trigger, case, scope and the rest, after group inheritance.
     pub settings: Settings,
+}
+
+impl LoadedSnippet {
+    /// What to call this snippet in a list: its label, or the first
+    /// abbreviation, or the first line of the body. A hand-written file need
+    /// not carry a label, and a row with no name in it is no use to anyone.
+    pub fn display_name(&self) -> &str {
+        if !self.file.front.label.is_empty() {
+            return &self.file.front.label;
+        }
+        if let Some(first) = self.file.front.abbr.first() {
+            return first;
+        }
+        self.file.body.lines().next().unwrap_or_default()
+    }
 }
 
 /// Something in the folder that needs the user's attention.
@@ -113,7 +141,26 @@ pub enum Issue {
 impl Library {
     /// Loads every group and snippet under `root`.
     pub fn load(root: &Path) -> Result<Self, LibraryError> {
-        load::load(root)
+        load::load(root, OwnWrites::new())
+    }
+
+    /// The same, keeping a record of Aralo's own writes that already exists.
+    /// A [`Watch`] set up against that record ignores the saves this library
+    /// makes; [`Library::load`] on its own starts a record with nothing in it.
+    pub fn load_with(root: &Path, writes: OwnWrites) -> Result<Self, LibraryError> {
+        load::load(root, writes)
+    }
+
+    /// Loads the same folder again. The record of Aralo's own writes carries
+    /// over, so a save that is still on its way to the watcher is not mistaken
+    /// for someone else's edit.
+    pub fn reload(&self) -> Result<Self, LibraryError> {
+        load::load(&self.root, self.writes.clone())
+    }
+
+    /// The record of Aralo's own saves. Hand a clone to [`Watch::new`].
+    pub fn writes(&self) -> &OwnWrites {
+        &self.writes
     }
 
     /// Creates `root` if needed and writes `aralo.yaml` if there is none.
@@ -141,6 +188,11 @@ impl Library {
     }
 
     /// Writes a snippet file at `relative_path`, atomically. The caller reloads.
+    ///
+    /// The bytes are recorded first, so that the file system event this write
+    /// provokes is recognised as Aralo's own and does not cause a second
+    /// reload. Recording before writing rather than after is what makes that
+    /// safe: an event can arrive while `write_atomic` is still returning.
     pub fn write_snippet(
         &self,
         relative_path: &Path,
@@ -160,6 +212,7 @@ impl Library {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(write_error)?;
         }
+        self.writes.record(&path, text.as_bytes());
         write_atomic(&path, text.as_bytes()).map_err(write_error)
     }
 

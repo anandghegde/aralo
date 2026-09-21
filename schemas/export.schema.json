@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aralo.invalid/schemas/v0/export.schema.json",
+  "title": "Aralo interchange document (format v0)",
+  "description": "One file holding a library, or part of one: what `aralo export` writes as JSON or YAML and what `aralo import` reads back. It is not the library format; a library is a folder of files (docs/format/library.md). A snippet here carries its group as a path, because there are no folders in one file. See docs/format/import.md.",
+  "$comment": "Mirrors `Document` and `SnippetRecord` in crates/aralo-import/src/document.rs and record.rs. When the two disagree, the Rust code wins; please report it. The reader also accepts a bare array of snippets, which is what a hand-written file or another tool's export usually is; this schema describes the document Aralo writes.",
+  "type": "object",
+  "required": ["snippets"],
+  "properties": {
+    "format": {
+      "description": "The format version, the same integer as `aralo.yaml`. A file with no `format` key is read as a document from somewhere else: its bodies go through the macro converter rather than being taken as Aralo templates. A file newer than the build understands is refused rather than half read.",
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "name": {
+      "description": "The exported library's name, from its `aralo.yaml`. Absent when the library has none.",
+      "type": "string"
+    },
+    "snippets": {
+      "description": "The snippets, in library path order, so two exports of an unchanged library are the same file.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/snippet" },
+      "default": []
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "snippet": {
+      "description": "One snippet: its front matter (docs/format/snippet.md) plus the group path that says which folder it belongs in. Every key is optional; a snippet with neither a body nor an abbreviation is skipped on import.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The snippet's identity, kept across an export and an import so a round trip does not create duplicates. Absent when the snippet's file had no id yet: exporting one would invent an identity, so the import mints a new one instead.",
+          "$ref": "#/$defs/ulid"
+        },
+        "label": {
+          "description": "Human-readable name. Also what an import builds the file name from.",
+          "type": "string",
+          "default": ""
+        },
+        "abbr": {
+          "description": "The abbreviations that expand this snippet. A single string is accepted on read. In the CSV, several abbreviations share one cell, separated by line breaks.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "default": []
+        },
+        "group": {
+          "description": "Folder names from the library root down to the snippet's group. `\"Work/Email\"` is accepted on read and means the same as `[\"Work\", \"Email\"]`. Empty means the root of the library.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "default": []
+        },
+        "tags": {
+          "description": "Free-form tags. A single string is accepted on read.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "default": []
+        },
+        "type": {
+          "description": "What kind of snippet this is. Default: `text`.",
+          "enum": ["text", "rich", "command", "prompt", "script"],
+          "default": "text"
+        },
+        "trigger": {
+          "description": "Absent: the snippet's file said nothing and the group decides. An export does not carry `_group.yaml`, so a snippet that inherited a setting arrives without it.",
+          "enum": ["immediate", "delimiter"]
+        },
+        "case": {
+          "description": "Absent: inherited; see `trigger`.",
+          "enum": ["exact", "ignore", "adaptive"]
+        },
+        "word": {
+          "description": "Whole-word rule. Absent: inherited; see `trigger`.",
+          "type": "boolean"
+        },
+        "keep_delimiter": {
+          "description": "Re-insert the delimiter that triggered the expansion. Absent: inherited; see `trigger`.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "description": "`false` switches this snippet off. Absent: enabled.",
+          "type": "boolean"
+        },
+        "body": {
+          "description": "The template text, with Aralo placeholders (docs/format/placeholders.md). In a document with no `format` key this is whatever the other tool wrote, and the import converts it.",
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": true
+    },
+    "ulid": {
+      "description": "A ULID: 26 characters of Crockford base32 (digits and letters without I, L, O and U).",
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$"
+    }
+  },
+  "examples": [
+    {
+      "format": 0,
+      "name": "My snippets",
+      "snippets": [
+        {
+          "id": "01J8ZK3V5Q8W6T9X2N4R7M0ABC",
+          "label": "Best regards",
+          "abbr": [";br"],
+          "group": ["Work"],
+          "tags": [],
+          "type": "text",
+          "body": "Best regards,\nSam"
+        }
+      ]
+    }
+  ]
+}

@@ -12,6 +12,25 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+const ONE_GROUP: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>groupName</key><string>Work</string>
+  <key>snippetsTE2</key>
+  <array>
+    <dict>
+      <key>abbreviation</key><string>;sig</string>
+      <key>label</key><string>Signature</string>
+      <key>plainText</key><string>Best regards</string>
+    </dict>
+    <dict>
+      <key>abbreviation</key><string>;wait</string>
+      <key>plainText</key><string>one%delay:500%two</string>
+    </dict>
+  </array>
+</dict>
+</plist>"#;
+
 #[test]
 fn init_then_type_expands_the_starter_snippets() {
     let folder = tempfile::tempdir().unwrap();
@@ -43,4 +62,171 @@ fn validate_fails_only_for_broken_files() {
 
     let missing = aralo(&["validate", folder.path().join("nope").to_str().unwrap()]);
     assert_eq!(missing.status.code(), Some(2));
+}
+
+#[test]
+fn import_then_expand_then_export_round_trips() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("work.textexpander");
+    std::fs::write(&source, ONE_GROUP).unwrap();
+    let library = folder.path().join("lib");
+    let library = library.to_str().unwrap();
+
+    // One snippet carries a macro Aralo has no placeholder for, so the import
+    // reports a snippet to look at and exits 1.
+    let imported = aralo(&["import", source.to_str().unwrap(), library]);
+    assert_eq!(imported.status.code(), Some(1), "{imported:?}");
+    let report = stdout(&imported);
+    assert!(report.contains("1 clean, 1 need an edit"), "{report}");
+    assert!(report.contains("%delay"), "{report}");
+    // A library filled from somewhere else does not also get the starter set.
+    assert!(!stdout(&aralo(&["list", library])).contains(";shrug"));
+
+    let expanded = aralo(&["expand", library, ";sig"]);
+    assert!(expanded.status.success(), "{expanded:?}");
+    assert!(
+        stdout(&expanded).starts_with("Best regards"),
+        "{}",
+        stdout(&expanded)
+    );
+
+    let out = folder.path().join("out.json");
+    let exported = aralo(&["export", library, out.to_str().unwrap()]);
+    assert!(exported.status.success(), "{exported:?}");
+    assert!(stdout(&exported).contains("2 snippets as json"));
+
+    // Aralo's own export imports back with nothing to convert and nothing to
+    // edit: the bodies are already templates.
+    let back = folder.path().join("back");
+    let again = aralo(&["import", out.to_str().unwrap(), back.to_str().unwrap()]);
+    assert!(again.status.success(), "{again:?}");
+    assert!(stdout(&again).contains("2 clean"), "{}", stdout(&again));
+    assert_eq!(
+        stdout(&aralo(&["list", back.to_str().unwrap()])),
+        stdout(&aralo(&["list", library]))
+    );
+}
+
+#[test]
+fn a_dry_run_writes_nothing_and_json_is_the_same_report() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = folder.path().join("work.textexpander");
+    std::fs::write(&source, ONE_GROUP).unwrap();
+    let library = folder.path().join("lib");
+    aralo(&["init", library.to_str().unwrap()]);
+    let before = stdout(&aralo(&["list", library.to_str().unwrap()]));
+
+    let dry = aralo(&[
+        "import",
+        source.to_str().unwrap(),
+        library.to_str().unwrap(),
+        "--dry-run",
+        "--into",
+        "Imported/TextExpander",
+        "--report",
+        "json",
+    ]);
+    assert_eq!(dry.status.code(), Some(1), "{dry:?}");
+    let report: serde_json::Value = serde_json::from_str(&stdout(&dry)).unwrap();
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["entries"][0]["group"][0], "Imported");
+    // A dry run says where each snippet would go; `dry_run` says it did not.
+    assert_eq!(
+        report["entries"][0]["path"],
+        "Imported/TextExpander/Work/signature.md"
+    );
+    assert_eq!(before, stdout(&aralo(&["list", library.to_str().unwrap()])));
+}
+
+#[test]
+fn export_needs_to_know_the_format_it_cannot_guess() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("lib");
+    let library = library.to_str().unwrap();
+    aralo(&["init", library]);
+
+    let out = folder.path().join("out.bin");
+    let guess = aralo(&["export", library, out.to_str().unwrap()]);
+    assert_eq!(guess.status.code(), Some(2));
+    assert!(!out.exists());
+
+    let told = aralo(&["export", library, out.to_str().unwrap(), "--format", "csv"]);
+    assert!(told.status.success(), "{told:?}");
+    let csv = std::fs::read_to_string(&out).unwrap();
+    assert!(csv.starts_with("abbr,label,group,tags,body"), "{csv}");
+
+    // A group narrows it to the folder and what is inside it.
+    let some = aralo(&[
+        "export", library, "-", "--format", "json", "--group", "Symbols",
+    ]);
+    assert!(some.status.success(), "{some:?}");
+    let document: serde_json::Value = serde_json::from_str(&stdout(&some)).unwrap();
+    let snippets = document["snippets"].as_array().unwrap();
+    assert!(!snippets.is_empty());
+    assert!(snippets
+        .iter()
+        .all(|snippet| snippet["group"][0] == "Symbols"));
+}
+
+#[test]
+fn search_finds_a_snippet_by_name_and_by_what_is_in_its_body() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("lib");
+    let library = library.to_str().unwrap();
+    aralo(&["init", library]);
+
+    // A label, matched loosely: the starter library has "Best regards".
+    let loose = aralo(&["search", library, "bregs"]);
+    assert!(loose.status.success(), "{loose:?}");
+    assert!(stdout(&loose).contains("Best regards"), "{loose:?}");
+
+    // No query at all is the whole library.
+    let all = stdout(&aralo(&["search", library]));
+    assert_eq!(
+        all.lines().count(),
+        stdout(&aralo(&["list", library])).lines().count()
+    );
+
+    // Nothing found is exit 1, the way `expand` reports the same thing.
+    let missing = aralo(&["search", library, "zzzznothing"]);
+    assert_eq!(missing.status.code(), Some(1), "{missing:?}");
+    assert!(stdout(&missing).is_empty());
+}
+
+#[test]
+fn search_finds_a_macro_no_importer_could_convert() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("lib");
+    let source = folder.path().join("one-group.textexpander");
+    std::fs::write(&source, ONE_GROUP).unwrap();
+    let library = library.to_str().unwrap();
+
+    // The import leaves `%delay:500%` in the body as the text it was and says
+    // so in its report (ADR-0013). This is the other half of that promise:
+    // the library can be searched for every one of them.
+    aralo(&["import", source.to_str().unwrap(), library]);
+    let found = aralo(&["search", library, "%delay:"]);
+    assert!(found.status.success(), "{found:?}");
+    let line = stdout(&found);
+    assert!(line.contains("body: one%delay:500%two"), "{line}");
+}
+
+#[test]
+fn search_narrows_by_group_limit_and_the_enabled_flag() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("lib");
+    let library = library.to_str().unwrap();
+    aralo(&["init", library]);
+
+    let symbols = stdout(&aralo(&["search", library, "--group", "symbols"]));
+    assert!(!symbols.is_empty());
+    assert!(
+        symbols.lines().all(|line| line.contains("[Symbols/")),
+        "{symbols}"
+    );
+
+    // The footer says when the limit left something out.
+    let capped = stdout(&aralo(&["search", library, "--limit", "1"]));
+    assert_eq!(capped.lines().count(), 2, "{capped}");
+    assert!(capped.contains("raise --limit"), "{capped}");
 }

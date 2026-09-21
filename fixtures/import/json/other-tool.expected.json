@@ -1,0 +1,164 @@
+{
+  "clean": 6,
+  "entries": [
+    {
+      "abbr": [
+        ";gh"
+      ],
+      "group": [
+        "Links"
+      ],
+      "label": "Repository",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Links/repository.md"
+    },
+    {
+      "abbr": [
+        ";docs"
+      ],
+      "group": [
+        "Links"
+      ],
+      "label": "Docs link",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Links/docs-link.md"
+    },
+    {
+      "abbr": [
+        ";pr",
+        ";review"
+      ],
+      "group": [
+        "Code"
+      ],
+      "label": "Review request",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Code/review-request.md"
+    },
+    {
+      "abbr": [
+        ";brace"
+      ],
+      "group": [
+        "Code"
+      ],
+      "label": "Braces that are not a placeholder",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Code/braces-that-are-not-a-placeholder.md"
+    },
+    {
+      "abbr": [
+        ";log"
+      ],
+      "group": [
+        "Code"
+      ],
+      "label": "Log line",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Code/log-line.md"
+    },
+    {
+      "abbr": [
+        ";rollback"
+      ],
+      "group": [
+        "Code"
+      ],
+      "label": "Rollback note",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Code/rollback-note.md"
+    }
+  ],
+  "fidelity": 1.0,
+  "library": [
+    {
+      "abbr": [
+        ";brace"
+      ],
+      "body": "Use \\{{ and }} for the template, not the shell.",
+      "group": [
+        "Code"
+      ],
+      "label": "Braces that are not a placeholder",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";log"
+      ],
+      "body": "Please paste the last twenty lines of the log.",
+      "group": [
+        "Code"
+      ],
+      "label": "Log line",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";pr",
+        ";review"
+      ],
+      "body": "Could you take a look when you have a moment? Nothing urgent.",
+      "group": [
+        "Code"
+      ],
+      "label": "Review request",
+      "tags": [
+        "review"
+      ],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";rollback"
+      ],
+      "body": "Rolled back to the previous release. The change is on a branch.",
+      "group": [
+        "Code"
+      ],
+      "label": "Rollback note",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";docs"
+      ],
+      "body": "The handbook is at https://example.invalid/handbook.",
+      "group": [
+        "Links"
+      ],
+      "label": "Docs link",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";gh"
+      ],
+      "body": "https://example.invalid/acme/tooling",
+      "group": [
+        "Links"
+      ],
+      "label": "Repository",
+      "tags": [],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 0,
+  "notes": [
+    {
+      "detail": "a list of snippets with no format header: read as version 0",
+      "kind": "approximated"
+    }
+  ],
+  "skipped": 0
+}

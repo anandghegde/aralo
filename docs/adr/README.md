@@ -23,6 +23,7 @@ Consequences, Alternatives rejected.
 | [0010](0010-minimum-macos-14.md) | Minimum macOS 14, universal binary | Accepted (confirmed by the project owner, 2026-09-20) |
 | [0011](0011-shell-defaults.md) | Defaults of the first Mac shell | Accepted (confirmed by the project owner, 2026-09-20). Amended by 0012 |
 | [0012](0012-injection-and-input-defaults.md) | Per-app injection is data; input defaults of the M1 shell | Accepted (not yet confirmed by the project owner) |
+| [0013](0013-import-and-export.md) | One crate for import and export; what an import may lose | Accepted (not yet confirmed by the project owner) |
 
 ADRs 0001, 0009 and 0010 began as assumptions the plan made where the PRD left
 a question open. The project owner confirmed all three on 2026-09-20.

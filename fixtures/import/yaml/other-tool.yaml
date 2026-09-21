@@ -1,0 +1,26 @@
+- abbr: ";mon"
+  label: Monday plan
+  group: Routine
+  body: |-
+    Monday:
+    - triage the queue
+    - write up last week
+- abbr: ";fri"
+  label: Friday notes
+  group: Routine
+  body: |-
+    Friday:
+    - close the week
+    - book Monday's focus time
+- abbr: ";hol"
+  label: Holiday
+  group: Routine
+  body: I am on holiday until Monday and will pick this up when I am back.
+- abbr: ";lunch"
+  group: Routine
+  body: Back after lunch.
+- abbr: ";read"
+  label: Reading list
+  group: Routine
+  tags: [personal]
+  body: Adding this to the reading list. Thanks for the pointer.

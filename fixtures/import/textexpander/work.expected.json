@@ -1,0 +1,525 @@
+{
+  "clean": 15,
+  "entries": [
+    {
+      "abbr": [
+        ";mtg"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Move a meeting",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/move-a-meeting.md"
+    },
+    {
+      "abbr": [
+        ";status"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Project status",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/project-status.md"
+    },
+    {
+      "abbr": [
+        ";wsig"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Work signature",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/work-signature.md"
+    },
+    {
+      "abbr": [
+        ";ooo"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Out of office",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/out-of-office.md"
+    },
+    {
+      "abbr": [
+        ";std"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Standup line",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/standup-line.md"
+    },
+    {
+      "abbr": [
+        ";close"
+      ],
+      "group": [
+        "Work"
+      ],
+      "label": "Close a thread",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/close-a-thread.md"
+    },
+    {
+      "abbr": [
+        ";intro"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Introduction",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/introduction.md"
+    },
+    {
+      "abbr": [
+        ";follow"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Follow up",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/follow-up.md"
+    },
+    {
+      "abbr": [
+        ";thanks"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": ";thanks",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/thanks.md"
+    },
+    {
+      "abbr": [
+        ";nda"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "NDA line",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/nda-line.md"
+    },
+    {
+      "abbr": [
+        ";cal"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Propose a time",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/propose-a-time.md"
+    },
+    {
+      "abbr": [
+        ";ack"
+      ],
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": ";ack",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Email/ack.md"
+    },
+    {
+      "abbr": [
+        ";tick"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Ticket reference",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Support/ticket-reference.md"
+    },
+    {
+      "abbr": [
+        ";esc"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Escalation",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Support/escalation.md"
+    },
+    {
+      "abbr": [
+        ";steps"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Ask for steps",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Work/Support/ask-for-steps.md"
+    },
+    {
+      "abbr": [
+        ";notes"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Case notes",
+      "notes": [
+        {
+          "detail": "a multi-line fill-in became a single-line field",
+          "kind": "approximated"
+        }
+      ],
+      "outcome": "needs-edit",
+      "path": "Work/Support/case-notes.md"
+    },
+    {
+      "abbr": [
+        ";form"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Fill the contact form",
+      "notes": [
+        {
+          "detail": "%key:tab% became the character it types",
+          "kind": "approximated"
+        }
+      ],
+      "outcome": "needs-edit",
+      "path": "Work/Support/fill-the-contact-form.md"
+    },
+    {
+      "abbr": [
+        ";wait"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Two lines, slowly",
+      "notes": [
+        {
+          "detail": "%delay:…% (a typing delay)",
+          "kind": "unconvertible"
+        }
+      ],
+      "outcome": "needs-edit",
+      "path": "Work/Support/two-lines-slowly.md"
+    },
+    {
+      "abbr": [
+        ";stamp"
+      ],
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Shell time stamp",
+      "notes": [
+        {
+          "detail": "a script snippet; Aralo does not run scripts yet",
+          "kind": "unconvertible"
+        }
+      ],
+      "outcome": "needs-edit",
+      "path": "Work/Support/shell-time-stamp.md"
+    },
+    {
+      "abbr": [],
+      "group": [],
+      "label": "Company logo",
+      "notes": [
+        {
+          "detail": "a snippet with no plain text, such as a picture",
+          "kind": "unreadable"
+        }
+      ],
+      "outcome": "skipped"
+    }
+  ],
+  "fidelity": 0.75,
+  "library": [
+    {
+      "abbr": [
+        ";ack"
+      ],
+      "body": "Got it, thank you. I will come back to you by the end of the day.",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";follow"
+      ],
+      "body": "Hi {{field: Name}}, just following up on this one.",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Follow up",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";intro"
+      ],
+      "body": "Thanks for getting in touch. I look after the tooling side here, so\nyour question landed in the right place.",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Introduction",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";nda"
+      ],
+      "body": "Everything below is under the NDA we signed in March.",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "NDA line",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";cal"
+      ],
+      "body": "Does {{field: Day | default: Tuesday}} at {{field: Time | default: 14:00}} work for you?",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "Propose a time",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";thanks"
+      ],
+      "body": "Thanks very much for the quick turnaround on this.",
+      "group": [
+        "Work",
+        "Email"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";steps"
+      ],
+      "body": "Could you tell me what you did just before this happened, and what\nyou expected to see instead?",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Ask for steps",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";notes"
+      ],
+      "body": "Case notes:\n{{field: Notes}}",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Case notes",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";esc"
+      ],
+      "body": "I have escalated this to the on-call engineer and will update you\nwithin the hour.",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Escalation",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";form"
+      ],
+      "body": "{{field: Name}}\t{{field: Email}}",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Fill the contact form",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";stamp"
+      ],
+      "body": "date +%Y-%m-%d",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Shell time stamp",
+      "tags": [],
+      "type": "script"
+    },
+    {
+      "abbr": [
+        ";tick"
+      ],
+      "body": "Your ticket is {{field: Number}}. Please quote it in any reply.",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Ticket reference",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";wait"
+      ],
+      "body": "Step one%delay:500%Step two",
+      "group": [
+        "Work",
+        "Support"
+      ],
+      "label": "Two lines, slowly",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";close"
+      ],
+      "body": "Closing this off. Shout if it comes back.\n\n{{snippet: ;wsig}}",
+      "group": [
+        "Work"
+      ],
+      "label": "Close a thread",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";mtg"
+      ],
+      "body": "Hi {{field: Name}},\n\nCould we move our meeting to {{field: Day | default: Monday}}?",
+      "group": [
+        "Work"
+      ],
+      "label": "Move a meeting",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";ooo"
+      ],
+      "body": "I am away from the office and reading email once a day. For anything\nurgent, please contact the support team.",
+      "group": [
+        "Work"
+      ],
+      "label": "Out of office",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";status"
+      ],
+      "body": "Status this week: {{choice: Status | options: Green, Amber, Red}}",
+      "group": [
+        "Work"
+      ],
+      "label": "Project status",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";std"
+      ],
+      "body": "Yesterday:\nToday:\nBlocked: no",
+      "group": [
+        "Work"
+      ],
+      "label": "Standup line",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";wsig"
+      ],
+      "body": "Sam Lawson\nAcme Ltd\nsomeone@acme.example",
+      "group": [
+        "Work"
+      ],
+      "label": "Work signature",
+      "tags": [],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 4,
+  "notes": [],
+  "skipped": 1
+}

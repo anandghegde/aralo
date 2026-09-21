@@ -1,0 +1,39 @@
+[
+  {
+    "abbr": ";gh",
+    "label": "Repository",
+    "group": "Links",
+    "body": "https://example.invalid/acme/tooling"
+  },
+  {
+    "abbr": ";docs",
+    "label": "Docs link",
+    "group": "Links",
+    "body": "The handbook is at https://example.invalid/handbook."
+  },
+  {
+    "abbr": [";pr", ";review"],
+    "label": "Review request",
+    "group": "Code",
+    "tags": ["review"],
+    "body": "Could you take a look when you have a moment? Nothing urgent."
+  },
+  {
+    "abbr": ";brace",
+    "label": "Braces that are not a placeholder",
+    "group": "Code",
+    "body": "Use {{ and }} for the template, not the shell."
+  },
+  {
+    "abbr": ";log",
+    "label": "Log line",
+    "group": "Code",
+    "body": "Please paste the last twenty lines of the log."
+  },
+  {
+    "abbr": ";rollback",
+    "label": "Rollback note",
+    "group": "Code",
+    "body": "Rolled back to the previous release. The change is on a branch."
+  }
+]

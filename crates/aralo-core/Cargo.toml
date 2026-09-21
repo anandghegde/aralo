@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 aralo-engine = { workspace = true }
+aralo-import = { workspace = true }
 aralo-library = { workspace = true }
 aralo-snippet = { workspace = true }
 aralo-template = { workspace = true }

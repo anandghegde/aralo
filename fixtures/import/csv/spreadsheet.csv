@@ -1,0 +1,12 @@
+Abbreviation,Name,Folder,Content,Tags
+;bank,Bank details,Finance,"Acme Ltd
+Sort code 00-00-00
+Account 12345678",invoice;payment
+;vat,VAT number,Finance,GB123456789,invoice
+;po,Purchase order,Finance,"Please quote purchase order 4417 on the invoice.",invoice
+;rec,Receipt request,Finance,Could you send a receipt for this payment?,
+;wifi,Guest wifi,Office,"Network: Acme Guest
+Password: rowan-street-42",
+;park,Parking,Office,"Visitor parking is on Level 2. Tell reception the plate number.",
+;desk,Desk booking,Office,I have booked desk 14 for you on the day.,
+;fire,Fire drill,Office,"The drill is at 11:00. Leave by the north stairs and wait by the bike racks.",safety

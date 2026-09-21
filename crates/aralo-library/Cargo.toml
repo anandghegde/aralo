@@ -1,6 +1,6 @@
 [package]
 name = "aralo-library"
-description = "The library folder: loading, group inheritance, and the engine snapshot built from it."
+description = "The library folder: loading, group inheritance, search, and the engine snapshot built from it."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,10 @@ publish.workspace = true
 [dependencies]
 aralo-engine = { workspace = true }
 aralo-snippet = { workspace = true }
+blake3 = { workspace = true }
+notify = { workspace = true }
+nucleo-matcher = { workspace = true }
+rusqlite = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

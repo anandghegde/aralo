@@ -79,14 +79,14 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-engine` | Buffer, matcher, case rules, undo record. No I/O, no logging | Implemented |
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
 | `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser and static plans. The evaluator is M3 |
-| `aralo-library` | Folder store, inheritance, atomic writes; later watcher, index, merge, search | Load and write. The rest is M2 |
-| `aralo-core` | The facade the shells talk to | M1 slice: open, expand, simulate |
+| `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search; later merge | Load, write, watch, index and search. Merging is the rest of M2 |
+| `aralo-core` | The facade the shells talk to | M1 slice: open, expand, simulate. Plus M2's import, export and search |
 | `aralo-ffi` | UniFFI bridge to Swift | M1 slice |
-| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `type` | M1 slice |
+| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export` | M1 and the M2 import and search slices |
 | `aralo-ai` | Gateway, network guard, framing, profiles | Empty, M4 |
 | `aralo-providers` | Provider adapters | Empty, M4 |
 | `aralo-embed` | Embedding runtime, vector scan | Empty, M4 |
-| `aralo-import` | Importers and the import report | Empty, M2 |
+| `aralo-import` | Importers, the import report, export to JSON, YAML and CSV | TextExpander, CSV, JSON and YAML in; JSON, YAML and CSV out |
 | `aralo-script` | Script sandbox | Empty, v1 |
 
 Dependencies point one way. `aralo-engine`, `aralo-snippet` and
@@ -107,8 +107,32 @@ Try the core without the app:
 ```sh
 cargo run -p aralo-cli -- init /tmp/aralo-library
 cargo run -p aralo-cli -- list /tmp/aralo-library
+cargo run -p aralo-cli -- search /tmp/aralo-library regards
 cargo run -p aralo-cli -- type /tmp/aralo-library "see you ;br "
+cargo run -p aralo-cli -- expand /tmp/aralo-library ";br"
 cargo run -p aralo-cli -- validate /tmp/aralo-library
+```
+
+Move snippets in and out of other tools:
+
+```sh
+cargo run -p aralo-cli -- import fixtures/import/csv/spreadsheet.csv \
+  /tmp/aralo-library --into Imported --dry-run
+cargo run -p aralo-cli -- export /tmp/aralo-library - --format yaml
+```
+
+`import` reports what each snippet cost and exits 1 if anything needs an edit.
+[docs/format/import.md](docs/format/import.md) has the macro mapping and what
+an import may lose.
+
+`search` matches names, abbreviations, tags and groups fuzzily and bodies
+literally, so a macro no importer could convert — left in the body as the text
+it was — is one search away:
+
+```sh
+cargo run -p aralo-cli -- import fixtures/import/textexpander/work.textexpander \
+  /tmp/aralo-imported
+cargo run -p aralo-cli -- search /tmp/aralo-imported '%delay'
 ```
 
 **The Mac app** needs macOS 14 or later and:
@@ -175,7 +199,8 @@ aralo/
   conformance/          provider protocol checks (M4)
   fixtures/
     matrix/library/     the snippets the injection matrix types
-    ...                 import corpora, golden expansions (M2, M3)
+    import/             the import corpus and its golden reports
+    ...                 golden expansions (M3)
 ```
 
 ## Roadmap
@@ -190,6 +215,22 @@ Weeks are from the plan and overlap on purpose.
 | **M3** Dynamic content and forms | 7–9 | Golden suite green. Forms work in every matrix app. Import fidelity 95% |
 | **M4** AI | 8–12 | Six endpoints pass conformance. Under 30 ms added to first token. The AI switch and local-only mode verified by tests |
 | **M5** Sync, hardening and beta | 11–13 | Notarised DMG and Homebrew cask live. Every security and privacy test green. Beta opens |
+
+M2's import and search halves are in. The corpus in
+[`fixtures/import/`](fixtures/import/README.md) imports at 92.3% clean, and
+`crates/aralo-import/tests/fidelity.rs` prints the number and fails under 90%
+on every run. That corpus is written from the documented formats rather than
+exported from a real installation, which its README says at more length; spike
+S7 is where a real export settles it.
+
+M2's folder store is in too: a debounced `notify` watcher that tells Aralo's
+own saves from everyone else's by content hash, and a SQLite index with FTS5
+that syncs incrementally. `crates/aralo-library/tests/index.rs` asserts that an
+incremental sync lands exactly where a rebuild lands, and that ten thousand
+snippets index on a background thread while an abbreviation expands on the
+main one. Neither is wired into `aralo-core` yet; that comes with the core
+runtime and the editor. See
+[the folder store](docs/architecture.md#the-folder-store).
 
 Seven spikes (S1 to S7) are still owed in M0. They are listed in
 [docs/adr/README.md](docs/adr/README.md).

@@ -47,10 +47,11 @@ allow = [
     "ISC",
     "Zlib",
     "Unicode-3.0",
-    # UniFFI (uniffi, uniffi_core, uniffi_bindgen, uniffi_macros, ...) is
-    # MPL-2.0. MPL is file-level copyleft: it covers changes to UniFFI's own
-    # files, not code that links to it, so it is compatible with shipping Aralo
-    # under Apache-2.0 as long as UniFFI is used unmodified from crates.io.
+    # UniFFI (uniffi, uniffi_core, uniffi_bindgen, uniffi_macros, ...) and
+    # nucleo-matcher are MPL-2.0. MPL is file-level copyleft: it covers changes
+    # to those crates' own files, not code that links to them, so it is
+    # compatible with shipping Aralo under Apache-2.0 as long as both are used
+    # unmodified from crates.io.
     "MPL-2.0",
     # Public-domain dedications. Nothing in the tree needs them today (every
     # `Unlicense` crate is also offered under MIT). Uncomment when one does.
@@ -63,7 +64,15 @@ confidence-threshold = 0.9
 unused-allowed-license = "allow"
 # Per-crate exceptions go here, each with a reason:
 # exceptions = [{ crate = "some-crate", allow = ["Some-Licence"] }]
-exceptions = []
+exceptions = [
+    # `notify` is CC0-1.0 and offers nothing else, so it needs an exception
+    # rather than the commented-out allow-list entry above. A public-domain
+    # dedication imposes no condition on Aralo, and CC0's patent silence is not
+    # a new risk here: the crate wraps FSEvents and inotify, which are the
+    # platforms' own. Keeping this per-crate means the next CC0 dependency is
+    # read on its own merits instead of arriving allowed (ADR-0008).
+    { crate = "notify", allow = ["CC0-1.0"] },
+]
 
 [licenses.private]
 # Workspace crates are `publish = false` and Apache-2.0; skip them.

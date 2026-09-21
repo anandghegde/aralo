@@ -1,0 +1,559 @@
+{
+  "clean": 22,
+  "entries": [
+    {
+      "abbr": [
+        ";addr"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Home address",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/home-address.md"
+    },
+    {
+      "abbr": [
+        ";email"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Email address",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/email-address.md"
+    },
+    {
+      "abbr": [
+        ";phone"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Phone number",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/phone-number.md"
+    },
+    {
+      "abbr": [
+        ";sig"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Signature",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/signature.md"
+    },
+    {
+      "abbr": [
+        ";ty"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": ";ty",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/ty.md"
+    },
+    {
+      "abbr": [
+        ";omw"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": ";omw",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/omw.md"
+    },
+    {
+      "abbr": [
+        ";bio"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Short bio",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/short-bio.md"
+    },
+    {
+      "abbr": [
+        ";dear"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Dear, with the cursor after it",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/dear-with-the-cursor-after-it.md"
+    },
+    {
+      "abbr": [
+        ";paste"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Quote the clipboard",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/quote-the-clipboard.md"
+    },
+    {
+      "abbr": [
+        ";sure"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": ";sure",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/sure.md"
+    },
+    {
+      "abbr": [
+        ";lorem"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Filler paragraph",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/filler-paragraph.md"
+    },
+    {
+      "abbr": [
+        ";call"
+      ],
+      "group": [
+        "Personal"
+      ],
+      "label": "Can we talk",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/can-we-talk.md"
+    },
+    {
+      "abbr": [
+        ";work"
+      ],
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "Work address",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Addresses/work-address.md"
+    },
+    {
+      "abbr": [
+        ";post"
+      ],
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": ";post",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Addresses/post.md"
+    },
+    {
+      "abbr": [
+        ";parcel"
+      ],
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "Parcel instructions",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Addresses/parcel-instructions.md"
+    },
+    {
+      "abbr": [
+        ";country"
+      ],
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": ";country",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Addresses/country.md"
+    },
+    {
+      "abbr": [
+        ";today"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, US order",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/today-us-order.md"
+    },
+    {
+      "abbr": [
+        ";iso"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, ISO order",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/today-iso-order.md"
+    },
+    {
+      "abbr": [
+        ";uk"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": ";uk",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/uk.md"
+    },
+    {
+      "abbr": [
+        ";long"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, written out",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/today-written-out.md"
+    },
+    {
+      "abbr": [
+        ";now"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": ";now",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/now.md"
+    },
+    {
+      "abbr": [
+        ";dated"
+      ],
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Dated line",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Personal/Dates/dated-line.md"
+    }
+  ],
+  "fidelity": 1.0,
+  "library": [
+    {
+      "abbr": [
+        ";country"
+      ],
+      "body": "United Kingdom",
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";parcel"
+      ],
+      "body": "Please leave parcels with the neighbour at number 14.",
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "Parcel instructions",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";post"
+      ],
+      "body": "EH1 1AA",
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";work"
+      ],
+      "body": "Acme Ltd\n1 Main Road\nGlasgow G1 1AA",
+      "group": [
+        "Personal",
+        "Addresses"
+      ],
+      "label": "Work address",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";dated"
+      ],
+      "body": "Dated {{date: %d %B %Y}}, Edinburgh.",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Dated line",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";now"
+      ],
+      "body": "{{time: %H:%M}}",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";iso"
+      ],
+      "body": "{{date: %Y-%m-%d}}",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, ISO order",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";today"
+      ],
+      "body": "{{date: %m/%d/%Y}}",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, US order",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";long"
+      ],
+      "body": "{{date: %B %e, %Y}}",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "Today, written out",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";uk"
+      ],
+      "body": "{{date: %d/%m/%Y}}",
+      "group": [
+        "Personal",
+        "Dates"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";call"
+      ],
+      "body": "Would a quick call be easier? I am free most afternoons this week.",
+      "group": [
+        "Personal"
+      ],
+      "label": "Can we talk",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";dear"
+      ],
+      "body": "Dear {{cursor}},",
+      "group": [
+        "Personal"
+      ],
+      "label": "Dear, with the cursor after it",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";email"
+      ],
+      "body": "someone@example.com",
+      "group": [
+        "Personal"
+      ],
+      "label": "Email address",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";lorem"
+      ],
+      "body": "The quick brown fox jumps over the lazy dog. Pack my box with five\ndozen liquor jugs. How vexingly quick daft zebras jump.",
+      "group": [
+        "Personal"
+      ],
+      "label": "Filler paragraph",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";addr"
+      ],
+      "body": "12 Rowan Street\nEdinburgh\nEH1 1AA",
+      "group": [
+        "Personal"
+      ],
+      "label": "Home address",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";omw"
+      ],
+      "body": "On my way.",
+      "group": [
+        "Personal"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";phone"
+      ],
+      "body": "+44 7700 900123",
+      "group": [
+        "Personal"
+      ],
+      "label": "Phone number",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";paste"
+      ],
+      "body": "You wrote:\n\n{{clipboard}}",
+      "group": [
+        "Personal"
+      ],
+      "label": "Quote the clipboard",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";bio"
+      ],
+      "body": "Sam Lawson writes about small tools and the people who keep them\nrunning. Previously a librarian, now mostly a reader.",
+      "group": [
+        "Personal"
+      ],
+      "label": "Short bio",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";sig"
+      ],
+      "body": "Best regards,\nSam",
+      "group": [
+        "Personal"
+      ],
+      "label": "Signature",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";sure"
+      ],
+      "body": "100% sure",
+      "group": [
+        "Personal"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";ty"
+      ],
+      "body": "Thank you!",
+      "group": [
+        "Personal"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 0,
+  "notes": [],
+  "skipped": 0
+}

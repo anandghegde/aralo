@@ -1,0 +1,138 @@
+{
+  "clean": 5,
+  "entries": [
+    {
+      "abbr": [
+        ";mon"
+      ],
+      "group": [
+        "Routine"
+      ],
+      "label": "Monday plan",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Routine/monday-plan.md"
+    },
+    {
+      "abbr": [
+        ";fri"
+      ],
+      "group": [
+        "Routine"
+      ],
+      "label": "Friday notes",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Routine/friday-notes.md"
+    },
+    {
+      "abbr": [
+        ";hol"
+      ],
+      "group": [
+        "Routine"
+      ],
+      "label": "Holiday",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Routine/holiday.md"
+    },
+    {
+      "abbr": [
+        ";lunch"
+      ],
+      "group": [
+        "Routine"
+      ],
+      "label": ";lunch",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Routine/lunch.md"
+    },
+    {
+      "abbr": [
+        ";read"
+      ],
+      "group": [
+        "Routine"
+      ],
+      "label": "Reading list",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Routine/reading-list.md"
+    }
+  ],
+  "fidelity": 1.0,
+  "library": [
+    {
+      "abbr": [
+        ";fri"
+      ],
+      "body": "Friday:\n- close the week\n- book Monday's focus time",
+      "group": [
+        "Routine"
+      ],
+      "label": "Friday notes",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";hol"
+      ],
+      "body": "I am on holiday until Monday and will pick this up when I am back.",
+      "group": [
+        "Routine"
+      ],
+      "label": "Holiday",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";lunch"
+      ],
+      "body": "Back after lunch.",
+      "group": [
+        "Routine"
+      ],
+      "label": "",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";mon"
+      ],
+      "body": "Monday:\n- triage the queue\n- write up last week",
+      "group": [
+        "Routine"
+      ],
+      "label": "Monday plan",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";read"
+      ],
+      "body": "Adding this to the reading list. Thanks for the pointer.",
+      "group": [
+        "Routine"
+      ],
+      "label": "Reading list",
+      "tags": [
+        "personal"
+      ],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 0,
+  "notes": [
+    {
+      "detail": "a list of snippets with no format header: read as version 0",
+      "kind": "approximated"
+    }
+  ],
+  "skipped": 0
+}

@@ -1,0 +1,96 @@
+{
+  "clean": 4,
+  "entries": [
+    {
+      "abbr": [
+        ";brb"
+      ],
+      "group": [],
+      "label": "Back shortly",
+      "notes": [],
+      "outcome": "clean",
+      "path": "back-shortly.md"
+    },
+    {
+      "abbr": [
+        ";eta"
+      ],
+      "group": [],
+      "label": "ETA",
+      "notes": [],
+      "outcome": "clean",
+      "path": "eta.md"
+    },
+    {
+      "abbr": [
+        ";yes"
+      ],
+      "group": [],
+      "label": "Agree",
+      "notes": [],
+      "outcome": "clean",
+      "path": "agree.md"
+    },
+    {
+      "abbr": [
+        ";no"
+      ],
+      "group": [],
+      "label": "Decline",
+      "notes": [],
+      "outcome": "clean",
+      "path": "decline.md"
+    }
+  ],
+  "fidelity": 1.0,
+  "library": [
+    {
+      "abbr": [
+        ";yes"
+      ],
+      "body": "Yes, that works for me.",
+      "group": [],
+      "label": "Agree",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";brb"
+      ],
+      "body": "Back in five minutes.",
+      "group": [],
+      "label": "Back shortly",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";no"
+      ],
+      "body": "Sorry, that does not work for me this week.",
+      "group": [],
+      "label": "Decline",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";eta"
+      ],
+      "body": "On my way, about twenty minutes out.",
+      "group": [],
+      "label": "ETA",
+      "tags": [],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 0,
+  "notes": [
+    {
+      "detail": "no header row: columns read as abbreviation, body, label",
+      "kind": "approximated"
+    }
+  ],
+  "skipped": 0
+}

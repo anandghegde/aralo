@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>groupName</key>
+	<string>Personal</string>
+	<key>snippetsTE2</key>
+	<array>
+		<dict>
+			<key>abbreviation</key>
+			<string>;addr</string>
+			<key>label</key>
+			<string>Home address</string>
+			<key>plainText</key>
+			<string>12 Rowan Street
+Edinburgh
+EH1 1AA</string>
+			<key>snippetType</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;email</string>
+			<key>label</key>
+			<string>Email address</string>
+			<key>plainText</key>
+			<string>someone@example.com</string>
+			<key>snippetType</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;phone</string>
+			<key>label</key>
+			<string>Phone number</string>
+			<key>plainText</key>
+			<string>+44 7700 900123</string>
+			<key>snippetType</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;sig</string>
+			<key>label</key>
+			<string>Signature</string>
+			<key>plainText</key>
+			<string>Best regards,
+Sam</string>
+			<key>snippetType</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;ty</string>
+			<key>plainText</key>
+			<string>Thank you!</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;omw</string>
+			<key>plainText</key>
+			<string>On my way.</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;bio</string>
+			<key>label</key>
+			<string>Short bio</string>
+			<key>plainText</key>
+			<string>Sam Lawson writes about small tools and the people who keep them
+running. Previously a librarian, now mostly a reader.</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;dear</string>
+			<key>label</key>
+			<string>Dear, with the cursor after it</string>
+			<key>plainText</key>
+			<string>Dear %|,</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;paste</string>
+			<key>label</key>
+			<string>Quote the clipboard</string>
+			<key>plainText</key>
+			<string>You wrote:
+
+%clipboard</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;sure</string>
+			<key>plainText</key>
+			<string>100%% sure</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;lorem</string>
+			<key>label</key>
+			<string>Filler paragraph</string>
+			<key>plainText</key>
+			<string>The quick brown fox jumps over the lazy dog. Pack my box with five
+dozen liquor jugs. How vexingly quick daft zebras jump.</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;call</string>
+			<key>label</key>
+			<string>Can we talk</string>
+			<key>plainText</key>
+			<string>Would a quick call be easier? I am free most afternoons this week.</string>
+		</dict>
+	</array>
+	<key>groups</key>
+	<array>
+		<dict>
+			<key>groupName</key>
+			<string>Addresses</string>
+			<key>snippetsTE2</key>
+			<array>
+				<dict>
+					<key>abbreviation</key>
+					<string>;work</string>
+					<key>label</key>
+					<string>Work address</string>
+					<key>plainText</key>
+					<string>Acme Ltd
+1 Main Road
+Glasgow G1 1AA</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;post</string>
+					<key>plainText</key>
+					<string>EH1 1AA</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;parcel</string>
+					<key>label</key>
+					<string>Parcel instructions</string>
+					<key>plainText</key>
+					<string>Please leave parcels with the neighbour at number 14.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;country</string>
+					<key>plainText</key>
+					<string>United Kingdom</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>groupName</key>
+			<string>Dates</string>
+			<key>snippetsTE2</key>
+			<array>
+				<dict>
+					<key>abbreviation</key>
+					<string>;today</string>
+					<key>label</key>
+					<string>Today, US order</string>
+					<key>plainText</key>
+					<string>%m/%d/%Y</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;iso</string>
+					<key>label</key>
+					<string>Today, ISO order</string>
+					<key>plainText</key>
+					<string>%Y-%m-%d</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;uk</string>
+					<key>plainText</key>
+					<string>%d/%m/%Y</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;long</string>
+					<key>label</key>
+					<string>Today, written out</string>
+					<key>plainText</key>
+					<string>%B %e, %Y</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;now</string>
+					<key>plainText</key>
+					<string>%H:%M</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;dated</string>
+					<key>label</key>
+					<string>Dated line</string>
+					<key>plainText</key>
+					<string>Dated %d %B %Y, Edinburgh.</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

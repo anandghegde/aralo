@@ -1,0 +1,212 @@
+{
+  "clean": 8,
+  "entries": [
+    {
+      "abbr": [
+        ";bank"
+      ],
+      "group": [
+        "Finance"
+      ],
+      "label": "Bank details",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Finance/bank-details.md"
+    },
+    {
+      "abbr": [
+        ";vat"
+      ],
+      "group": [
+        "Finance"
+      ],
+      "label": "VAT number",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Finance/vat-number.md"
+    },
+    {
+      "abbr": [
+        ";po"
+      ],
+      "group": [
+        "Finance"
+      ],
+      "label": "Purchase order",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Finance/purchase-order.md"
+    },
+    {
+      "abbr": [
+        ";rec"
+      ],
+      "group": [
+        "Finance"
+      ],
+      "label": "Receipt request",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Finance/receipt-request.md"
+    },
+    {
+      "abbr": [
+        ";wifi"
+      ],
+      "group": [
+        "Office"
+      ],
+      "label": "Guest wifi",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Office/guest-wifi.md"
+    },
+    {
+      "abbr": [
+        ";park"
+      ],
+      "group": [
+        "Office"
+      ],
+      "label": "Parking",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Office/parking.md"
+    },
+    {
+      "abbr": [
+        ";desk"
+      ],
+      "group": [
+        "Office"
+      ],
+      "label": "Desk booking",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Office/desk-booking.md"
+    },
+    {
+      "abbr": [
+        ";fire"
+      ],
+      "group": [
+        "Office"
+      ],
+      "label": "Fire drill",
+      "notes": [],
+      "outcome": "clean",
+      "path": "Office/fire-drill.md"
+    }
+  ],
+  "fidelity": 1.0,
+  "library": [
+    {
+      "abbr": [
+        ";bank"
+      ],
+      "body": "Acme Ltd\nSort code 00-00-00\nAccount 12345678",
+      "group": [
+        "Finance"
+      ],
+      "label": "Bank details",
+      "tags": [
+        "invoice",
+        "payment"
+      ],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";po"
+      ],
+      "body": "Please quote purchase order 4417 on the invoice.",
+      "group": [
+        "Finance"
+      ],
+      "label": "Purchase order",
+      "tags": [
+        "invoice"
+      ],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";rec"
+      ],
+      "body": "Could you send a receipt for this payment?",
+      "group": [
+        "Finance"
+      ],
+      "label": "Receipt request",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";vat"
+      ],
+      "body": "GB123456789",
+      "group": [
+        "Finance"
+      ],
+      "label": "VAT number",
+      "tags": [
+        "invoice"
+      ],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";desk"
+      ],
+      "body": "I have booked desk 14 for you on the day.",
+      "group": [
+        "Office"
+      ],
+      "label": "Desk booking",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";fire"
+      ],
+      "body": "The drill is at 11:00. Leave by the north stairs and wait by the bike racks.",
+      "group": [
+        "Office"
+      ],
+      "label": "Fire drill",
+      "tags": [
+        "safety"
+      ],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";wifi"
+      ],
+      "body": "Network: Acme Guest\nPassword: rowan-street-42",
+      "group": [
+        "Office"
+      ],
+      "label": "Guest wifi",
+      "tags": [],
+      "type": "text"
+    },
+    {
+      "abbr": [
+        ";park"
+      ],
+      "body": "Visitor parking is on Level 2. Tell reception the plate number.",
+      "group": [
+        "Office"
+      ],
+      "label": "Parking",
+      "tags": [],
+      "type": "text"
+    }
+  ],
+  "needs_edit": 0,
+  "notes": [],
+  "skipped": 0
+}

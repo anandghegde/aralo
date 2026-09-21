@@ -22,8 +22,9 @@ the change.
 | Async runtime | `tokio`, for AI calls, file watching and indexing only | The keystroke path is synchronous and never touches the runtime |
 | HTTP and streaming | `reqwest` with `rustls`; server-sent events parsed in the adapters | No OpenSSL to bundle. One client type makes the network guard enforceable |
 | Index | SQLite through `rusqlite` (bundled build) with FTS5 | One file, easy to delete and rebuild, full-text search included |
-| Fuzzy search | `nucleo` | Fast fuzzy matcher built for interactive pickers |
+| Fuzzy search | `nucleo-matcher`, the matcher half of `nucleo` | Fast fuzzy matcher built for interactive pickers. The library is searched in one pass over snippets already in memory, so `nucleo`'s threaded picker and injector are weight with no work to do |
 | File watching | `notify` | Wraps FSEvents on macOS and ReadDirectoryChangesW on Windows |
+| Content hashing | `blake3` | One hash serves three jobs: deciding what the index has to reparse, telling Aralo's own saves from someone else's edits, and keying the embedding cache. Fast enough that hashing a whole library costs less than reading it |
 | Embeddings | `candle` running a quantised MiniLM-class sentence model; `ort` as fallback | Pure Rust means no third-party dynamic library to sign and notarise. Spike S5 confirms speed first |
 | Dates | `jiff` for time-zone-safe arithmetic, ICU4X for locale formats | Date maths across DST and month ends is where naive code fails |
 | Diff and merge | `similar` for previews, `diffy` for three-way merge | Conflict merge and the AI diff preview share one text model |
@@ -45,7 +46,22 @@ Two things are deliberately not libraries:
 ## Consequences
 
 - None of these may become a dependency of `aralo-engine` (ADR-0005).
+- The fuzzy matcher is used on short fields only: abbreviation, label, tag and
+  group. Bodies are matched as literal case-insensitive substrings, because
+  fuzzy matching over a paragraph finds letters scattered across it and calls
+  that a hit, and because ADR-0013's promise that a search finds every macro an
+  import could not convert needs the literal kind. The two scores are not
+  comparable, so results rank by which field matched first and by score within
+  a field.
 - `reqwest` clients are constructed only by the network guard (ADR-0007).
+- `notify` is offered under CC0-1.0 and nothing else, which the licence
+  allow-list does not include. It has a per-crate exception in `deny.toml`
+  rather than a new entry on the allow-list, so that the next public-domain
+  dependency is read on its own merits instead of arriving already allowed.
+- The content hash covers a snippet's content and nothing else: not its path,
+  not its group, not the enabled flag it inherits. Those are compared on their
+  own, which leaves the hash stable across a rename or a move — the property
+  that lets the `vectors` table key on it and survive both.
 - The embedding choice is provisional until spike S5 reports model size, load
   time, per-snippet embed time and memory against `ort`. If `candle` falls
   short, the fallback is `ort` with its dynamic library signed, or downloading

@@ -20,6 +20,7 @@ read the same folder.
 | [placeholders.md](placeholders.md) | The `{{…}}` grammar for snippet bodies and the MVP placeholders |
 | [matching.md](matching.md) | How typed keys become a match: triggers, delimiters, whole word, case, scope, tie-breaks, undo, resets |
 | [expansion-plan.md](expansion-plan.md) | The `ExpansionPlan` a shell's injector executes |
+| [import.md](import.md) | Reading other expanders' files, the macro mapping, what fidelity means, and the interchange formats Aralo writes |
 
 ## Schemas
 
@@ -32,6 +33,7 @@ Machine-readable JSON Schemas (draft 2020-12) live in [`schemas/`](../../schemas
 | [`manifest.schema.json`](../../schemas/manifest.schema.json) | `aralo.yaml` |
 | [`expansion-plan.schema.json`](../../schemas/expansion-plan.schema.json) | `ExpansionPlan` as JSON |
 | [`compat.schema.json`](../../schemas/compat.schema.json) | The app compatibility table, `data/compat/apps.toml` ([architecture](../architecture.md#the-compatibility-table)) |
+| [`export.schema.json`](../../schemas/export.schema.json) | The interchange document `aralo export` writes ([import.md](import.md)) |
 
 The library files are YAML and the compatibility table is TOML; the schemas
 apply to the data after parsing. The `$id` values use the placeholder domain
@@ -48,6 +50,7 @@ section 5.2) and not written yet.
 | Matching | `crates/aralo-engine` |
 | Placeholder grammar, static rendering, `ExpansionPlan` | `crates/aralo-template` |
 | Walking the folder, resolving inheritance, atomic writes | `crates/aralo-library` |
+| Reading other expanders' files, the import report, the interchange formats | `crates/aralo-import` |
 
 Where this specification and the code disagree, that is a bug in one of them.
 Please open an issue. Until format v1, the code is what a library is tested
@@ -87,5 +90,7 @@ The project is pre-alpha. This table is the honest state of format v0.
 | Placeholder parsing (`{{…}}`, options, escapes, diagnostics) | Implemented in `aralo-template`, without `{{if}}` blocks |
 | Placeholder evaluation (dates, clipboard, fields, nested snippets, AI) | Specified. Not implemented; the evaluator lands in milestone M3. Today a placeholder is inserted as its source text |
 | Folder walking, inheritance, `enabled`, skipped names, duplicate and missing IDs, atomic writes | Implemented in `aralo-library`, with tests |
-| Folder watching, the search index, conflict merging | Specified in the plan. Not implemented; planned for M2 |
+| Import (TextExpander, CSV, JSON, YAML), the import report, export to JSON, YAML and CSV | Implemented in `aralo-import`, with a golden corpus and a fidelity harness ([import.md](import.md)) |
+| Folder watching, the search index | Implemented in `aralo-library`, with tests. Not yet wired into `aralo-core` |
+| Conflict merging | Specified in the plan. Not implemented; planned for M2 |
 | `type` values other than `text` | Accepted, stored and reported. Such a snippet gets no abbreviations yet |

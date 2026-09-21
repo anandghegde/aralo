@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>groupName</key>
+	<string>Work</string>
+	<key>snippetsTE2</key>
+	<array>
+		<dict>
+			<key>abbreviation</key>
+			<string>;mtg</string>
+			<key>label</key>
+			<string>Move a meeting</string>
+			<key>plainText</key>
+			<string>Hi %filltext:name=Name%,
+
+Could we move our meeting to %filltext:name=Day:default=Monday%?</string>
+			<key>snippetType</key>
+			<integer>0</integer>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;status</string>
+			<key>label</key>
+			<string>Project status</string>
+			<key>plainText</key>
+			<string>Status this week: %fillpopup:name=Status:default=Green%Amber%Red%</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;wsig</string>
+			<key>label</key>
+			<string>Work signature</string>
+			<key>plainText</key>
+			<string>Sam Lawson
+Acme Ltd
+someone@acme.example</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;ooo</string>
+			<key>label</key>
+			<string>Out of office</string>
+			<key>plainText</key>
+			<string>I am away from the office and reading email once a day. For anything
+urgent, please contact the support team.</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;std</string>
+			<key>label</key>
+			<string>Standup line</string>
+			<key>plainText</key>
+			<string>Yesterday:
+Today:
+Blocked: no</string>
+		</dict>
+		<dict>
+			<key>abbreviation</key>
+			<string>;close</string>
+			<key>label</key>
+			<string>Close a thread</string>
+			<key>plainText</key>
+			<string>Closing this off. Shout if it comes back.
+
+%snippet:;wsig%</string>
+		</dict>
+	</array>
+	<key>groups</key>
+	<array>
+		<dict>
+			<key>groupName</key>
+			<string>Email</string>
+			<key>snippetsTE2</key>
+			<array>
+				<dict>
+					<key>abbreviation</key>
+					<string>;intro</string>
+					<key>label</key>
+					<string>Introduction</string>
+					<key>plainText</key>
+					<string>Thanks for getting in touch. I look after the tooling side here, so
+your question landed in the right place.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;follow</string>
+					<key>label</key>
+					<string>Follow up</string>
+					<key>plainText</key>
+					<string>Hi %filltext:name=Name%, just following up on this one.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;thanks</string>
+					<key>plainText</key>
+					<string>Thanks very much for the quick turnaround on this.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;nda</string>
+					<key>label</key>
+					<string>NDA line</string>
+					<key>plainText</key>
+					<string>Everything below is under the NDA we signed in March.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;cal</string>
+					<key>label</key>
+					<string>Propose a time</string>
+					<key>plainText</key>
+					<string>Does %filltext:name=Day:default=Tuesday% at %filltext:name=Time:default=14:00% work for you?</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;ack</string>
+					<key>plainText</key>
+					<string>Got it, thank you. I will come back to you by the end of the day.</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>groupName</key>
+			<string>Support</string>
+			<key>snippetsTE2</key>
+			<array>
+				<dict>
+					<key>abbreviation</key>
+					<string>;tick</string>
+					<key>label</key>
+					<string>Ticket reference</string>
+					<key>plainText</key>
+					<string>Your ticket is %filltext:name=Number%. Please quote it in any reply.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;esc</string>
+					<key>label</key>
+					<string>Escalation</string>
+					<key>plainText</key>
+					<string>I have escalated this to the on-call engineer and will update you
+within the hour.</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;steps</string>
+					<key>label</key>
+					<string>Ask for steps</string>
+					<key>plainText</key>
+					<string>Could you tell me what you did just before this happened, and what
+you expected to see instead?</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;notes</string>
+					<key>label</key>
+					<string>Case notes</string>
+					<key>plainText</key>
+					<string>Case notes:
+%fillarea:name=Notes%</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;form</string>
+					<key>label</key>
+					<string>Fill the contact form</string>
+					<key>plainText</key>
+					<string>%filltext:name=Name%%key:tab%%filltext:name=Email%</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;wait</string>
+					<key>label</key>
+					<string>Two lines, slowly</string>
+					<key>plainText</key>
+					<string>Step one%delay:500%Step two</string>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;stamp</string>
+					<key>label</key>
+					<string>Shell time stamp</string>
+					<key>plainText</key>
+					<string>date +%%Y-%%m-%%d</string>
+					<key>snippetType</key>
+					<integer>3</integer>
+				</dict>
+				<dict>
+					<key>abbreviation</key>
+					<string>;logo</string>
+					<key>label</key>
+					<string>Company logo</string>
+					<key>snippetType</key>
+					<integer>1</integer>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

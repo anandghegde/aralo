@@ -1,6 +1,6 @@
 [package]
 name = "aralo-import"
-description = "Importers and the import report (M5)."
+description = "Importers, the import report, and the interchange formats Aralo exports."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,18 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+aralo-library = { workspace = true }
+aralo-snippet = { workspace = true }
+aralo-template = { workspace = true }
+csv = { workspace = true }
+plist = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
