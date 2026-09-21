@@ -21,7 +21,17 @@ public final class AraloService {
 
     public var onStateChange: (@MainActor (State) -> Void)?
 
+    /// The library changed: someone edited a file, or the app itself saved
+    /// one. A window that lists snippets redraws from this rather than asking
+    /// on a timer.
+    public var onLibraryChange: (@MainActor (LibraryEvent) -> Void)?
+
+    /// The main window's model, once the library is open. Nil while the core
+    /// has not loaded, which is the only state with no library to show.
+    public private(set) var library: LibraryStore?
+
     public let libraryURL: URL
+    public let cacheURL: URL
     private var core: Core?
     private var tap: EventTap?
     private var secureInput: SecureInputMonitor?
@@ -30,8 +40,9 @@ public final class AraloService {
     private var pauseHotKey: GlobalHotKey?
     private var permissionTimer: Timer?
 
-    public init(libraryURL: URL) {
+    public init(libraryURL: URL, cacheURL: URL = AraloService.defaultCacheURL) {
         self.libraryURL = libraryURL
+        self.cacheURL = cacheURL
     }
 
     /// Where the library lives unless the user chose somewhere else: a visible
@@ -44,6 +55,18 @@ public final class AraloService {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Aralo", isDirectory: true)
     }
 
+    /// Where the search index and the rest of what Aralo can rebuild goes.
+    /// Nothing in here is the user's work: deleting it costs a rebuild.
+    public static var defaultCacheURL: URL {
+        if let override = ProcessInfo.processInfo.environment["ARALO_STATE"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return support.appendingPathComponent("Aralo", isDirectory: true)
+    }
+
     /// A compatibility table to use instead of the one built into the core,
     /// for measuring an app without rebuilding. Nothing a user sets.
     public static var compatTableOverride: String? {
@@ -53,6 +76,10 @@ public final class AraloService {
 
     /// Why the override was refused. The built-in table is in use when set.
     public private(set) var compatTableProblem: String?
+
+    /// Why the last read of the folder failed, when one did. The library that
+    /// was loaded stays in use, so this is something to show, not a stop.
+    public private(set) var libraryProblem: String?
 
     /// Who holds secure input, while `state` is `.secureInput`.
     public var secureInputHolder: SecureInputHolder? { secureInput?.holder }
@@ -70,10 +97,15 @@ public final class AraloService {
     public var isPaused: Bool { core?.engine().isPaused() ?? false }
 
     public func start() {
+        let watcher = LibraryWatcher { [weak self] event in
+            Task { @MainActor in self?.libraryChanged(event) }
+        }
         do {
-            core = try Core.openLibrary(path: libraryURL.path)
+            let core = try Core.openLibrary(path: libraryURL.path, cache: cacheURL.path, events: watcher)
+            self.core = core
+            library = LibraryStore(core: core)
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(error.reason)
             return
         }
         loadCompatTable()
@@ -92,11 +124,27 @@ public final class AraloService {
     public func reloadLibrary() {
         do {
             try core?.reload()
+            library?.refresh()
             loadCompatTable()
             refreshState()
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(error.reason)
         }
+    }
+
+    /// The core watches the folder, so a reload is only for a user who would
+    /// rather be sure, or for a folder that arrived while Aralo was not
+    /// looking.
+    private func libraryChanged(_ event: LibraryEvent) {
+        if case .failed(let message) = event {
+            libraryProblem = message
+        } else {
+            libraryProblem = nil
+        }
+        // The window's model first, so that a menu or a view woken by
+        // `onLibraryChange` reads a list that already has the change in it.
+        library?.libraryChanged(event)
+        onLibraryChange?(event)
     }
 
     private func inputSourceChanged() {
@@ -123,7 +171,7 @@ public final class AraloService {
             try core.loadCompatTable(path: path)
             compatTableProblem = nil
         } catch {
-            compatTableProblem = error.localizedDescription
+            compatTableProblem = error.reason
         }
     }
 
@@ -192,5 +240,20 @@ public final class AraloService {
         } else {
             state = isPaused ? .paused : .active
         }
+    }
+}
+
+/// The core's end of `onLibraryChange`. Rust calls this on the thread that
+/// watches the folder, so it does nothing but hand the event to the main actor
+/// and return: the watch reports nothing else until it does.
+private final class LibraryWatcher: CoreEvents, @unchecked Sendable {
+    private let handler: @Sendable (LibraryEvent) -> Void
+
+    init(handler: @escaping @Sendable (LibraryEvent) -> Void) {
+        self.handler = handler
+    }
+
+    func libraryChanged(event: LibraryEvent) {
+        handler(event)
     }
 }

@@ -80,8 +80,8 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
 | `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser and static plans. The evaluator is M3 |
 | `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search; later merge | Load, write, watch, index and search. Merging is the rest of M2 |
-| `aralo-core` | The facade the shells talk to | M1 slice: open, expand, simulate. Plus M2's import, export and search |
-| `aralo-ffi` | UniFFI bridge to Swift | M1 slice |
+| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, and the runtime that watches and indexes |
+| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange and change events |
 | `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export` | M1 and the M2 import and search slices |
 | `aralo-ai` | Gateway, network guard, framing, profiles | Empty, M4 |
 | `aralo-providers` | Provider adapters | Empty, M4 |
@@ -162,10 +162,12 @@ On first launch a four-step window says what Aralo reads and never keeps,
 walks through the Accessibility and Input Monitoring grants that macOS
 requires before any app may watch and post keys, and ends in a field where
 you try a snippet. Control+Option+Command+P pauses from any app. It keeps its library in `~/Aralo` and
-writes the starter snippets there if the folder is new. Set `ARALO_LIBRARY` to
-use another folder, and `ARALO_COMPAT` to try a compatibility table other
-than the built-in `data/compat/apps.toml`. Then type `ty` and a space in any
-text field. A local
+writes the starter snippets there if the folder is new; the search index and
+the rest of what it can rebuild go in `~/Library/Application Support/Aralo`.
+Set `ARALO_LIBRARY` to use another folder, `ARALO_STATE` to put the
+rebuildable files somewhere else, and `ARALO_COMPAT` to try a compatibility
+table other than the built-in `data/compat/apps.toml`. Then type `ty` and a
+space in any text field. A local
 build is ad-hoc signed, so macOS forgets the permission after a rebuild. To
 keep it, sign with a certificate from your keychain:
 `make run SIGN_IDENTITY="Your Certificate"`.
@@ -228,9 +230,24 @@ own saves from everyone else's by content hash, and a SQLite index with FTS5
 that syncs incrementally. `crates/aralo-library/tests/index.rs` asserts that an
 incremental sync lands exactly where a rebuild lands, and that ten thousand
 snippets index on a background thread while an abbreviation expands on the
-main one. Neither is wired into `aralo-core` yet; that comes with the core
-runtime and the editor. See
-[the folder store](docs/architecture.md#the-folder-store).
+main one.
+
+Both now run under `aralo_core::Runtime`, which is what a shell holds for the
+lifetime of the app: edit a file in any text editor and the next keystroke
+matches it, without the app asking. The editing calls are on the bridge
+alongside them — create, save, move and delete a snippet or a group, with the
+draft checks an editor shows before it saves.
+
+The window that uses them opens from the menu bar: a group tree, the snippets
+in the selected group with a search box over them, and an editor with the
+snippet's settings shown against what its groups make of them, plus a live
+preview. Every change it makes lands as a readable file diff. What it shows is
+`LibraryStore` in AraloKit, which is the model a second shell would keep; the
+SwiftUI views above it hold nothing a Windows one would have to write again.
+The highlighting body editor is the next task. See
+[the snippet window](docs/architecture.md#the-snippet-window),
+[the folder store](docs/architecture.md#the-folder-store) and
+[the bridge API](docs/architecture.md#bridge-api).
 
 Seven spikes (S1 to S7) are still owed in M0. They are listed in
 [docs/adr/README.md](docs/adr/README.md).

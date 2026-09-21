@@ -20,7 +20,7 @@
 //!
 //! [ADR-0006]: ../../../docs/adr/0006-files-as-source-of-truth.md
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -31,7 +31,7 @@ use crate::{Library, LoadedSnippet};
 
 /// Bumped whenever a derived table changes shape. An index written by an older
 /// Aralo is dropped and rebuilt rather than migrated: it is a cache.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// Column weights for `bm25`, in the order the FTS table declares them. An
 /// abbreviation is what the user types, so it outranks a label, and both
@@ -163,14 +163,18 @@ impl Index {
              ) STRICT;
              CREATE INDEX snippets_by_group ON snippets (group_path);
 
-             -- The folder tree as the loaded snippets describe it. The colour,
-             -- icon and enable toggle from `_group.yaml` join it in task 2.2.
+             -- The folder tree, with what each folder's `_group.yaml` says about
+             -- itself. `enabled` is the resolved value: off is sticky, so a
+             -- group inside a group that is off is off here too.
              CREATE TABLE groups (
                  path     TEXT PRIMARY KEY,
                  name     TEXT NOT NULL,
                  parent   TEXT NOT NULL,
                  depth    INTEGER NOT NULL,
-                 snippets INTEGER NOT NULL
+                 snippets INTEGER NOT NULL,
+                 colour   TEXT,
+                 icon     TEXT,
+                 enabled  INTEGER NOT NULL
              ) STRICT;
 
              -- Not an external-content table: the rows are small and written
@@ -380,18 +384,23 @@ impl Index {
             lines.push(line);
         }
 
-        let mut groups = self
-            .connection
-            .prepare("SELECT path, name, parent, depth, snippets FROM groups ORDER BY path")?;
+        let mut groups = self.connection.prepare(
+            "SELECT path, name, parent, depth, snippets,
+                    COALESCE(colour, ''), COALESCE(icon, ''), enabled
+             FROM groups ORDER BY path",
+        )?;
         let mut rows = groups.query([])?;
         while let Some(row) = rows.next()? {
             lines.push(format!(
-                "group\t{}\t{}\t{}\t{}\t{}",
+                "group\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 escape(&row.get::<_, String>(0)?),
                 escape(&row.get::<_, String>(1)?),
                 escape(&row.get::<_, String>(2)?),
                 row.get::<_, i64>(3)?,
                 row.get::<_, i64>(4)?,
+                escape(&row.get::<_, String>(5)?),
+                escape(&row.get::<_, String>(6)?),
+                row.get::<_, i64>(7)?,
             ));
         }
 
@@ -500,39 +509,29 @@ fn put(transaction: &Transaction<'_>, snippet: &LoadedSnippet) -> Result<(), Ind
 }
 
 fn write_groups(transaction: &Transaction<'_>, library: &Library) -> Result<(), IndexError> {
-    // Every folder that holds a snippet, and every folder above it, so a group
-    // that only contains other groups is still in the tree.
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for snippet in library.snippets() {
-        for depth in 1..=snippet.group.len() {
-            counts
-                .entry(snippet.group[..depth].join("/"))
-                .or_insert_with(|| 0);
-        }
-        if !snippet.group.is_empty() {
-            *counts
-                .get_mut(&snippet.group.join("/"))
-                .expect("the snippet's own group was just inserted") += 1;
-        }
-    }
-
+    // Every folder the loader walked, the root excepted: it is the library, not
+    // a group anyone picks from a list.
     transaction.execute_batch("DELETE FROM groups;")?;
-    for (path, snippets) in counts {
-        let (parent, name) = match path.rsplit_once('/') {
-            Some((parent, name)) => (parent, name),
-            None => ("", path.as_str()),
-        };
+    for group in library.groups() {
+        if group.path.is_empty() {
+            continue;
+        }
+        let path = group.path.join("/");
+        let parent = group.path[..group.path.len() - 1].join("/");
         transaction
             .prepare_cached(
-                "INSERT INTO groups (path, name, parent, depth, snippets)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO groups (path, name, parent, depth, snippets, colour, icon, enabled)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?
             .execute(params![
                 path,
-                name,
+                group.name,
                 parent,
-                path.split('/').count() as i64,
-                snippets as i64,
+                group.path.len() as i64,
+                group.snippets as i64,
+                group.colour,
+                group.icon,
+                i64::from(group.enabled),
             ])?;
     }
     Ok(())

@@ -37,6 +37,11 @@ fn library(root: &Path) -> Library {
         "Personal/no-label.md",
         "---\nabbr: \";addr\"\n---\n12 Example Street\n",
     );
+    write(
+        root,
+        "Work/_group.yaml",
+        "colour: \"#3478F6\"\nicon: briefcase\n",
+    );
     Library::load(root).unwrap()
 }
 
@@ -245,13 +250,56 @@ fn the_group_tree_follows_the_folders() {
     assert_eq!(
         groups,
         [
-            // path, name, parent, depth, snippets directly inside
-            "group\tPersonal\tPersonal\t\t1\t2",
-            "group\tWork\tWork\t\t1\t1",
+            // path, name, parent, depth, snippets directly inside, colour,
+            // icon, enabled
+            "group\tPersonal\tPersonal\t\t1\t2\t\t\t1",
+            "group\tWork\tWork\t\t1\t1\t#3478F6\tbriefcase\t1",
             // A group that only holds other groups is still in the tree.
-            "group\tWork/Billing\tBilling\tWork\t2\t1",
+            "group\tWork/Billing\tBilling\tWork\t2\t1\t\t\t1",
         ]
     );
+}
+
+#[test]
+fn a_group_that_is_switched_off_switches_off_the_groups_inside_it() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    library(root);
+    write(
+        root,
+        "Work/_group.yaml",
+        "name: Client work
+enabled: false
+",
+    );
+    // A sub-group cannot switch itself back on.
+    write(
+        root,
+        "Work/Billing/_group.yaml",
+        "enabled: true
+",
+    );
+    let library = Library::load(root).unwrap();
+    let index = indexed(&library);
+
+    let groups: Vec<String> = index
+        .rows()
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.starts_with("group\t"))
+        .collect();
+    assert_eq!(
+        groups,
+        [
+            "group\tPersonal\tPersonal\t\t1\t2\t\t\t1",
+            "group\tWork\tClient work\t\t1\t1\t\t\t0",
+            "group\tWork/Billing\tBilling\tWork\t2\t1\t\t\t0",
+        ]
+    );
+
+    // And the snapshot the engine matches on has lost their abbreviations.
+    let (snapshot, _) = library.snapshot();
+    assert_eq!(snapshot.len(), 1, "only Personal/no-label.md is left");
 }
 
 #[test]

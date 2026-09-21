@@ -7,6 +7,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let service: AraloService
     /// Opens the first-run flow, at whatever still needs doing.
     var onSetUp: (() -> Void)?
+    /// Opens the window the snippets are edited in.
+    var onShowLibrary: (() -> Void)?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
     init(service: AraloService) {
@@ -70,6 +72,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             entry.toolTip = problem
             menu.addItem(entry)
         }
+        let snippets = command("Snippets\u{2026}", #selector(showLibrary))
+        snippets.keyEquivalent = ","
+        snippets.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(snippets)
         menu.addItem(command("Open Library Folder", #selector(openLibrary)))
         menu.addItem(command("Reload Library", #selector(reloadLibrary)))
         menu.addItem(.separator())
@@ -109,4 +115,5 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func reloadLibrary() { service.reloadLibrary() }
     @objc private func openLibrary() { NSWorkspace.shared.open(service.libraryURL) }
     @objc private func setUp() { onSetUp?() }
+    @objc private func showLibrary() { onShowLibrary?() }
 }

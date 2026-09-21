@@ -13,6 +13,16 @@ final class DataTests: XCTestCase {
 
     private func file(_ path: String) -> URL { Self.root.appendingPathComponent(path) }
 
+    /// The matrix library, with its index in a folder the test throws away.
+    /// The repository's fixture is read; nothing is written beside it.
+    private func matrixLibrary() throws -> Core {
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: cache) }
+        return try Core.openLibrary(
+            path: file("fixtures/matrix/library").path, cache: cache.path, events: nil
+        )
+    }
+
     func testEveryAppOfTheTableHasARecipeAndNoRecipeIsLeftOver() throws {
         let book = try RecipeBook.load(file("data/compat/matrix.json"))
         let apps = try Set(compatApps(path: nil).map { $0.bundleId.lowercased() })
@@ -40,7 +50,7 @@ final class DataTests: XCTestCase {
     }
 
     func testTheCoreSaysWhatEachCaseExpandsTo() throws {
-        let core = try Core.openLibrary(path: file("fixtures/matrix/library").path)
+        let core = try matrixLibrary()
         let engine = core.engine()
 
         engine.setFrontApp(bundleId: "com.apple.TextEdit")
@@ -64,7 +74,7 @@ final class DataTests: XCTestCase {
     }
 
     func testEveryCaseHasASnippetInTheMatrixLibrary() throws {
-        let core = try Core.openLibrary(path: file("fixtures/matrix/library").path)
+        let core = try matrixLibrary()
         let abbreviations = Set(core.snippets().flatMap(\.abbreviations))
         XCTAssertEqual(abbreviations, Set(MatrixCase.allCases.map(\.abbreviation)))
     }
@@ -78,7 +88,7 @@ final class DataTests: XCTestCase {
             let table = try XCTUnwrap(config.table(undo: "backspace"))
             let path = folder.appendingPathComponent("\(config.rawValue).toml")
             try Data(table.utf8).write(to: path)
-            let core = try Core.openLibrary(path: file("fixtures/matrix/library").path)
+            let core = try matrixLibrary()
             try core.loadCompatTable(path: path.path)
             core.engine().setFrontApp(bundleId: "com.apple.Terminal")
             let profile = core.engine().injectionProfile()

@@ -66,7 +66,10 @@ pub struct OwnWrites {
 
 #[derive(Debug)]
 struct Write {
-    hash: blake3::Hash,
+    /// What Aralo put there, or `None` when it took the file away. Absence is
+    /// content too, and recording it is what keeps a delete from looking like
+    /// someone else's.
+    hash: Option<blake3::Hash>,
     at: Instant,
 }
 
@@ -78,6 +81,18 @@ impl OwnWrites {
     /// Remembers that Aralo has just written `contents` to the absolute path
     /// `path`.
     pub fn record(&self, path: &Path, contents: &[u8]) {
+        self.push(path, Some(blake3::hash(contents)));
+    }
+
+    /// Remembers that Aralo is about to remove `path`, so the event that
+    /// removal provokes is recognised as Aralo's own. The record is honoured
+    /// only while the file really is gone: if anything puts one back at that
+    /// path, the event describes someone else's file and is reported.
+    pub fn record_removal(&self, path: &Path) {
+        self.push(path, None);
+    }
+
+    fn push(&self, path: &Path, hash: Option<blake3::Hash>) {
         // A poisoned lock means a panic inside one of these short critical
         // sections. There is nothing to recover, and the only cost of giving
         // up is one reindex that was not needed.
@@ -86,7 +101,7 @@ impl OwnWrites {
         };
         expire(&mut pending);
         pending.entry(key(path)).or_default().push(Write {
-            hash: blake3::hash(contents),
+            hash,
             at: Instant::now(),
         });
     }
@@ -100,16 +115,13 @@ impl OwnWrites {
         pending.values().map(Vec::len).sum()
     }
 
-    /// True when `path` still holds exactly what Aralo wrote there, which makes
-    /// the event that brought us here Aralo's own. The record is spent: a
-    /// second event for the same write is reported, because by then the bytes
-    /// on disk are someone else's doing.
+    /// True when `path` still holds exactly what Aralo wrote there, or is gone
+    /// and Aralo is what took it away. Either makes the event that brought us
+    /// here Aralo's own. The record is spent: a second event for the same write
+    /// is reported, because by then the bytes on disk are someone else's doing.
     fn claim(&self, path: &Path) -> bool {
         let path = key(path);
-        let Ok(contents) = fs::read(&path) else {
-            return false;
-        };
-        let hash = blake3::hash(&contents);
+        let hash = fs::read(&path).ok().map(|contents| blake3::hash(&contents));
         let Ok(mut pending) = self.pending.lock() else {
             return false;
         };
@@ -420,11 +432,36 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_file_is_never_claimed() {
+    fn a_missing_file_is_never_claimed_for_a_write() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("gone.md");
         let writes = OwnWrites::new();
         writes.record(&path, b"anything");
+        assert!(!writes.claim(&path));
+    }
+
+    #[test]
+    fn a_removal_aralo_made_is_claimed_once() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("note.md");
+        fs::write(&path, b"going").unwrap();
+
+        let writes = OwnWrites::new();
+        writes.record_removal(&path);
+        fs::remove_file(&path).unwrap();
+        assert!(writes.claim(&path), "Aralo is what took the file away");
+        assert!(!writes.claim(&path), "the record is spent");
+    }
+
+    #[test]
+    fn a_file_put_back_where_aralo_deleted_one_is_someone_elses() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("note.md");
+        let writes = OwnWrites::new();
+
+        writes.record_removal(&path);
+        // A sync client delivered the file again before the event arrived.
+        fs::write(&path, b"restored from the cloud").unwrap();
         assert!(!writes.claim(&path));
     }
 

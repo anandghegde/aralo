@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use aralo_engine::{Abbreviation, Rejection, Snapshot, SnapshotBuilder};
-use aralo_snippet::{Manifest, SnippetFile, SnippetId, SnippetKind};
+use aralo_snippet::{GroupFile, Manifest, SnippetFile, SnippetId, SnippetKind, GROUP_FILE_NAME};
 
 pub use index::{Index, IndexError, Indexed, Recent, Stats};
 pub use search::{Field, Hit, Query, Searcher};
@@ -67,6 +67,7 @@ pub struct Library {
     root: PathBuf,
     manifest: Option<Manifest>,
     snippets: Vec<LoadedSnippet>,
+    groups: Vec<LoadedGroup>,
     by_id: HashMap<SnippetId, usize>,
     diagnostics: Vec<Diagnostic>,
     /// What Aralo has saved here, so a watch on this folder can ignore its own
@@ -101,6 +102,34 @@ impl LoadedSnippet {
         }
         self.file.body.lines().next().unwrap_or_default()
     }
+}
+
+/// One folder of the library, with its `_group.yaml` resolved.
+///
+/// The library root is a group too, with an empty path: it is where the
+/// defaults every other group inherits are set.
+#[derive(Debug, Clone)]
+pub struct LoadedGroup {
+    /// Folder names from the root down. Empty is the root itself.
+    pub path: Vec<String>,
+    /// The folder's path from the root, for writing into it.
+    pub folder: PathBuf,
+    /// What to call it: `name` from `_group.yaml`, else the folder's own name.
+    pub name: String,
+    pub colour: Option<String>,
+    pub icon: Option<String>,
+    /// False when this group or any group above it is switched off.
+    pub enabled: bool,
+    /// The file as it is on disk, so an editor can change one key and write the
+    /// rest back untouched. Default when the folder has no `_group.yaml`.
+    pub file: GroupFile,
+    /// True when the folder has a `_group.yaml` of its own. A group without one
+    /// is still a group; it just inherits everything.
+    pub has_file: bool,
+    /// Trigger, case, scope and the rest, as this group's snippets see them.
+    pub settings: Settings,
+    /// Snippets directly in this folder, not counting its sub-groups.
+    pub snippets: usize,
 }
 
 /// Something in the folder that needs the user's attention.
@@ -205,15 +234,162 @@ impl Library {
                 path: path.clone(),
                 source,
             })?;
+        self.write_recorded(&path, text.as_bytes())
+    }
+
+    /// Writes `_group.yaml` for the group folder at `relative_folder`,
+    /// atomically and recorded, exactly as [`Library::write_snippet`] does.
+    /// The root's own group file takes an empty path.
+    pub fn write_group(
+        &self,
+        relative_folder: &Path,
+        file: &GroupFile,
+    ) -> Result<(), LibraryError> {
+        let path = self.root.join(relative_folder).join(GROUP_FILE_NAME);
+        let text = file
+            .to_file_string()
+            .map_err(|source| LibraryError::Serialise {
+                path: path.clone(),
+                source,
+            })?;
+        self.write_recorded(&path, text.as_bytes())
+    }
+
+    /// Creates the folder for a group, and every folder above it. A group is a
+    /// folder, so an empty one needs no file of its own.
+    pub fn create_group(&self, relative_folder: &Path) -> Result<(), LibraryError> {
+        let path = self.root.join(relative_folder);
+        std::fs::create_dir_all(&path).map_err(|source| LibraryError::Write { path, source })
+    }
+
+    /// Removes one file, recording the removal so the watcher knows whose it
+    /// was. A file that has already gone is not an error: the folder is in the
+    /// state the caller asked for.
+    ///
+    /// The file is unlinked, not moved to the trash. A shell with somewhere
+    /// kinder to put it should move the file itself and call
+    /// [`Library::reload`]; the extra reload the watcher then causes is the
+    /// price of not going through here.
+    pub fn remove_file(&self, relative_path: &Path) -> Result<(), LibraryError> {
+        let path = self.root.join(relative_path);
+        self.writes.record_removal(&path);
+        match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(LibraryError::Write { path, source }),
+        }
+    }
+
+    /// Removes a group folder and everything in it, recording every file it
+    /// takes away. Returns the paths removed, relative to the root.
+    ///
+    /// This deletes the user's snippets. The caller is the one that knows
+    /// whether that was asked for; [`Library::snippets`] filtered by group says
+    /// how many there are to warn about.
+    pub fn remove_group(&self, relative_folder: &Path) -> Result<Vec<PathBuf>, LibraryError> {
+        let path = self.root.join(relative_folder);
+        if relative_folder.as_os_str().is_empty() {
+            return Err(LibraryError::Write {
+                path,
+                source: std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "the library root is not a group that can be removed",
+                ),
+            });
+        }
+        let removed = self.record_removals_under(&path, relative_folder)?;
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => Ok(removed),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(removed),
+            Err(source) => Err(LibraryError::Write { path, source }),
+        }
+    }
+
+    /// Moves a file or a group folder inside the library, creating whatever
+    /// folders the destination needs. Every file that moves is recorded gone
+    /// from where it was and written where it landed, so a move the user made
+    /// in Aralo does not come back through the watcher as someone else's.
+    pub fn move_path(&self, from: &Path, to: &Path) -> Result<(), LibraryError> {
+        let source_path = self.root.join(from);
+        let target_path = self.root.join(to);
+        if source_path == target_path {
+            return Ok(());
+        }
+        if target_path.exists() {
+            return Err(LibraryError::Write {
+                path: target_path,
+                source: std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "something is already there",
+                ),
+            });
+        }
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| LibraryError::Write {
+                path: parent.to_owned(),
+                source,
+            })?;
+        }
+        self.record_move(&source_path, &target_path)?;
+        std::fs::rename(&source_path, &target_path).map_err(|source| LibraryError::Write {
+            path: target_path,
+            source,
+        })
+    }
+
+    /// Records every file that a move is about to take from `source_path` and
+    /// put at `target_path`, on both sides. Reading each file is what makes the
+    /// record exact; a folder move is rare enough to afford it, and the reload
+    /// that follows would read them all anyway.
+    fn record_move(&self, source_path: &Path, target_path: &Path) -> Result<(), LibraryError> {
+        let mut files = Vec::new();
+        collect_files(source_path, &mut files).map_err(|source| LibraryError::Unreadable {
+            path: source_path.to_owned(),
+            source,
+        })?;
+        for file in files {
+            let Ok(within) = file.strip_prefix(source_path) else {
+                continue;
+            };
+            self.writes.record_removal(&file);
+            if let Ok(contents) = std::fs::read(&file) {
+                self.writes.record(&target_path.join(within), &contents);
+            }
+        }
+        Ok(())
+    }
+
+    fn record_removals_under(
+        &self,
+        path: &Path,
+        relative_folder: &Path,
+    ) -> Result<Vec<PathBuf>, LibraryError> {
+        let mut files = Vec::new();
+        collect_files(path, &mut files).map_err(|source| LibraryError::Unreadable {
+            path: path.to_owned(),
+            source,
+        })?;
+        let mut removed = Vec::new();
+        for file in &files {
+            self.writes.record_removal(file);
+            if let Ok(within) = file.strip_prefix(path) {
+                removed.push(relative_folder.join(within));
+            }
+        }
+        removed.sort();
+        Ok(removed)
+    }
+
+    fn write_recorded(&self, path: &Path, contents: &[u8]) -> Result<(), LibraryError> {
         let write_error = |source| LibraryError::Write {
-            path: path.clone(),
+            path: path.to_owned(),
             source,
         };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(write_error)?;
         }
-        self.writes.record(&path, text.as_bytes());
-        write_atomic(&path, text.as_bytes()).map_err(write_error)
+        self.writes.record(path, contents);
+        write_atomic(path, contents).map_err(write_error)
     }
 
     pub fn root(&self) -> &Path {
@@ -231,6 +407,16 @@ impl Library {
 
     pub fn snippet(&self, id: SnippetId) -> Option<&LoadedSnippet> {
         self.by_id.get(&id).map(|&index| &self.snippets[index])
+    }
+
+    /// Every folder of the library in tree order, the root first.
+    pub fn groups(&self) -> &[LoadedGroup] {
+        &self.groups
+    }
+
+    /// One group by its path from the root. An empty path is the root.
+    pub fn group(&self, path: &[String]) -> Option<&LoadedGroup> {
+        self.groups.iter().find(|group| group.path == path)
     }
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
@@ -281,4 +467,20 @@ impl Library {
             },
         }
     }
+}
+
+/// Every file under `path`, following no symbolic links to folders. A path that
+/// is a file is the one entry; a path that is not there yields none.
+fn collect_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !metadata.is_dir() {
+        out.push(path.to_owned());
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(path)? {
+        collect_files(&entry?.path(), out)?;
+    }
+    Ok(())
 }

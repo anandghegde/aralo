@@ -2,23 +2,36 @@
 //!
 //! Two objects cross the bridge. [`Engine`] is the keystroke path: one call per
 //! key, one short lock, no file access. [`Core`] is everything else. They share
-//! the open library, so a match comes back from `on_key` with its plan already
-//! built and the shell never makes a second call while a key is waiting.
+//! one [`aralo_core::Runtime`], so a match comes back from `on_key` with its
+//! plan already built and the shell never makes a second call while a key is
+//! waiting.
+//!
+//! The library is watched and indexed for as long as the [`Core`] lives. A
+//! change, whoever made it, reaches the matcher before it reaches the shell:
+//! the next keystroke matches what the folder now says even if the shell has
+//! not drawn anything yet.
 //!
 //! Nothing here may panic: a panic would cross the bridge as a crash in the
 //! process that holds the event tap. Locks recover from poisoning instead.
+//!
+//! Where two locks are held at once the library is taken first and the matcher
+//! second, on every thread. The keystroke path takes one at a time, which is
+//! what keeps it out of the way of a save.
 //!
 //! There is no hand-written `unsafe` in this crate. The only `unsafe` is what
 //! `uniffi::setup_scaffolding!` generates, which is why this is the one crate
 //! that does not forbid it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
 use aralo_core::compat;
 use aralo_core::engine as matcher;
-use aralo_core::snippet::SnippetId;
-use aralo_core::{CompatTable, MatchInfo, Step};
+use aralo_core::snippet::{CaseMode, SnippetId, SnippetKind, TriggerMode};
+use aralo_core::{
+    CompatTable, Draft, ExportOptions, Format, ImportOptions, ImportReport, LibraryChange,
+    LibraryListener, MacroPolicy, MatchInfo, Outcome, Query, Runtime, RuntimeOptions, Step,
+};
 
 uniffi::setup_scaffolding!();
 
@@ -28,6 +41,8 @@ pub enum BridgeError {
     Library { message: String },
     #[error("{message}")]
     CompatTable { message: String },
+    #[error("{message}")]
+    Import { message: String },
 }
 
 impl From<aralo_core::CoreError> for BridgeError {
@@ -194,20 +209,39 @@ pub struct LibraryDiagnostic {
     pub message: String,
 }
 
-/// The library both objects share. Swapped whole on reload, so the keystroke
-/// path only ever waits for a pointer swap, never for the disk.
+/// The library both objects share, running: watched, indexed, and read under a
+/// lock the keystroke path only ever holds for the length of one lookup.
 struct Shared {
-    library: RwLock<aralo_core::Core>,
+    runtime: Runtime,
     compat: RwLock<CompatTable>,
 }
 
 impl Shared {
-    fn library(&self) -> RwLockReadGuard<'_, aralo_core::Core> {
-        self.library.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
     fn compat(&self) -> RwLockReadGuard<'_, CompatTable> {
         self.compat.read().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// What the runtime tells the bridge, and what the bridge does about it: the
+/// matcher gets the new snapshot, then the shell is told.
+struct Events {
+    matcher: Arc<Mutex<matcher::Engine>>,
+    shell: Option<Arc<dyn CoreEvents>>,
+}
+
+impl LibraryListener for Events {
+    fn changed(&self, change: LibraryChange, library: &aralo_core::Core) {
+        // The snapshot first, and whether or not anyone is listening: a shell
+        // that shows nothing still expands what the folder says.
+        if !matches!(change, LibraryChange::Indexed { .. }) {
+            self.matcher
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .set_snapshot(library.snapshot());
+        }
+        if let Some(shell) = &self.shell {
+            shell.library_changed(change.into());
+        }
     }
 }
 
@@ -221,7 +255,10 @@ struct FrontApp {
 /// The keystroke path.
 #[derive(uniffi::Object)]
 pub struct Engine {
-    matcher: Mutex<matcher::Engine>,
+    /// Shared with [`Events`], which swaps the snapshot in when the library
+    /// changes. The tap thread and the watch thread both take this lock; both
+    /// hold it for one call.
+    matcher: Arc<Mutex<matcher::Engine>>,
     front_app: Mutex<FrontApp>,
     shared: Arc<Shared>,
 }
@@ -280,11 +317,13 @@ impl Engine {
                 case,
                 trailing,
             } => {
-                let expansion = self.shared.library().expand(MatchInfo {
-                    snippet_id,
-                    delete_count,
-                    case,
-                    trailing,
+                let expansion = self.shared.runtime.read(|core| {
+                    core.expand(MatchInfo {
+                        snippet_id,
+                        delete_count,
+                        case,
+                        trailing,
+                    })
                 });
                 match expansion {
                     Some(expansion) => KeyAction::Expand {
@@ -319,11 +358,14 @@ impl Engine {
         }
     }
 
-    /// Arms undo for the expansion that `on_key` just returned.
+    /// Arms undo for the expansion that `on_key` just returned, and counts it
+    /// towards the recents list. The count is queued, not written here: this is
+    /// called the moment the text lands, and that thread waits for nothing.
     pub fn expansion_done(&self, snippet_id: String, delete_count: u32, method: InsertMethod) {
         let Ok(id) = snippet_id.parse::<SnippetId>() else {
             return;
         };
+        self.shared.runtime.record_expansion(id);
         self.matcher().expansion_done(matcher::ExpansionRecord {
             snippet_id: matcher::SnippetId(id.as_u128()),
             delete_count,
@@ -398,22 +440,47 @@ impl std::fmt::Debug for Core {
 #[uniffi::export]
 impl Core {
     /// Opens the library folder, creating it (with the starter snippets) when
-    /// it does not exist yet.
+    /// it does not exist yet, and starts watching and indexing it.
+    ///
+    /// `cache` is the folder Aralo may keep rebuildable files in — the search
+    /// index, and nothing the user would miss. The shell passes the one its
+    /// platform gives it, because a sandboxed app's is not where an unsandboxed
+    /// one's is; nothing means work it out, which is what the command line
+    /// does. A cache that will not open costs recents and usage counts and
+    /// nothing else: `index_problem` then says why.
+    ///
+    /// `events` is how the shell hears about changes it did not make. A shell
+    /// that passes none still expands: the matcher is brought up to date
+    /// either way.
     #[uniffi::constructor]
-    pub fn open_library(path: String) -> Result<Arc<Self>, BridgeError> {
-        let library = aralo_core::Core::open(&PathBuf::from(path))?;
-        let matcher = library.engine();
+    pub fn open_library(
+        path: String,
+        cache: Option<String>,
+        events: Option<Arc<dyn CoreEvents>>,
+    ) -> Result<Arc<Self>, BridgeError> {
+        let root = PathBuf::from(path);
+        let library = aralo_core::Core::open(&root)?;
+        let matcher = Arc::new(Mutex::new(library.engine()));
+        let listener = Arc::new(Events {
+            matcher: Arc::clone(&matcher),
+            shell: events,
+        });
+        let options = RuntimeOptions {
+            index: cache.map(|cache| aralo_core::state::index_in(Path::new(&cache), &root)),
+            ..RuntimeOptions::default()
+        };
+        let runtime = Runtime::with_core(library, options, listener)?;
         let compat = CompatTable::bundled();
         let front_app = FrontApp {
             bundle_id: String::new(),
             profile: compat.defaults(),
         };
         let shared = Arc::new(Shared {
-            library: RwLock::new(library),
+            runtime,
             compat: RwLock::new(compat),
         });
         let engine = Arc::new(Engine {
-            matcher: Mutex::new(matcher),
+            matcher,
             front_app: Mutex::new(front_app),
             shared: Arc::clone(&shared),
         });
@@ -425,20 +492,14 @@ impl Core {
         Arc::clone(&self.engine)
     }
 
-    /// Reads the folder again and hands the engine the new snapshot. On
-    /// failure the library that was loaded stays in use.
+    /// Reads the folder again. The engine gets the new snapshot and the shell
+    /// hears `Reloaded`; on failure the library that was loaded stays in use.
+    ///
+    /// Nothing has to call this to see an outside change: the watch does. It is
+    /// for a folder that arrived while Aralo was not looking, and for a user
+    /// who would rather be sure.
     pub fn reload(&self) -> Result<(), BridgeError> {
-        let root = self.shared.library().root().to_owned();
-        // Disk work happens with no lock held.
-        let fresh = aralo_core::Core::open_read_only(&root)?;
-        let snapshot = fresh.snapshot();
-        *self
-            .shared
-            .library
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = fresh;
-        self.engine.matcher().set_snapshot(snapshot);
-        Ok(())
+        Ok(self.shared.runtime.reload()?)
     }
 
     /// Replaces the built-in compatibility table with the file at `path`, for
@@ -456,40 +517,557 @@ impl Core {
     }
 
     pub fn library_path(&self) -> String {
-        self.shared.library().root().to_string_lossy().into_owned()
+        self.shared.runtime.root().to_string_lossy().into_owned()
     }
 
     pub fn snippets(&self) -> Vec<SnippetSummary> {
         self.shared
-            .library()
-            .snippets()
-            .iter()
-            .map(|snippet| SnippetSummary {
-                id: snippet.id.to_string(),
-                label: snippet.file.front.label.clone(),
-                abbreviations: snippet.file.front.abbr.clone(),
-                group: snippet.group.clone(),
-                path: snippet.path.to_string_lossy().into_owned(),
-                enabled: snippet.settings.enabled,
-                preview: snippet.file.body.chars().take(PREVIEW_CHARS).collect(),
-            })
-            .collect()
+            .runtime
+            .read(|core| core.snippets().iter().map(summarise).collect())
     }
 
     pub fn diagnostics(&self) -> Vec<LibraryDiagnostic> {
-        self.shared
-            .library()
-            .diagnostics()
-            .map(|diagnostic| {
-                let (level, message) = describe(&diagnostic.issue);
-                LibraryDiagnostic {
-                    path: diagnostic.path.to_string_lossy().into_owned(),
-                    level,
-                    message,
-                }
+        self.shared.runtime.read(|core| {
+            core.diagnostics()
+                .map(|diagnostic| {
+                    let (level, message) = describe(&diagnostic.issue);
+                    LibraryDiagnostic {
+                        path: diagnostic.path.to_string_lossy().into_owned(),
+                        level,
+                        message,
+                    }
+                })
+                .collect()
+        })
+    }
+}
+
+/// The editor: everything that changes the folder, and everything the editor
+/// needs to show before it does.
+///
+/// Every call here writes files and reads the folder again, so what comes back
+/// from `snippets()` next is what a text editor would show. A `Core` with an
+/// `events` listener hears `Edited` for each one.
+#[uniffi::export]
+impl Core {
+    /// Every group in the library, root first, then in folder order.
+    pub fn groups(&self) -> Vec<GroupSummary> {
+        self.shared.runtime.read(|core| {
+            core.library()
+                .groups()
+                .iter()
+                .map(|group| GroupSummary {
+                    path: group.path.clone(),
+                    name: group.name.clone(),
+                    colour: group.colour.clone(),
+                    icon: group.icon.clone(),
+                    enabled: group.enabled,
+                    snippets: group.snippets as u32,
+                })
+                .collect()
+        })
+    }
+
+    /// One snippet, with everything the editor puts on screen. `None` when
+    /// there is no snippet with that ID.
+    pub fn snippet(&self, id: String) -> Option<SnippetDetail> {
+        let id = id.parse::<SnippetId>().ok()?;
+        self.shared.runtime.read(|core| {
+            let snippet = core.library().snippet(id)?;
+            Some(SnippetDetail {
+                id: snippet.id.to_string(),
+                path: snippet.path.to_string_lossy().into_owned(),
+                group: snippet.group.clone(),
+                draft: SnippetDraft::from(&Draft::of(snippet)),
+                resolved: ResolvedSettings {
+                    trigger: match snippet.settings.trigger {
+                        matcher::Trigger::Immediate => Trigger::Immediate,
+                        matcher::Trigger::Delimiter => Trigger::Delimiter,
+                    },
+                    case: match snippet.settings.case {
+                        matcher::CaseMode::Exact => CaseStyle::Exact,
+                        matcher::CaseMode::Ignore => CaseStyle::Ignore,
+                        matcher::CaseMode::Adaptive => CaseStyle::Adaptive,
+                    },
+                    whole_word: snippet.settings.whole_word,
+                    keep_delimiter: snippet.settings.keep_delimiter,
+                    enabled: snippet.settings.enabled,
+                },
+                preview: core.preview(id).unwrap_or_default(),
             })
+        })
+    }
+
+    /// Writes a new snippet into `group` and returns its ID. An empty group is
+    /// the library root.
+    pub fn create_snippet(
+        &self,
+        group: Vec<String>,
+        draft: SnippetDraft,
+    ) -> Result<String, BridgeError> {
+        let draft = Draft::from(&draft);
+        let id = self
+            .shared
+            .runtime
+            .edit(|core| core.create_snippet(&group, &draft))?;
+        Ok(id.to_string())
+    }
+
+    /// Writes `draft` over the snippet `id`, in the file it is already in, and
+    /// returns its ID afterwards. That differs from `id` only for a
+    /// hand-written file that carried none until now.
+    pub fn save_snippet(&self, id: String, draft: SnippetDraft) -> Result<String, BridgeError> {
+        let id = snippet_id(&id)?;
+        let draft = Draft::from(&draft);
+        let saved = self
+            .shared
+            .runtime
+            .edit(|core| core.save_snippet(id, &draft))?;
+        Ok(saved.to_string())
+    }
+
+    /// Removes a snippet's file. It is unlinked, not put in the trash: a shell
+    /// that would rather the user could get it back moves the file itself,
+    /// using `snippet()`'s path, and calls `reload()`.
+    pub fn delete_snippet(&self, id: String) -> Result<(), BridgeError> {
+        let id = snippet_id(&id)?;
+        self.shared.runtime.edit(|core| core.delete_snippet(id))?;
+        Ok(())
+    }
+
+    /// Moves a snippet into another group, keeping its ID.
+    pub fn move_snippet(&self, id: String, group: Vec<String>) -> Result<(), BridgeError> {
+        let id = snippet_id(&id)?;
+        self.shared
+            .runtime
+            .edit(|core| core.move_snippet(id, &group))?;
+        Ok(())
+    }
+
+    pub fn set_snippet_enabled(&self, id: String, enabled: bool) -> Result<(), BridgeError> {
+        let id = snippet_id(&id)?;
+        self.shared
+            .runtime
+            .edit(|core| core.set_snippet_enabled(id, enabled))?;
+        Ok(())
+    }
+
+    /// Creates an empty group: one folder, and no `_group.yaml` until
+    /// something in it is set.
+    pub fn create_group(&self, group: Vec<String>) -> Result<(), BridgeError> {
+        self.shared.runtime.edit(|core| core.create_group(&group))?;
+        Ok(())
+    }
+
+    /// Renames a group's folder and returns its new path from the root.
+    pub fn rename_group(
+        &self,
+        group: Vec<String>,
+        name: String,
+    ) -> Result<Vec<String>, BridgeError> {
+        Ok(self
+            .shared
+            .runtime
+            .edit(|core| core.rename_group(&group, &name))?)
+    }
+
+    /// Moves a group, and everything in it, inside `into`. An empty `into` is
+    /// the library root. Returns its new path.
+    pub fn move_group(
+        &self,
+        group: Vec<String>,
+        into: Vec<String>,
+    ) -> Result<Vec<String>, BridgeError> {
+        Ok(self
+            .shared
+            .runtime
+            .edit(|core| core.move_group(&group, &into))?)
+    }
+
+    /// Removes a group's folder and everything in it, and returns the paths
+    /// that went. `group_contents` says how much there is, so a shell can ask
+    /// the user first.
+    pub fn delete_group(&self, group: Vec<String>) -> Result<Vec<String>, BridgeError> {
+        let removed = self.shared.runtime.edit(|core| core.delete_group(&group))?;
+        Ok(removed
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect())
+    }
+
+    /// Switches a group on or off. Off is sticky: nothing inside it expands,
+    /// whatever a group further down says.
+    pub fn set_group_enabled(&self, group: Vec<String>, enabled: bool) -> Result<(), BridgeError> {
+        self.shared
+            .runtime
+            .edit(|core| core.set_group_enabled(&group, enabled))?;
+        Ok(())
+    }
+
+    /// The colour and icon a group is shown with. `None` clears one.
+    pub fn set_group_appearance(
+        &self,
+        group: Vec<String>,
+        colour: Option<String>,
+        icon: Option<String>,
+    ) -> Result<(), BridgeError> {
+        self.shared.runtime.edit(|core| {
+            core.edit_group(&group, |file| {
+                file.colour = colour;
+                file.icon = icon;
+            })
+        })?;
+        Ok(())
+    }
+
+    /// How many snippets a group holds, counting the groups inside it.
+    pub fn group_contents(&self, group: Vec<String>) -> u32 {
+        self.shared.runtime.read(|core| core.group_contents(&group)) as u32
+    }
+
+    /// What the editor should say about a draft before it is saved: blank and
+    /// repeated abbreviations, and ones another snippet already answers to.
+    /// None of them stops a save.
+    ///
+    /// `editing` is the snippet on screen, so that its own abbreviations are
+    /// not reported as taken by itself. Pass nothing for a new snippet.
+    pub fn check_draft(&self, draft: SnippetDraft, editing: Option<String>) -> Vec<DraftProblem> {
+        let draft = Draft::from(&draft);
+        let editing = editing.and_then(|id| id.parse::<SnippetId>().ok());
+        self.shared.runtime.read(|core| {
+            core.check_draft(&draft, editing)
+                .into_iter()
+                .map(DraftProblem::from)
+                .collect()
+        })
+    }
+
+    /// An abbreviation for a snippet called `label` that nothing answers to
+    /// yet, for the editor to fill the field with. Empty when the label has no
+    /// letters in it.
+    pub fn suggest_abbreviation(&self, label: String) -> String {
+        self.shared
+            .runtime
+            .read(|core| core.suggest_abbreviation(&label))
+    }
+
+    /// Every snippet matching `query`, best first. An empty query text is the
+    /// whole library in list order, so a list and its search box are one call,
+    /// and `group` narrows it to whatever the editor's sidebar has selected.
+    pub fn search(&self, query: SearchQuery) -> Vec<SearchResult> {
+        let mut search = Query::new(query.text);
+        search.group = query.group;
+        search.tag = query.tag;
+        search.enabled_only = query.enabled_only;
+        if query.limit > 0 {
+            search.limit = Some(query.limit as usize);
+        }
+        self.shared.runtime.read(|core| {
+            core.search(&search)
+                .into_iter()
+                .map(SearchResult::from)
+                .collect()
+        })
+    }
+
+    /// What a snippet expands to, for the editor's preview pane.
+    pub fn preview(&self, id: String) -> Option<String> {
+        let id = id.parse::<SnippetId>().ok()?;
+        self.shared.runtime.read(|core| core.preview(id))
+    }
+
+    /// What a body that is still being typed would expand to. The file is not
+    /// consulted, so the editor's preview keeps up with the keystroke.
+    pub fn preview_draft(&self, body: String) -> String {
+        aralo_core::Core::preview_body(&body)
+    }
+
+    /// The snippets expanded most recently, most recent first. Empty when
+    /// there is no index; `index_problem` says why.
+    pub fn recents(&self, limit: u32) -> Vec<String> {
+        self.shared
+            .runtime
+            .recents(limit as usize)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|recent| recent.id.to_string())
             .collect()
     }
+
+    /// Why there is no search index, when there is none. Recents and usage
+    /// counts are what is lost; everything else works without it.
+    pub fn index_problem(&self) -> Option<String> {
+        self.shared.runtime.index_error().map(str::to_owned)
+    }
+
+    /// Reads a file from another expander into the library. A dry run reports
+    /// what would happen and writes nothing.
+    ///
+    /// The report is the answer, not a side effect: an import does not fail
+    /// because one snippet did not convert, and the shell shows the report.
+    pub fn import(
+        &self,
+        source: String,
+        options: ImportSettings,
+    ) -> Result<ImportSummary, BridgeError> {
+        let format = match options.format {
+            Some(name) => Some(parse_format(&name)?),
+            None => None,
+        };
+        let settings = ImportOptions {
+            format,
+            into: options.into_group,
+            macros: match options.macros {
+                MacroHandling::Auto => MacroPolicy::Auto,
+                MacroHandling::Convert => MacroPolicy::Convert,
+                MacroHandling::Literal => MacroPolicy::Literal,
+                MacroHandling::Template => MacroPolicy::Template,
+            },
+            dry_run: options.dry_run,
+        };
+        let source = PathBuf::from(source);
+        let report = self
+            .shared
+            .runtime
+            .edit(|core| core.import(&source, &settings))?;
+        Ok(ImportSummary::from(&report))
+    }
+
+    /// The library, or one group of it, as the bytes of an interchange file.
+    /// `format` is one of `csv`, `json` or `yaml`.
+    pub fn export(&self, format: String, group: Vec<String>) -> Result<Vec<u8>, BridgeError> {
+        let options = ExportOptions {
+            format: parse_format(&format)?,
+            group,
+        };
+        Ok(self.shared.runtime.read(|core| core.export(&options))?)
+    }
+}
+
+/// What the shell is told when the library changes underneath it.
+///
+/// Called on a background thread, with the library read-locked. Hand the event
+/// to the main thread and return: the watch reports nothing else until this
+/// comes back, and calling back into `Core` from inside it would wait for a
+/// lock this call is holding.
+#[uniffi::export(with_foreign)]
+pub trait CoreEvents: Send + Sync {
+    fn library_changed(&self, event: LibraryEvent);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum LibraryEvent {
+    /// Something outside Aralo changed the folder and it has been read again.
+    /// The paths are relative to the library root.
+    Outside { paths: Vec<String> },
+    /// Aralo changed the folder, through one of the editing calls.
+    Edited,
+    /// The folder was read again because `reload` asked for it.
+    Reloaded,
+    /// The folder changed and reading it failed. The library in memory is the
+    /// last one that loaded, and expansion carries on with it.
+    Failed { message: String },
+    /// The search index caught up with the library.
+    Indexed {
+        added: u32,
+        updated: u32,
+        removed: u32,
+    },
+}
+
+/// A snippet's fields as a person edits them. `None` means "inherit from the
+/// group", which is not the same as the value the group resolves to today.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SnippetDraft {
+    pub label: String,
+    pub abbreviations: Vec<String>,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub kind: SnippetType,
+    pub trigger: Option<Trigger>,
+    pub case: Option<CaseStyle>,
+    /// Expand only after a non-word character.
+    pub whole_word: Option<bool>,
+    /// Re-insert the delimiter that triggered the expansion.
+    pub keep_delimiter: Option<bool>,
+    pub enabled: Option<bool>,
+}
+
+/// One snippet as the editor shows it.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SnippetDetail {
+    pub id: String,
+    /// Path from the library root.
+    pub path: String,
+    pub group: Vec<String>,
+    pub draft: SnippetDraft,
+    /// What the draft's `None`s come to once the groups above it are applied.
+    pub resolved: ResolvedSettings,
+    /// What typing the abbreviation would produce.
+    pub preview: String,
+}
+
+/// How a snippet behaves with every level of inheritance applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ResolvedSettings {
+    pub trigger: Trigger,
+    pub case: CaseStyle,
+    pub whole_word: bool,
+    pub keep_delimiter: bool,
+    /// False when the snippet or any group above it is switched off.
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SnippetType {
+    Text,
+    Rich,
+    Command,
+    Prompt,
+    Script,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Trigger {
+    /// Expand the moment the abbreviation is complete.
+    Immediate,
+    /// Expand when a delimiter follows it.
+    Delimiter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CaseStyle {
+    /// Only an exact match expands.
+    Exact,
+    /// Case is ignored, and the snippet expands as it is written.
+    Ignore,
+    /// Case is ignored, and the expansion follows how it was typed.
+    Adaptive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct GroupSummary {
+    /// Folder names from the library root down. Empty for the root itself.
+    pub path: Vec<String>,
+    pub name: String,
+    pub colour: Option<String>,
+    pub icon: Option<String>,
+    pub enabled: bool,
+    /// Snippets directly in this group, not counting its sub-groups.
+    pub snippets: u32,
+}
+
+/// Something the editor should say about a draft. None of these stops a save.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DraftProblem {
+    /// Which abbreviation it is about, when it is about one.
+    pub abbreviation: Option<String>,
+    pub message: String,
+    /// The snippet that already answers to this abbreviation, if that is the
+    /// problem. The editor offers to show it.
+    pub conflicts_with: Option<String>,
+}
+
+/// What the snippet list is asking for: the search box, and the filters the
+/// sidebar sets. Every field empty is the whole library in list order.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SearchQuery {
+    /// What the user typed. Empty matches everything.
+    pub text: String,
+    /// Only snippets in this group or in a group inside it. `None` is the
+    /// whole library; an empty path is the root, which is the same thing.
+    pub group: Option<Vec<String>>,
+    /// Only snippets carrying this tag, compared without case.
+    pub tag: Option<String>,
+    /// Leave out snippets that are switched off, here or by a group above them.
+    pub enabled_only: bool,
+    /// At most this many hits, after ranking. Zero is no limit.
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SearchResult {
+    pub id: String,
+    pub name: String,
+    pub abbreviations: Vec<String>,
+    pub group: Vec<String>,
+    pub enabled: bool,
+    /// Which field matched: the row shows this text with `matched` highlighted.
+    pub field: SearchField,
+    pub text: String,
+    /// Character offsets into `text` that matched, in order.
+    pub matched: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SearchField {
+    Abbreviation,
+    Label,
+    Body,
+    Tag,
+    Group,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportSettings {
+    /// `textexpander`, `csv`, `json` or `yaml`. Nothing asks Aralo to work it
+    /// out from the file.
+    pub format: Option<String>,
+    /// Put everything under this group, above whatever group the source gives.
+    pub into_group: Vec<String>,
+    pub macros: MacroHandling,
+    /// Work out what would happen and write nothing.
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MacroHandling {
+    /// Convert the source's macros where the body plainly carries them.
+    Auto,
+    /// Convert, even where the macros are only a maybe.
+    Convert,
+    /// Never convert: the body is literal text.
+    Literal,
+    /// The body is an Aralo template already.
+    Template,
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ImportSummary {
+    pub format: String,
+    pub dry_run: bool,
+    pub total: u32,
+    /// Imported, or that would have been.
+    pub imported: u32,
+    /// Imported, and expands, but something in it needs a human.
+    pub needs_edit: u32,
+    pub skipped: u32,
+    /// The share that converts with no manual edit, from 0 to 1.
+    pub fidelity: f64,
+    pub entries: Vec<ImportedSnippet>,
+    /// The report as the command line prints it, for a window that shows it.
+    pub report: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportedSnippet {
+    pub label: String,
+    pub abbreviations: Vec<String>,
+    pub group: Vec<String>,
+    /// Path from the library root, when one was written.
+    pub path: Option<String>,
+    pub outcome: ImportOutcome,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ImportOutcome {
+    /// Imported with nothing lost.
+    Clean,
+    /// Imported, and it will expand, but the notes say what needs a human.
+    NeedsEdit,
+    /// Not imported.
+    Skipped,
 }
 
 const PREVIEW_CHARS: usize = 120;
@@ -575,6 +1153,238 @@ impl From<Step> for PlanStep {
             },
             Step::Delay { millis } => PlanStep::Delay { millis },
             Step::MoveCursor { graphemes, select } => PlanStep::MoveCursor { graphemes, select },
+        }
+    }
+}
+
+fn summarise(snippet: &aralo_core::LoadedSnippet) -> SnippetSummary {
+    SnippetSummary {
+        id: snippet.id.to_string(),
+        label: snippet.file.front.label.clone(),
+        abbreviations: snippet.file.front.abbr.clone(),
+        group: snippet.group.clone(),
+        path: snippet.path.to_string_lossy().into_owned(),
+        enabled: snippet.settings.enabled,
+        preview: snippet.file.body.chars().take(PREVIEW_CHARS).collect(),
+    }
+}
+
+/// An ID the shell handed back. Anything but one Aralo gave it is a bug in the
+/// shell, so it reads as "no such snippet" rather than as a crash.
+fn snippet_id(text: &str) -> Result<SnippetId, BridgeError> {
+    text.parse::<SnippetId>().map_err(|_| BridgeError::Library {
+        message: format!("no snippet with the id {text} is in the library"),
+    })
+}
+
+fn parse_format(name: &str) -> Result<Format, BridgeError> {
+    name.parse::<Format>().map_err(|error| BridgeError::Import {
+        message: error.to_string(),
+    })
+}
+
+impl From<LibraryChange> for LibraryEvent {
+    fn from(change: LibraryChange) -> Self {
+        match change {
+            LibraryChange::Outside { paths } => LibraryEvent::Outside {
+                paths: paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            },
+            LibraryChange::Edited => LibraryEvent::Edited,
+            LibraryChange::Reloaded => LibraryEvent::Reloaded,
+            LibraryChange::Failed { message } => LibraryEvent::Failed { message },
+            LibraryChange::Indexed {
+                added,
+                updated,
+                removed,
+            } => LibraryEvent::Indexed {
+                added: added as u32,
+                updated: updated as u32,
+                removed: removed as u32,
+            },
+        }
+    }
+}
+
+impl From<&Draft> for SnippetDraft {
+    fn from(draft: &Draft) -> Self {
+        Self {
+            label: draft.label.clone(),
+            abbreviations: draft.abbr.clone(),
+            body: draft.body.clone(),
+            tags: draft.tags.clone(),
+            kind: draft.kind.into(),
+            trigger: draft.trigger.map(Trigger::from),
+            case: draft.case.map(CaseStyle::from),
+            whole_word: draft.word,
+            keep_delimiter: draft.keep_delimiter,
+            enabled: draft.enabled,
+        }
+    }
+}
+
+impl From<&SnippetDraft> for Draft {
+    fn from(draft: &SnippetDraft) -> Self {
+        Self {
+            label: draft.label.clone(),
+            abbr: draft.abbreviations.clone(),
+            body: draft.body.clone(),
+            tags: draft.tags.clone(),
+            kind: draft.kind.into(),
+            trigger: draft.trigger.map(TriggerMode::from),
+            case: draft.case.map(CaseMode::from),
+            word: draft.whole_word,
+            keep_delimiter: draft.keep_delimiter,
+            enabled: draft.enabled,
+        }
+    }
+}
+
+impl From<SnippetKind> for SnippetType {
+    fn from(kind: SnippetKind) -> Self {
+        match kind {
+            SnippetKind::Text => SnippetType::Text,
+            SnippetKind::Rich => SnippetType::Rich,
+            SnippetKind::Command => SnippetType::Command,
+            SnippetKind::Prompt => SnippetType::Prompt,
+            SnippetKind::Script => SnippetType::Script,
+        }
+    }
+}
+
+impl From<SnippetType> for SnippetKind {
+    fn from(kind: SnippetType) -> Self {
+        match kind {
+            SnippetType::Text => SnippetKind::Text,
+            SnippetType::Rich => SnippetKind::Rich,
+            SnippetType::Command => SnippetKind::Command,
+            SnippetType::Prompt => SnippetKind::Prompt,
+            SnippetType::Script => SnippetKind::Script,
+        }
+    }
+}
+
+impl From<TriggerMode> for Trigger {
+    fn from(trigger: TriggerMode) -> Self {
+        match trigger {
+            TriggerMode::Immediate => Trigger::Immediate,
+            TriggerMode::Delimiter => Trigger::Delimiter,
+        }
+    }
+}
+
+impl From<Trigger> for TriggerMode {
+    fn from(trigger: Trigger) -> Self {
+        match trigger {
+            Trigger::Immediate => TriggerMode::Immediate,
+            Trigger::Delimiter => TriggerMode::Delimiter,
+        }
+    }
+}
+
+impl From<CaseMode> for CaseStyle {
+    fn from(case: CaseMode) -> Self {
+        match case {
+            CaseMode::Exact => CaseStyle::Exact,
+            CaseMode::Ignore => CaseStyle::Ignore,
+            CaseMode::Adaptive => CaseStyle::Adaptive,
+        }
+    }
+}
+
+impl From<CaseStyle> for CaseMode {
+    fn from(case: CaseStyle) -> Self {
+        match case {
+            CaseStyle::Exact => CaseMode::Exact,
+            CaseStyle::Ignore => CaseMode::Ignore,
+            CaseStyle::Adaptive => CaseMode::Adaptive,
+        }
+    }
+}
+
+impl From<aralo_core::DraftIssue> for DraftProblem {
+    fn from(issue: aralo_core::DraftIssue) -> Self {
+        use aralo_core::Problem;
+        let (message, conflicts_with) = match issue.problem {
+            Problem::Blank => (
+                "An abbreviation of only spaces can never be typed.".to_owned(),
+                None,
+            ),
+            Problem::Taken { by, name, path } => (
+                format!(
+                    "“{name}” already answers to this, in {}. Only one of the two will expand.",
+                    path.display()
+                ),
+                Some(by.to_string()),
+            ),
+            Problem::Repeated => ("The same abbreviation twice.".to_owned(), None),
+            Problem::UnsupportedKind(kind) => (
+                format!("{kind:?} snippets do not expand in this version yet."),
+                None,
+            ),
+        };
+        Self {
+            abbreviation: issue.abbr,
+            message,
+            conflicts_with,
+        }
+    }
+}
+
+impl From<aralo_core::SearchHit> for SearchResult {
+    fn from(hit: aralo_core::SearchHit) -> Self {
+        use aralo_core::Field;
+        Self {
+            id: hit.id.to_string(),
+            name: hit.name,
+            abbreviations: hit.abbr,
+            group: hit.group,
+            enabled: hit.enabled,
+            field: match hit.field {
+                Field::Abbreviation => SearchField::Abbreviation,
+                Field::Label => SearchField::Label,
+                Field::Body => SearchField::Body,
+                Field::Tag => SearchField::Tag,
+                Field::Group => SearchField::Group,
+            },
+            text: hit.text,
+            matched: hit.matched,
+        }
+    }
+}
+
+impl From<&ImportReport> for ImportSummary {
+    fn from(report: &ImportReport) -> Self {
+        Self {
+            format: report.format.to_string(),
+            dry_run: report.dry_run,
+            total: report.total() as u32,
+            imported: report.imported() as u32,
+            needs_edit: report.count(Outcome::NeedsEdit) as u32,
+            skipped: report.count(Outcome::Skipped) as u32,
+            fidelity: report.fidelity(),
+            entries: report
+                .entries
+                .iter()
+                .map(|entry| ImportedSnippet {
+                    label: entry.label.clone(),
+                    abbreviations: entry.abbr.clone(),
+                    group: entry.group.clone(),
+                    path: entry
+                        .path
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned()),
+                    outcome: match entry.outcome {
+                        Outcome::Clean => ImportOutcome::Clean,
+                        Outcome::NeedsEdit => ImportOutcome::NeedsEdit,
+                        Outcome::Skipped => ImportOutcome::Skipped,
+                    },
+                    notes: entry.notes.iter().map(|note| note.detail.clone()).collect(),
+                })
+                .collect(),
+            report: report.to_string(),
         }
     }
 }

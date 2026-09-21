@@ -105,6 +105,7 @@ dependencies = [
  "aralo-library",
  "aralo-snippet",
  "aralo-template",
+ "blake3",
  "serde",
  "tempfile",
  "thiserror",

@@ -7,13 +7,18 @@ import XCTest
 /// bindings, with only the operating system faked.
 final class BridgeTests: XCTestCase {
     private var folder: URL!
+    /// Outside the library, so the watch never sees it, and inside the
+    /// temporary folder, so a test run never touches the real one.
+    private var cache: URL!
     private var core: Core!
     private var sink: RecordingSink!
     private var controller: ExpansionController!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(UUID().uuidString)")
-        core = try Core.openLibrary(path: folder.path)
+        let run = UUID().uuidString
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)")
+        cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)-cache")
+        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil)
         core.engine().setFrontApp(bundleId: "com.apple.TextEdit")
         sink = RecordingSink()
         let injector = Injector(sink: sink, pasteboard: FakePasteboard(), sleep: { _ in })
@@ -22,7 +27,12 @@ final class BridgeTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        // Let go of the core before the folder goes: dropping it stops the
+        // threads that are watching and indexing it.
+        controller = nil
+        core = nil
         try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.removeItem(at: cache)
     }
 
     /// Types text the way the tap reports it. Returns the characters the app

@@ -6,14 +6,17 @@
 //! need them.
 
 pub mod compat;
+mod edit;
+mod runtime;
 mod simulate;
 mod starter;
+pub mod state;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use aralo_engine::{CasePattern, Engine, Snapshot};
-use aralo_library::{Library, LibraryError, LoadedSnippet, Searcher};
+use aralo_library::{Library, LibraryError, Searcher};
 use aralo_template::{static_plan, CaseTransform, StaticExpansion};
 
 pub use aralo_engine as engine;
@@ -21,10 +24,14 @@ pub use aralo_import as import;
 pub use aralo_import::{
     ExportOptions, Format, ImportOptions, ImportReport, MacroPolicy, Outcome, SnippetRecord,
 };
-pub use aralo_library::{Diagnostic, Field, Issue, Query, Settings};
+pub use aralo_library::{
+    Diagnostic, Field, Issue, LoadedGroup, LoadedSnippet, Query, Recent, Settings, Stats,
+};
 pub use aralo_snippet as snippet;
 pub use aralo_template::{ExpansionPlan, Key, Step};
 pub use compat::{CompatError, CompatTable, InjectionProfile};
+pub use edit::{Draft, DraftIssue, Problem};
+pub use runtime::{LibraryChange, LibraryListener, Runtime, RuntimeOptions};
 pub use simulate::Simulator;
 pub use starter::FILES as STARTER_FILES;
 
@@ -39,6 +46,18 @@ pub enum CoreError {
     },
     #[error(transparent)]
     Import(#[from] aralo_import::ImportError),
+    #[error("no snippet with the id {0} is in the library")]
+    NoSuchSnippet(String),
+    #[error("no group at {0} is in the library")]
+    NoSuchGroup(String),
+    #[error("{name:?} cannot be a folder name: {reason}")]
+    InvalidName { name: String, reason: String },
+    #[error(transparent)]
+    Index(#[from] aralo_library::IndexError),
+    #[error(transparent)]
+    Watch(#[from] aralo_library::WatchError),
+    #[error("cannot start the indexing thread: {source}")]
+    Thread { source: std::io::Error },
 }
 
 /// What the engine reported about a match; the fields of
@@ -242,6 +261,31 @@ impl Core {
                 })
             })
             .collect()
+    }
+
+    /// What a snippet expands to, for an editor that shows the result beside
+    /// the body. `None` when there is no such snippet.
+    ///
+    /// It is the expansion path, not a second reading of the template: what
+    /// this shows is what typing the abbreviation would produce, minus the
+    /// cursor and the keys. A snippet whose template is wrong previews as far
+    /// as it parses, which is what makes the preview useful while typing it.
+    pub fn preview(&self, id: aralo_snippet::SnippetId) -> Option<String> {
+        let snippet = self.library.snippet(id)?;
+        Some(Self::preview_body(&snippet.file.body))
+    }
+
+    /// The same for a body that is still being typed, which is what an editor
+    /// wants: the library is not consulted, so the preview keeps up with the
+    /// keystroke rather than with the last save.
+    pub fn preview_body(body: &str) -> String {
+        let (plan, _) = static_plan(StaticExpansion {
+            body,
+            delete_count: 0,
+            case: CaseTransform::AsDefined,
+            trailing: None,
+        });
+        plan.inserted_text()
     }
 
     /// The plan for a match the engine reported. `None` when the snippet has

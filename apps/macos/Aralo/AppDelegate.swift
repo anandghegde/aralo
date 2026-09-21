@@ -6,13 +6,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let service = AraloService(libraryURL: AraloService.defaultLibraryURL)
     private var statusMenu: StatusMenuController?
     private var onboarding: OnboardingWindowController?
+    private var library: LibraryWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let statusMenu = StatusMenuController(service: service)
         statusMenu.onSetUp = { [weak self] in self?.showOnboarding(fromMenu: true) }
+        statusMenu.onShowLibrary = { [weak self] in self?.showLibrary() }
         self.statusMenu = statusMenu
         service.start()
         showOnboarding(fromMenu: false)
+    }
+
+    /// The snippet window, made the first time it is asked for. It is kept
+    /// afterwards so that reopening it lands on the same selection.
+    private func showLibrary() {
+        guard let store = service.library else { return }
+        let controller = library ?? LibraryWindowController(store: store, root: service.libraryURL)
+        library = controller
+        controller.show()
     }
 
     /// The first run, or the part of it that a revoked permission calls for.

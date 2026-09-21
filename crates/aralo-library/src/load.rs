@@ -8,8 +8,8 @@ use aralo_snippet::{
 };
 
 use crate::{
-    Diagnostic, Issue, Library, LibraryError, LoadedSnippet, OwnWrites, Settings, ASSETS_FOLDER,
-    MAX_DEPTH, MAX_SNIPPET_BYTES,
+    Diagnostic, Issue, Library, LibraryError, LoadedGroup, LoadedSnippet, OwnWrites, Settings,
+    ASSETS_FOLDER, MAX_DEPTH, MAX_SNIPPET_BYTES,
 };
 
 pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryError> {
@@ -33,12 +33,14 @@ pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryErr
     let mut loader = Loader {
         root,
         snippets: Vec::new(),
+        groups: Vec::new(),
         diagnostics: Vec::new(),
     };
     loader.folder(Path::new(""), &Settings::default(), &[]);
 
     let Loader {
         mut snippets,
+        mut groups,
         mut diagnostics,
         ..
     } = loader;
@@ -63,10 +65,21 @@ pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryErr
     }
     diagnostics.sort_by(|a, b| a.path.cmp(&b.path));
 
+    // The root first, then the rest in tree order, so a list drawn straight
+    // from this reads the way the folder does.
+    groups.sort_by(|a, b| a.path.cmp(&b.path));
+    for group in &mut groups {
+        group.snippets = kept
+            .iter()
+            .filter(|snippet| snippet.group == group.path)
+            .count();
+    }
+
     Ok(Library {
         root: root.to_owned(),
         manifest,
         snippets: kept,
+        groups,
         by_id,
         diagnostics,
         writes,
@@ -76,6 +89,7 @@ pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryErr
 struct Loader<'a> {
     root: &'a Path,
     snippets: Vec<LoadedSnippet>,
+    groups: Vec<LoadedGroup>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -97,22 +111,44 @@ impl Loader<'_> {
         let absolute = self.root.join(relative);
 
         let group_path = relative.join(GROUP_FILE_NAME);
-        let settings = match fs::read_to_string(absolute.join(GROUP_FILE_NAME)) {
+        let (file, has_file, settings) = match fs::read_to_string(absolute.join(GROUP_FILE_NAME)) {
             Ok(text) => match GroupFile::parse(&text) {
-                Ok(file) => inherited.for_group(&file),
+                Ok(file) => {
+                    let settings = inherited.for_group(&file);
+                    (file, true, settings)
+                }
                 Err(error) => {
                     // A broken group file must not change how snippets behave
                     // in surprising ways: fall back to what the parent says.
                     self.report(&group_path, Issue::Invalid(error.to_string()));
-                    inherited.clone()
+                    (GroupFile::default(), true, inherited.clone())
                 }
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => inherited.clone(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (GroupFile::default(), false, inherited.clone())
+            }
             Err(error) => {
                 self.report(&group_path, Issue::Unreadable(error.to_string()));
-                inherited.clone()
+                (GroupFile::default(), true, inherited.clone())
             }
         };
+        self.groups.push(LoadedGroup {
+            name: file
+                .name
+                .clone()
+                .or_else(|| group.last().cloned())
+                .unwrap_or_default(),
+            path: group.to_vec(),
+            folder: PathBuf::from(relative),
+            colour: file.colour.clone(),
+            icon: file.icon.clone(),
+            enabled: settings.enabled,
+            has_file,
+            file,
+            settings: settings.clone(),
+            // Filled once every snippet is loaded and the contested IDs are out.
+            snippets: 0,
+        });
 
         let entries = match fs::read_dir(&absolute) {
             Ok(entries) => entries,
