@@ -18,7 +18,7 @@ final class BridgeTests: XCTestCase {
         let run = UUID().uuidString
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)")
         cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)-cache")
-        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil)
+        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil, trash: nil)
         core.engine().setFrontApp(bundleId: "com.apple.TextEdit")
         sink = RecordingSink()
         let injector = Injector(sink: sink, pasteboard: FakePasteboard(), sleep: { _ in })
@@ -151,6 +151,167 @@ final class BridgeTests: XCTestCase {
         try core.reload()
         type(";hi ")
         XCTAssertEqual(sink.typedText, "hello there ")
+    }
+
+    // MARK: - A snippet picked from a list
+
+    /// Adds a snippet and answers with its ID, for the tests that insert one
+    /// without typing anything.
+    @discardableResult
+    private func add(_ label: String, _ abbreviation: String, body: String) throws -> String {
+        let id = try core.createSnippet(
+            group: [],
+            draft: SnippetDraft(
+                label: label, abbreviations: [abbreviation], body: body, tags: [], kind: .text,
+                trigger: nil, case: nil, wholeWord: nil, keepDelimiter: nil, enabled: nil
+            )
+        )
+        try core.reload()
+        return id
+    }
+
+    func testAPickedSnippetIsTypedWholeWithNothingDeletedFirst() throws {
+        let id = try add("Address", ";addr", body: "12 Mill Lane")
+
+        XCTAssertNil(controller.insert(snippetId: id, into: "com.apple.TextEdit"))
+
+        // Nothing was typed to ask for it, so there is nothing to take back.
+        XCTAssertEqual(sink.keys, [.text("12 Mill Lane")])
+    }
+
+    func testAPickedSnippetIsUndoneByTheUndoKeyAndRetypesNothing() throws {
+        let id = try add("Address", ";addr", body: "12 Mill Lane")
+        controller.insert(snippetId: id, into: "com.apple.TextEdit")
+
+        let undo = KeyStroke(keyCode: CGKeyCode(kVK_ANSI_Z), flags: .maskCommand, text: "z")
+        XCTAssertTrue(controller.handle(.key(undo)))
+
+        // The text goes, and no abbreviation comes back in its place: the user
+        // never typed one.
+        XCTAssertEqual(sink.typedText, "")
+        XCTAssertEqual(sink.keys.filter { $0 == .backspace }.count, 12)
+    }
+
+    func testAPickIsRefusedWhilePausedOrForAnAppAraloStaysOutOf() throws {
+        let id = try add("Address", ";addr", body: "12 Mill Lane")
+
+        XCTAssertEqual(controller.insert(snippetId: id, into: "com.bitwarden.desktop"), .excludedApp)
+        core.engine().setPaused(paused: true)
+        XCTAssertEqual(controller.insert(snippetId: id, into: "com.apple.TextEdit"), .paused)
+        XCTAssertEqual(controller.insert(snippetId: "not-a-snippet", into: "com.apple.TextEdit"), .snippetGone)
+
+        XCTAssertTrue(sink.keys.isEmpty)
+    }
+
+    func testTheKeyboardComingBackTwiceDoesNotCostThePickItsUndo() throws {
+        let id = try add("Address", ";addr", body: "12 Mill Lane")
+        // What the palette's window does: it gives the keyboard back, inserts,
+        // and then says it has gone. The second is not a change, so it must not
+        // reset anything: the reset would take the undo record with it.
+        controller.setSuspended(true)
+        controller.setSuspended(false)
+        controller.insert(snippetId: id, into: "com.apple.TextEdit")
+        controller.setSuspended(false)
+
+        let undo = KeyStroke(keyCode: CGKeyCode(kVK_ANSI_Z), flags: .maskCommand, text: "z")
+        XCTAssertTrue(controller.handle(.key(undo)))
+        XCTAssertEqual(sink.typedText, "")
+    }
+
+    func testWhatIsTypedIntoTheSearchPaletteIsNotWatchedAndNotRemembered() {
+        type("t")
+        controller.setSuspended(true)
+
+        // The palette has the keyboard: every key reaches its own field, and
+        // the half-typed abbreviation underneath is forgotten.
+        XCTAssertEqual(type("y "), "y ")
+        XCTAssertTrue(sink.keys.isEmpty)
+        XCTAssertTrue(core.engine().holdsNoKeystrokes())
+
+        controller.setSuspended(false)
+        // What was typed before the palette opened cannot join what is typed
+        // after it closes.
+        XCTAssertEqual(type("y "), "y ")
+        XCTAssertTrue(sink.keys.isEmpty)
+        type("ty ")
+        XCTAssertEqual(sink.typedText, "thank you ")
+    }
+
+    // MARK: - A snippet that asks something first
+
+    /// A body with a form, and something to catch the session it starts.
+    @discardableResult
+    private func askingSnippet() throws -> SessionBox {
+        try add("Ticket", ";tkt", body: "Dear {{field: who | default: friend}},")
+        let held = SessionBox()
+        controller.setSessionHandler { held.hold($0) }
+        return held
+    }
+
+    func testASnippetThatAsksSomethingTypesNothingUntilItIsAnswered() throws {
+        let held = try askingSnippet()
+
+        // The delimiter is swallowed: a panel is opening, and the character
+        // goes back into the document only if the user changes their mind.
+        XCTAssertEqual(type(";tkt "), ";tkt")
+        XCTAssertTrue(sink.keys.isEmpty)
+
+        let session = try XCTUnwrap(held.session)
+        controller.run(session.submitForm(answers: ["who": "Dana"]))
+
+        // The abbreviation goes, the answer arrives, and the delimiter comes
+        // back after it: the same plan a body with no questions would make.
+        XCTAssertEqual(sink.keys, [.backspace, .backspace, .backspace, .backspace, .text("Dear Dana, ")])
+    }
+
+    func testAnAnsweredFormIsUndoneByTheUndoKeyLikeAnyOtherExpansion() throws {
+        let held = try askingSnippet()
+        type(";tkt ")
+        let session = try XCTUnwrap(held.session)
+        controller.run(session.submitForm(answers: ["who": "Dana"]))
+
+        let undo = KeyStroke(keyCode: CGKeyCode(kVK_ANSI_Z), flags: .maskCommand, text: "z")
+        XCTAssertTrue(controller.handle(.key(undo)))
+
+        // What the user typed comes back, and what the form filled in goes.
+        XCTAssertEqual(sink.typedText, ";tkt ")
+    }
+
+    func testAFormTheUserCancelsPutsBackTheKeyThatOpenedIt() throws {
+        let held = try askingSnippet()
+        type(";tkt ")
+
+        controller.cancel(try XCTUnwrap(held.session))
+
+        // Nothing was inserted, so there is nothing to delete: the one
+        // character the match swallowed is typed, and that is all.
+        XCTAssertEqual(sink.keys, [.text(" ")])
+    }
+
+    /// Without a handler there is nobody to ask, and a swallowed keystroke must
+    /// not simply vanish.
+    func testASessionNobodyCanDriveIsEndedRatherThanLeftOpen() throws {
+        try add("Ticket", ";tkt", body: "Dear {{field: who | default: friend}},")
+
+        XCTAssertEqual(type(";tkt "), ";tkt")
+        XCTAssertEqual(sink.keys, [.text(" ")])
+    }
+
+    func testAPickedSnippetThatAsksSomethingIsNotTypedUntilItIsAnswered() throws {
+        let id = try add("Ticket", ";tkt", body: "Dear {{field: who | default: friend}},")
+        let held = SessionBox()
+        controller.setSessionHandler { held.hold($0) }
+
+        // Nothing is refused: the snippet has a question, and the panel asks it.
+        XCTAssertNil(controller.insert(snippetId: id, into: "com.apple.TextEdit"))
+        XCTAssertTrue(sink.keys.isEmpty)
+
+        let session = try XCTUnwrap(held.session)
+        controller.run(session.submitForm(answers: [:]))
+
+        // Nothing was typed to ask for it, so there is nothing to take back,
+        // and a field nobody filled in keeps its default.
+        XCTAssertEqual(sink.keys, [.text("Dear friend,")])
     }
 
     /// Spike S2, as a guard rail: a key that matches nothing must cost far less

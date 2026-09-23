@@ -469,6 +469,13 @@ fn describe(issue: &Issue) -> (Level, String) {
                 first.display()
             ),
         ),
+        Issue::ConflictCopy { original } => (
+            Level::Warning,
+            format!(
+                "a sync conflict copy of {}; the app merges it when it can, or keep one and delete the other",
+                original.display()
+            ),
+        ),
         Issue::AbbreviationRejected {
             abbreviation,
             reason,

@@ -46,8 +46,10 @@ the snippet is reported and counts against fidelity.
 | `%m/%d/%Y` and other date runs | `{{date: %m/%d/%Y}}` | — |
 | `%H:%M` and other time-only runs | `{{time: %H:%M}}` | — |
 | `%key:space%` | a space | — |
-| `%key:tab%`, `%key:return%`, `%key:enter%` | a tab or a line break | approximated |
-| `%fillarea:name=N%` | `{{field: N}}` | approximated: a multi-line fill-in became a single-line field |
+| `%key:tab%` | `{{key: tab}}` | — |
+| `%key:return%`, `%key:enter%` | `{{key: return}}` | — |
+| `%fillarea:name=N%` | `{{field: N \| lines: 4}}` | — |
+| `%fillarea:name=N:lines=M%` | `{{field: N \| lines: M}}` | — |
 | `%filldate:name=N%` | `{{field: N}}` | approximated: a date picker became a plain field |
 | `%key:left%` and every other key | left as written | not converted |
 | `%delay:500%` | left as written | not converted |
@@ -150,7 +152,7 @@ happen, including the path each snippet would take, and writes nothing.
 nothing left for a human to edit. An advisory note alone still counts as
 clean. An empty source is 1.0.
 
-M2 asks for 90% or better on the corpus in
+M3 asks for 95% or better on the corpus in
 [`fixtures/import/`](../../fixtures/import/README.md), which
 `crates/aralo-import/tests/fidelity.rs` measures on every run. That corpus is
 written from these documented formats, so the number measures the converter

@@ -12,9 +12,11 @@ publish.workspace = true
 aralo-engine = { workspace = true }
 aralo-snippet = { workspace = true }
 blake3 = { workspace = true }
+diffy = { workspace = true }
 notify = { workspace = true }
 nucleo-matcher = { workspace = true }
 rusqlite = { workspace = true }
+serde_yaml_ng = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

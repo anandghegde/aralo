@@ -31,6 +31,31 @@ impl CaseTransform {
     }
 }
 
+impl CaseTransform {
+    /// The same transform across text that is split at the cursor stops: it
+    /// applies to the expansion as a whole, not to each part, so a snippet
+    /// that starts with a `{{cursor}}` still capitalises its first letter.
+    pub fn apply_all(self, segments: Vec<String>) -> Vec<String> {
+        match self {
+            CaseTransform::AsDefined => segments,
+            CaseTransform::Upper => segments.iter().map(|s| s.to_uppercase()).collect(),
+            CaseTransform::Title => {
+                let mut done = false;
+                segments
+                    .into_iter()
+                    .map(|segment| {
+                        if done || !segment.chars().any(char::is_alphabetic) {
+                            return segment;
+                        }
+                        done = true;
+                        CaseTransform::Title.apply(&segment)
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,6 +74,25 @@ mod tests {
         assert_eq!(CaseTransform::Title.apply("Already"), "Already");
         assert_eq!(CaseTransform::Title.apply(""), "");
         assert_eq!(CaseTransform::Title.apply("123"), "123");
+    }
+
+    #[test]
+    fn a_transform_across_segments_reads_as_one_expansion() {
+        let split = || vec!["(".to_owned(), "hi ".to_owned(), "there".to_owned()];
+        assert_eq!(
+            CaseTransform::Title.apply_all(split()).concat(),
+            CaseTransform::Title.apply("(hi there")
+        );
+        assert_eq!(
+            CaseTransform::Upper.apply_all(split()).concat(),
+            CaseTransform::Upper.apply("(hi there")
+        );
+        // The parts stay parts: the cursor stops keep their place.
+        assert_eq!(
+            CaseTransform::Title.apply_all(split()),
+            ["(", "Hi ", "there"]
+        );
+        assert_eq!(CaseTransform::AsDefined.apply_all(split()), split());
     }
 
     #[test]

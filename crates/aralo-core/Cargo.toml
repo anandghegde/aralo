@@ -15,6 +15,7 @@ aralo-library = { workspace = true }
 aralo-snippet = { workspace = true }
 aralo-template = { workspace = true }
 blake3 = { workspace = true }
+chrono = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }

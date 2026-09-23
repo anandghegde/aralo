@@ -1,5 +1,5 @@
-//! M2's exit criterion, measured rather than claimed: import the corpus in
-//! `fixtures/import/` and check that at least 90% of it converts with nothing
+//! The exit criterion, measured rather than claimed: import the corpus in
+//! `fixtures/import/` and check that at least 95% of it converts with nothing
 //! left for a human to edit.
 //!
 //! Every source has a golden file beside it, `<name>.expected.json`, holding
@@ -24,11 +24,13 @@ use std::path::{Path, PathBuf};
 use aralo_import::{export, ExportOptions, Format, ImportOptions, ImportReport, Outcome};
 use aralo_library::Library;
 
-/// The share of a corpus that must import with no edit.
-const FLOOR: f64 = 0.90;
+/// The share of a corpus that must import with no edit. M2 asked for 90%, M3
+/// for 95%; the number only ever goes up, because a converter that lost ground
+/// lost it on somebody's library.
+const FLOOR: f64 = 0.95;
 
 #[test]
-fn the_corpus_imports_at_ninety_percent_or_better() {
+fn the_corpus_imports_at_ninety_five_percent_or_better() {
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/import");
     let sources = sources(&corpus);
     assert!(!sources.is_empty(), "no sources in {}", corpus.display());
@@ -77,7 +79,7 @@ fn the_corpus_imports_at_ninety_percent_or_better() {
     );
     assert!(
         fidelity >= FLOOR,
-        "import fidelity is {:.1}%, below the {:.0}% M2 asks for",
+        "import fidelity is {:.1}%, below the {:.0}% the roadmap asks for",
         fidelity * 100.0,
         FLOOR * 100.0
     );

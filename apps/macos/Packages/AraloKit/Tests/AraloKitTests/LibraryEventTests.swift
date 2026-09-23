@@ -34,7 +34,7 @@ final class LibraryEventTests: XCTestCase {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)")
         cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(run)-cache")
         recorder = Recorder()
-        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: recorder)
+        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: recorder, trash: nil)
     }
 
     override func tearDownWithError() throws {

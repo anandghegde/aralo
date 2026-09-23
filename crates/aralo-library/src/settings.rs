@@ -55,7 +55,7 @@ impl Settings {
     }
 
     /// The settings of a snippet in a group that resolves to `self`.
-    pub(crate) fn for_snippet(&self, front: &FrontMatter) -> Settings {
+    pub fn for_snippet(&self, front: &FrontMatter) -> Settings {
         Settings {
             trigger: front.trigger.map_or(self.trigger, trigger),
             case: front.case.map_or(self.case, case),

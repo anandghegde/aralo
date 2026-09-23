@@ -1,0 +1,130 @@
+# nesting.toml: snippets that nest others: the questions they bring, and where Aralo stops
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== a snippet goes in where another one names it
+--- en_US
+field: "Hi there, thanks.|"
+preview: "Hi there, thanks."
+undo: 17 backspaces
+--- de_DE
+field: "Hi there, thanks.|"
+preview: "Hi there, thanks."
+undo: 17 backspaces
+--- ja_JP
+field: "Hi there, thanks.|"
+preview: "Hi there, thanks."
+undo: 17 backspaces
+
+=== a nested body brings its own questions to the outer form
+--- en_US
+field: "Hi Dana,\nsee you Tuesday.|"
+preview: "Hi friend,\n."
+undo: 25 backspaces
+--- de_DE
+field: "Hi Dana,\nsee you Tuesday.|"
+preview: "Hi friend,\n."
+undo: 25 backspaces
+--- ja_JP
+field: "Hi Dana,\nsee you Tuesday.|"
+preview: "Hi friend,\n."
+undo: 25 backspaces
+
+=== a nested date reads the same clock and locale
+--- en_US
+field: "sent 9 March at 14:05|"
+preview: "sent 9 March at 14:05"
+undo: 21 backspaces
+--- de_DE
+field: "sent 9 März at 14:05|"
+preview: "sent 9 März at 14:05"
+undo: 20 backspaces
+--- ja_JP
+field: "sent 9 3月 at 14:05|"
+preview: "sent 9 3月 at 14:05"
+undo: 18 backspaces
+
+=== a snippet that reaches itself is left as written
+--- en_US
+field: "a a {{snippet: Case}} b b|"
+preview: "a a {{snippet: Case}} b b"
+undo: 25 backspaces
+error: "Case reaches this snippet again, so it is left as written."
+--- de_DE
+field: "a a {{snippet: Case}} b b|"
+preview: "a a {{snippet: Case}} b b"
+undo: 25 backspaces
+error: "Case reaches this snippet again, so it is left as written."
+--- ja_JP
+field: "a a {{snippet: Case}} b b|"
+preview: "a a {{snippet: Case}} b b"
+undo: 25 backspaces
+error: "Case reaches this snippet again, so it is left as written."
+
+=== two snippets that reach each other stop at the second turn
+--- en_US
+field: "<{{snippet: Mirror}}>|"
+preview: "<{{snippet: Mirror}}>"
+undo: 21 backspaces
+error: "Mirror reaches this snippet again, so it is left as written."
+--- de_DE
+field: "<{{snippet: Mirror}}>|"
+preview: "<{{snippet: Mirror}}>"
+undo: 21 backspaces
+error: "Mirror reaches this snippet again, so it is left as written."
+--- ja_JP
+field: "<{{snippet: Mirror}}>|"
+preview: "<{{snippet: Mirror}}>"
+undo: 21 backspaces
+error: "Mirror reaches this snippet again, so it is left as written."
+
+=== a reference to no snippet says so and stays
+--- en_US
+field: "see {{snippet: nowhere}}|"
+preview: "see {{snippet: nowhere}}"
+undo: 24 backspaces
+error: "No snippet in the library answers to nowhere."
+--- de_DE
+field: "see {{snippet: nowhere}}|"
+preview: "see {{snippet: nowhere}}"
+undo: 24 backspaces
+error: "No snippet in the library answers to nowhere."
+--- ja_JP
+field: "see {{snippet: nowhere}}|"
+preview: "see {{snippet: nowhere}}"
+undo: 24 backspaces
+error: "No snippet in the library answers to nowhere."
+
+=== a reference with no name at all
+--- en_US
+field: "see {{snippet}}|"
+preview: "see {{snippet}}"
+undo: 15 backspaces
+error: "Write {{snippet: a-name}}: without a name there is no answer to put in."
+--- de_DE
+field: "see {{snippet}}|"
+preview: "see {{snippet}}"
+undo: 15 backspaces
+error: "Write {{snippet: a-name}}: without a name there is no answer to put in."
+--- ja_JP
+field: "see {{snippet}}|"
+preview: "see {{snippet}}"
+undo: 15 backspaces
+error: "Write {{snippet: a-name}}: without a name there is no answer to put in."
+
+=== nesting stops at the depth limit
+--- en_US
+field: "12345678{{snippet: s9}}|"
+preview: "12345678{{snippet: s9}}"
+undo: 23 backspaces
+error: "Snippets are nested 8 deep before s9, which is as far as Aralo goes."
+--- de_DE
+field: "12345678{{snippet: s9}}|"
+preview: "12345678{{snippet: s9}}"
+undo: 23 backspaces
+error: "Snippets are nested 8 deep before s9, which is as far as Aralo goes."
+--- ja_JP
+field: "12345678{{snippet: s9}}|"
+preview: "12345678{{snippet: s9}}"
+undo: 23 backspaces
+error: "Snippets are nested 8 deep before s9, which is as far as Aralo goes."

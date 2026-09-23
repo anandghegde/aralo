@@ -9,6 +9,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var onSetUp: (() -> Void)?
     /// Opens the window the snippets are edited in.
     var onShowLibrary: (() -> Void)?
+    /// Opens the snippet window and asks for a file to import.
+    var onImport: (() -> Void)?
+    /// Opens the search palette, the same as the hot key does.
+    var onSearchSnippets: (() -> Void)?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
     init(service: AraloService) {
@@ -53,6 +57,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 pause.keyEquivalentModifierMask = shortcut.modifiers
             }
             menu.addItem(pause)
+            let search = command("Insert Snippet\u{2026}", #selector(searchSnippets))
+            if let shortcut = service.paletteShortcut {
+                // Shown for the user to learn. The hot key itself is global.
+                search.keyEquivalent = String(shortcut.character)
+                search.keyEquivalentModifierMask = shortcut.modifiers
+            }
+            menu.addItem(search)
         case .needsPermissions:
             menu.addItem(command("Set Up Aralo…", #selector(setUp)))
         case .failed:
@@ -72,15 +83,23 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             entry.toolTip = problem
             menu.addItem(entry)
         }
+        addLibraryCommands(to: menu)
+        menu.addItem(.separator())
+        let quit = #selector(NSApplication.terminate(_:))
+        menu.addItem(NSMenuItem(title: "Quit Aralo", action: quit, keyEquivalent: "q"))
+    }
+
+    /// The snippet window, and what reaches the folder behind it.
+    private func addLibraryCommands(to menu: NSMenu) {
         let snippets = command("Snippets\u{2026}", #selector(showLibrary))
         snippets.keyEquivalent = ","
         snippets.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(snippets)
+        if service.library != nil {
+            menu.addItem(command("Import Snippets\u{2026}", #selector(importSnippets)))
+        }
         menu.addItem(command("Open Library Folder", #selector(openLibrary)))
         menu.addItem(command("Reload Library", #selector(reloadLibrary)))
-        menu.addItem(.separator())
-        let quit = #selector(NSApplication.terminate(_:))
-        menu.addItem(NSMenuItem(title: "Quit Aralo", action: quit, keyEquivalent: "q"))
     }
 
     private var headline: String {
@@ -116,4 +135,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func openLibrary() { NSWorkspace.shared.open(service.libraryURL) }
     @objc private func setUp() { onSetUp?() }
     @objc private func showLibrary() { onShowLibrary?() }
+    @objc private func searchSnippets() { onSearchSnippets?() }
+    @objc private func importSnippets() { onImport?() }
 }

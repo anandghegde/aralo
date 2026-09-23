@@ -245,3 +245,62 @@ fn the_starter_library_loads_cleanly_and_expands() {
     // Symbols are immediate and match inside a word.
     assert_eq!(type_str(&mut engine, "a->>").len(), 1);
 }
+
+#[test]
+fn a_sync_clients_copy_is_paired_with_its_original_not_loaded_beside_it() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    let snippet = |body: &str| format!("---\nid: {ID_A}\nabbr: [;sig]\n---\n{body}");
+    write(root, "Work/sig.md", &snippet("ours"));
+    // Sorts before the original, which must still keep the id.
+    write(
+        root,
+        "Work/sig (conflicted copy 2026-09-23).md",
+        &snippet("theirs"),
+    );
+    write(root, "Work/sig 2.md", &snippet("iCloud's"));
+    // Same id, a name no client gives a copy: a duplicate, as before.
+    write(root, "Work/signature.md", &snippet("mine on purpose"));
+    // A copy's name in another folder is not a copy.
+    write(
+        root,
+        "Home/sig 2.md",
+        &format!("---\nid: {ID_B}\nabbr: [;home]\n---\nhome"),
+    );
+
+    let library = Library::load(root).unwrap();
+    let kept: Vec<_> = library
+        .snippets()
+        .iter()
+        .map(|s| s.path.to_string_lossy().replace('\\', "/"))
+        .collect();
+    assert_eq!(kept, ["Home/sig 2.md", "Work/sig.md"]);
+
+    let copies: Vec<_> = library
+        .conflicts()
+        .iter()
+        .map(|c| {
+            (
+                c.copy.to_string_lossy().replace('\\', "/"),
+                c.original.to_string_lossy().replace('\\', "/"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        copies,
+        [
+            (
+                "Work/sig (conflicted copy 2026-09-23).md".to_owned(),
+                "Work/sig.md".to_owned()
+            ),
+            ("Work/sig 2.md".to_owned(), "Work/sig.md".to_owned()),
+        ]
+    );
+    let found = issues(&library);
+    assert!(found.iter().any(|(path, issue)| path == "Work/sig 2.md"
+        && matches!(issue, Issue::ConflictCopy { original } if original == Path::new("Work/sig.md"))));
+    assert!(found.iter().any(|(path, issue)| path == "Work/signature.md"
+        && matches!(issue, Issue::DuplicateId { first } if first == Path::new("Work/sig.md"))));
+    assert!(library.in_conflict(library.snippets()[1].id));
+    assert!(!library.in_conflict(library.snippets()[0].id));
+}

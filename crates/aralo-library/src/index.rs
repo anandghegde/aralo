@@ -1,10 +1,11 @@
 //! The SQLite index: a cache of what is in the library folder.
 //!
 //! The files are the truth ([ADR-0006]); everything in `snippets`, `groups` and
-//! `snippets_fts` is derived from them and can be thrown away and rebuilt. Two
-//! tables are not: `stats` counts expansions and `vectors` holds embeddings that
-//! cost real time to compute, so neither is touched by a rebuild and neither is
-//! ever synced between machines.
+//! `snippets_fts` is derived from them and can be thrown away and rebuilt. Three
+//! tables are not: `stats` counts expansions, `vectors` holds embeddings that
+//! cost real time to compute, and `bases` holds the last version of each
+//! snippet this machine saw, which is what a conflict copy is merged against.
+//! None is touched by a rebuild and none is ever synced between machines.
 //!
 //! Expansion does not read the index. Abbreviations reach the engine through
 //! [`Library::snapshot`], which needs only the loaded files, so a cold rebuild
@@ -24,14 +25,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use aralo_snippet::{SnippetId, SnippetKind};
+use aralo_snippet::{SnippetFile, SnippetId, SnippetKind};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::{Library, LoadedSnippet};
 
 /// Bumped whenever a derived table changes shape. An index written by an older
 /// Aralo is dropped and rebuilt rather than migrated: it is a cache.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// Column weights for `bm25`, in the order the FTS table declares them. An
 /// abbreviation is what the user types, so it outranks a label, and both
@@ -204,6 +205,15 @@ impl Index {
                  PRIMARY KEY (hash, model)
              ) STRICT;
 
+             -- The merge base of each snippet: the file as it last stood when
+             -- no conflict copy was waiting beside it (ADR-0006). `hash` is of
+             -- the bytes on disk, so a file nobody touched is not written again.
+             CREATE TABLE IF NOT EXISTS bases (
+                 id   TEXT PRIMARY KEY,
+                 hash TEXT NOT NULL,
+                 text TEXT NOT NULL
+             ) STRICT;
+
              PRAGMA user_version = {SCHEMA_VERSION};
              COMMIT;"
         ))?;
@@ -221,6 +231,7 @@ impl Index {
             put(&transaction, snippet)?;
         }
         write_groups(&transaction, library)?;
+        write_bases(&transaction, library)?;
         let counted = Indexed {
             added: library.snippets().len(),
             ..Indexed::default()
@@ -266,6 +277,7 @@ impl Index {
         // The group tree is a handful of rows derived from the snippets, so it
         // is cheaper to rewrite than to diff.
         write_groups(&transaction, library)?;
+        write_bases(&transaction, library)?;
         transaction.commit()?;
         Ok(counted)
     }
@@ -290,6 +302,17 @@ impl Index {
         let rows =
             statement.query_map(params![query, count(limit)], |row| row.get::<_, String>(0))?;
         rows.map(|row| parse_id(&row?)).collect()
+    }
+
+    /// The version of `id` this machine last saw settled, to merge a conflict
+    /// copy against. `None` when there is none, or it no longer parses.
+    pub fn base(&self, id: SnippetId) -> Result<Option<SnippetFile>, IndexError> {
+        let text: Option<String> = self
+            .connection
+            .prepare_cached("SELECT text FROM bases WHERE id = ?1")?
+            .query_row(params![id.to_string()], |row| row.get(0))
+            .optional()?;
+        Ok(text.and_then(|text| SnippetFile::parse(&text).ok()))
     }
 
     /// Counts one expansion of `id`. Nothing else writes `stats`.
@@ -533,6 +556,48 @@ fn write_groups(transaction: &Transaction<'_>, library: &Library) -> Result<(), 
                 group.icon,
                 i64::from(group.enabled),
             ])?;
+    }
+    Ok(())
+}
+
+/// Records each snippet's file as its merge base, unless a conflict copy is
+/// waiting beside it: until that is settled, neither side is the version both
+/// machines last agreed on. A file with no `id` has no identity for a copy to
+/// share, so it has no base either. Bases of snippets that have gone go too.
+fn write_bases(transaction: &Transaction<'_>, library: &Library) -> Result<(), IndexError> {
+    let mut known: HashMap<String, String> = HashMap::new();
+    {
+        let mut statement = transaction.prepare("SELECT id, hash FROM bases")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        for row in rows {
+            let (id, hash) = row?;
+            known.insert(id, hash);
+        }
+    }
+    for snippet in library.snippets() {
+        let id = snippet.id.to_string();
+        let hash = snippet.source_hash.to_hex().to_string();
+        let stored = known.remove(&id);
+        if snippet.id_is_temporary || library.in_conflict(snippet.id) {
+            continue;
+        }
+        if stored.as_deref() == Some(hash.as_str()) {
+            continue;
+        }
+        let Ok(text) = snippet.file.to_file_string() else {
+            continue;
+        };
+        transaction
+            .prepare_cached(
+                "INSERT INTO bases (id, hash, text) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET hash = excluded.hash, text = excluded.text",
+            )?
+            .execute(params![id, hash, text])?;
+    }
+    for id in known.keys() {
+        transaction
+            .prepare_cached("DELETE FROM bases WHERE id = ?1")?
+            .execute(params![id])?;
     }
     Ok(())
 }

@@ -19,7 +19,7 @@ final class DataTests: XCTestCase {
         let cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: cache) }
         return try Core.openLibrary(
-            path: file("fixtures/matrix/library").path, cache: cache.path, events: nil
+            path: file("fixtures/matrix/library").path, cache: cache.path, events: nil, trash: nil
         )
     }
 
@@ -64,6 +64,21 @@ final class DataTests: XCTestCase {
         XCTAssertEqual(long.text.count, 2001)
         XCTAssertEqual(long.method, .pasted)
         XCTAssertTrue(try Expectation.ask(engine, abbreviation: "mxemoji").text.contains("👩‍💻"))
+
+        // A marker says where the caret is left afterwards, in characters from
+        // the end of what was inserted.
+        let cursor = try Expectation.ask(engine, abbreviation: MatrixCase.cursor.abbreviation)
+        XCTAssertEqual(cursor.text, "Dear , thank you. ")
+        XCTAssertEqual(cursor.caretBack, 13)
+        XCTAssertEqual(cursor.text(withAtCaret: "x"), "Dear x, thank you. ")
+
+        // A body with a question is driven the way the panel drives it, with the
+        // answer the harness is about to type in every box.
+        let form = try Expectation.ask(engine, abbreviation: MatrixCase.form.abbreviation)
+        XCTAssertEqual(form.typed, "mxform ")
+        XCTAssertEqual(form.text, "Dear \(Expectation.formAnswer), thank you. ")
+        XCTAssertEqual(form.method, .typed)
+        XCTAssertTrue(form.undoable)
 
         // A terminal is typed into, however long the text.
         engine.setFrontApp(bundleId: "com.apple.Terminal")

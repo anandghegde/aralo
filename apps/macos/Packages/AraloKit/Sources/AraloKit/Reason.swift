@@ -9,7 +9,7 @@ extension Error {
         switch self {
         case let bridge as BridgeError:
             switch bridge {
-            case .Library(let message), .CompatTable(let message), .Import(let message):
+            case .Library(let message), .CompatTable(let message), .Import(let message), .Trash(let message):
                 return message
             }
         default:

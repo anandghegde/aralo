@@ -2,13 +2,16 @@
 //!
 //! Load a folder, resolve group inheritance, build the engine's snapshot, write
 //! files atomically, watch for changes from elsewhere, index what is there and
-//! find a snippet again. Conflict merging is the rest of M2.
+//! find a snippet again, and fold a sync client's conflict copy back into the
+//! file it was copied from.
 //!
 //! Loading never fails because of one bad file. Whatever cannot be read becomes
 //! a [`Diagnostic`] and the rest of the library still works.
 
+mod conflict;
 mod index;
 mod load;
+mod merge;
 mod search;
 mod settings;
 mod watch;
@@ -20,7 +23,9 @@ use std::path::{Path, PathBuf};
 use aralo_engine::{Abbreviation, Rejection, Snapshot, SnapshotBuilder};
 use aralo_snippet::{GroupFile, Manifest, SnippetFile, SnippetId, SnippetKind, GROUP_FILE_NAME};
 
+pub use conflict::{is_conflict_copy, Conflict};
 pub use index::{Index, IndexError, Indexed, Recent, Stats};
+pub use merge::{merge, Clashes, Merged};
 pub use search::{Field, Hit, Query, Searcher};
 pub use settings::Settings;
 pub use watch::{Changes, OwnWrites, Watch, WatchError, DEFAULT_DEBOUNCE};
@@ -70,6 +75,8 @@ pub struct Library {
     groups: Vec<LoadedGroup>,
     by_id: HashMap<SnippetId, usize>,
     diagnostics: Vec<Diagnostic>,
+    /// Sync clients' conflict copies, each beside the file it copies.
+    conflicts: Vec<Conflict>,
     /// What Aralo has saved here, so a watch on this folder can ignore its own
     /// echo. Shared with every reload of the same folder.
     writes: OwnWrites,
@@ -87,6 +94,9 @@ pub struct LoadedSnippet {
     pub file: SnippetFile,
     /// Trigger, case, scope and the rest, after group inheritance.
     pub settings: Settings,
+    /// The hash of the file's bytes as they were read. Two loads of a file
+    /// nobody touched agree on it, whatever the file's formatting.
+    pub source_hash: blake3::Hash,
 }
 
 impl LoadedSnippet {
@@ -153,6 +163,12 @@ pub enum Issue {
     /// The same `id` appears in another file; this file is ignored.
     DuplicateId {
         first: PathBuf,
+    },
+    /// A sync client's copy of `original`, made when two machines changed it
+    /// at once. It is left out of the library until it is merged back into
+    /// `original` or the user decides between them.
+    ConflictCopy {
+        original: PathBuf,
     },
     /// The snippet works, and gets an `id` the first time Aralo saves it.
     MissingId,
@@ -305,6 +321,19 @@ impl Library {
         }
     }
 
+    /// Takes a file out of the library some other way than deleting it, such
+    /// as moving it to the Trash, and records that it has gone so the watcher
+    /// knows whose change it was. `how` gets the absolute path.
+    pub fn discard_file(
+        &self,
+        relative_path: &Path,
+        how: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(), LibraryError> {
+        let path = self.root.join(relative_path);
+        self.writes.record_removal(&path);
+        how(&path).map_err(|source| LibraryError::Write { path, source })
+    }
+
     /// Moves a file or a group folder inside the library, creating whatever
     /// folders the destination needs. Every file that moves is recorded gone
     /// from where it was and written where it landed, so a move the user made
@@ -421,6 +450,18 @@ impl Library {
 
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    /// Every conflict copy in the folder, in path order of the copies. Each is
+    /// also reported as an [`Issue::ConflictCopy`].
+    pub fn conflicts(&self) -> &[Conflict] {
+        &self.conflicts
+    }
+
+    /// True when `id` has a conflict copy waiting. Its file is not a settled
+    /// version while that lasts, so it must not become a merge base.
+    pub fn in_conflict(&self, id: SnippetId) -> bool {
+        self.conflicts.iter().any(|conflict| conflict.id == id)
     }
 
     /// The engine's view of the library: every abbreviation of every enabled

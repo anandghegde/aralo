@@ -34,15 +34,18 @@ impl ExpansionPlan {
     /// character, the unit text fields delete by. Counting code points instead
     /// would over-delete after an emoji and eat the user's own text.
     ///
-    /// `None` when the plan inserts something Backspace cannot be trusted to
-    /// remove (rich text, or a Return or Tab the app may have acted on).
+    /// `None` when Backspace cannot be trusted to remove what went in: rich
+    /// text, a Return or Tab the app may have acted on, or a cursor the plan
+    /// moved, since Backspace then deletes from wherever the cursor now is.
     pub fn undo_delete_count(&self) -> Option<u32> {
         let mut count = 0u32;
         for step in &self.steps {
             match step {
                 Step::InsertText { text } => count += text.graphemes(true).count() as u32,
-                Step::InsertRich { .. } | Step::KeyPress { .. } => return None,
-                Step::Delete { .. } | Step::Delay { .. } | Step::MoveCursor { .. } => {}
+                Step::InsertRich { .. } | Step::KeyPress { .. } | Step::MoveCursor { .. } => {
+                    return None
+                }
+                Step::Delete { .. } | Step::Delay { .. } => {}
             }
         }
         Some(count)
@@ -80,6 +83,23 @@ mod tests {
             ],
         };
         assert_eq!(plan.undo_delete_count(), Some(4));
+    }
+
+    #[test]
+    fn undo_by_backspace_is_not_offered_after_the_cursor_moved() {
+        let plan = ExpansionPlan {
+            steps: vec![
+                Step::InsertText {
+                    text: "Dear ,".into(),
+                },
+                Step::MoveCursor {
+                    graphemes: 1,
+                    select: false,
+                },
+            ],
+        };
+        assert_eq!(plan.undo_delete_count(), None);
+        assert_eq!(plan.inserted_text(), "Dear ,");
     }
 
     #[test]

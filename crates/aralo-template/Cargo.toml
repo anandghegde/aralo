@@ -12,5 +12,8 @@ publish.workspace = true
 # Pure tables, no I/O: this crate also compiles to WebAssembly.
 unicode-segmentation = { workspace = true }
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [lints]
 workspace = true

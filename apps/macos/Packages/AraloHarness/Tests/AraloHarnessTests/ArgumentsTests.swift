@@ -8,13 +8,15 @@ final class ArgumentsTests: XCTestCase {
         XCTAssertEqual(arguments.cases, MatrixCase.allCases)
         XCTAssertEqual(arguments.attempts, 3)
         XCTAssertEqual(arguments.manualWait, 0)
+        XCTAssertEqual(arguments.formPause, 0.75)
         XCTAssertTrue(arguments.launchAralo)
     }
 
     func testOptionsAreRead() throws {
         let arguments = try Arguments([
             "matrix", "--method", "paste", "--undo", "backspace", "--only", "com.apple.TextEdit,com.apple.Notes",
-            "--cases", "ascii,undo", "--require", "13", "--manual-wait", "20", "--no-launch", "--json", "out.json"
+            "--cases", "ascii,undo", "--require", "13", "--manual-wait", "20", "--no-launch", "--json", "out.json",
+            "--form-pause", "1.5"
         ])
         XCTAssertEqual(arguments.config, .paste)
         XCTAssertEqual(arguments.undo, "backspace")
@@ -24,11 +26,14 @@ final class ArgumentsTests: XCTestCase {
         XCTAssertEqual(arguments.manualWait, 20)
         XCTAssertFalse(arguments.launchAralo)
         XCTAssertEqual(arguments.json, "out.json")
+        XCTAssertEqual(arguments.formPause, 1.5)
+        XCTAssertEqual(try Arguments(["matrix", "--cases", "form"]).cases, [.form])
     }
 
     func testMistakesAreNamed() {
         for words in [[], ["dance"], ["matrix", "--method", "guess"], ["matrix", "--cases", "ascii,nope"],
-                      ["latency", "--runs"], ["latency", "--runs", "many"], ["matrix", "--loud"]] {
+                      ["latency", "--runs"], ["latency", "--runs", "many"], ["matrix", "--loud"],
+                      ["matrix", "--form-pause", "soon"], ["matrix", "--form-pause", "-1"]] {
             XCTAssertThrowsError(try Arguments(words), "\(words)") { XCTAssertTrue($0 is Arguments.Problem) }
         }
     }

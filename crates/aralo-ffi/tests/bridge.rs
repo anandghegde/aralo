@@ -4,9 +4,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use aralo_ffi::{
-    Core, CoreEvents, DeleteStrategy, ImportSettings, InsertChoice, InsertMethod, KeyAction,
-    KeyInput, LibraryEvent, MacroHandling, PlanKey, PlanStep, ResetReason, SearchQuery,
-    SnippetDraft, SnippetType, UndoStyle,
+    BodyProblem, BridgeError, ConflictChoice, ContextNeed, ContextSupply, Core, CoreEvents,
+    DeleteStrategy, DiagnosticLevel, ImportSettings, InsertChoice, InsertMethod, InsertOutcome,
+    InsertRefusal, KeyAction, KeyInput, LibraryEvent, MacroHandling, PlanKey, PlanStep,
+    ResetReason, SearchQuery, SessionAction, SnippetDraft, SnippetType, Trash, TrialAction,
+    TrialField, UndoStyle,
 };
 
 /// How long a test waits for the watch and the indexer. Long enough that a
@@ -73,9 +75,107 @@ fn the_editor_previews_what_is_being_typed() {
     );
     assert_eq!(
         core.preview_draft("{{cursor}} here".into()),
-        "{{cursor}} here",
-        "a placeholder previews as its own source until the evaluator lands in M3"
+        " here",
+        "a cursor stop is where the caret lands, not text"
     );
+    assert_eq!(
+        core.preview_draft("Dear {{field: name | default: friend}},".into()),
+        "Dear friend,",
+        "nobody has been asked yet, so a form field previews its default"
+    );
+    assert_eq!(
+        core.preview_draft("{{nonsense}}".into()),
+        "{{nonsense}}",
+        "a placeholder Aralo cannot expand stays as written rather than \
+         becoming nothing"
+    );
+}
+
+#[test]
+fn the_editor_is_told_where_to_highlight_and_what_to_underline() {
+    let (_folder, core) = open();
+
+    // A body that reads: one placeholder, nothing to say about it.
+    let outline = core.outline_draft("Hi {{field: name}}!".into());
+    assert_eq!(outline.problems, []);
+    assert_eq!(outline.placeholders.len(), 1);
+    let field = &outline.placeholders[0];
+    assert_eq!(field.name, "field");
+    assert!(field.known);
+    assert!(field.evaluated, "a form field is expanded, given an answer");
+    assert_eq!((field.start, field.end), (3, 18));
+
+    // An unclosed `{{` is underlined over the rest of the body, which is what
+    // an expansion does with it: insert it as literal text.
+    let outline = core.outline_draft("before {{date: %Y".into());
+    assert_eq!(outline.placeholders, []);
+    assert_eq!(outline.problems.len(), 1);
+    assert_eq!(outline.problems[0].level, DiagnosticLevel::Error);
+    assert_eq!(
+        (outline.problems[0].start, outline.problems[0].end),
+        (7, 17)
+    );
+    assert!(!outline.problems[0].message.is_empty());
+
+    // Ranges are UTF-16 code units: the wave is a surrogate pair, so a text
+    // view counts it twice where Rust counts four bytes.
+    let outline = core.outline_draft("👋 {{cursor}}".into());
+    assert_eq!(
+        (outline.placeholders[0].start, outline.placeholders[0].end),
+        (3, 13)
+    );
+}
+
+#[test]
+fn the_insert_menu_is_offered_the_placeholders_the_core_knows() {
+    let choices = aralo_ffi::placeholder_choices();
+    let names: Vec<&str> = choices.iter().map(|c| c.name.as_str()).collect();
+    assert!(names.contains(&"date"), "{names:?}");
+    assert!(names.contains(&"clipboard"), "{names:?}");
+
+    // Every choice inserts something the core then reads back as that same
+    // placeholder, so the menu cannot offer a body the editor would underline.
+    let (_folder, core) = open();
+    for choice in &choices {
+        let outline = core.outline_draft(choice.insert.clone());
+        // A note is allowed: `{{ai}}`, `{{selection}}` and the rest are known
+        // placeholders Aralo does not expand yet, and the outline says so
+        // rather than pretending. An error would mean the menu offered a body
+        // the editor calls wrong. The sample for `{{snippet: …}}` is the one
+        // that depends on the library, and it is checked below.
+        if choice.name != "snippet" {
+            let errors: Vec<&BodyProblem> = outline
+                .problems
+                .iter()
+                .filter(|problem| problem.level == DiagnosticLevel::Error)
+                .collect();
+            assert!(errors.is_empty(), "{}: {errors:?}", choice.name);
+        }
+        assert_eq!(outline.placeholders.len(), 1, "{}", choice.name);
+        assert_eq!(outline.placeholders[0].name, choice.name);
+        let length = u32::try_from(choice.insert.encode_utf16().count()).unwrap();
+        assert!(choice.select_start <= choice.select_end, "{}", choice.name);
+        assert!(choice.select_end <= length, "{}", choice.name);
+    }
+
+    // A nested reference is read against the library, so the editor underlines
+    // the name of a snippet that is not there and says nothing about one that
+    // is.
+    let nested = core.outline_draft("{{snippet: greeting}}".into());
+    assert_eq!(nested.problems.len(), 1);
+    assert_eq!(nested.problems[0].level, DiagnosticLevel::Error);
+    assert!(
+        nested.problems[0].message.contains("greeting"),
+        "{}",
+        nested.problems[0].message
+    );
+    core.create_snippet(vec![], draft("Greeting", "greeting", "Hello!"))
+        .unwrap();
+    assert_eq!(
+        core.outline_draft("{{snippet: greeting}}".into()).problems,
+        []
+    );
+    assert_eq!(core.preview_draft("{{snippet: greeting}}".into()), "Hello!");
 }
 
 /// The whole library, in list order: what the snippet list opens with, and
@@ -116,6 +216,7 @@ fn listening() -> (tempfile::TempDir, Arc<Core>, Shell) {
         folder.path().join("Aralo").to_string_lossy().into_owned(),
         Some(folder.path().join("cache").to_string_lossy().into_owned()),
         Some(Arc::new(shell.clone())),
+        None,
     )
     .unwrap();
     core.engine().set_front_app("com.apple.TextEdit".into());
@@ -157,6 +258,284 @@ fn a_match_comes_back_with_its_plan() {
             profile: *profile,
         }
     );
+}
+
+/// A body that asks something first: the shell gets a session instead of a
+/// plan, and nothing reaches the document until it has been driven.
+#[test]
+fn a_body_with_a_form_hands_the_shell_a_session_to_drive() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    core.create_snippet(
+        vec![],
+        draft(
+            "Ticket",
+            ";tkt",
+            concat!(
+                "Hi {{field: who | label: Their name | default: friend}}, ",
+                "about {{clipboard}} by {{choice: how | options: post, e-mail}}."
+            ),
+        ),
+    )
+    .unwrap();
+
+    let actions = type_str(&engine, ";tkt ");
+    let [KeyAction::StartSession {
+        snippet_id,
+        consume: true,
+        session,
+    }] = actions.as_slice()
+    else {
+        panic!("{actions:?}");
+    };
+    assert_eq!(session.snippet_id(), *snippet_id);
+
+    // The form first, with the boxes as a panel draws them.
+    let SessionAction::Form { fields } = session.next() else {
+        panic!("the form comes first");
+    };
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, "who");
+    assert_eq!(fields[0].label, "Their name");
+    assert_eq!(fields[0].default, "friend");
+    assert_eq!(fields[0].options, [] as [String; 0]);
+    assert_eq!(fields[1].options, ["post", "e-mail"]);
+    // A drop-down stands on its first option, so the panel opens on it.
+    assert_eq!(fields[1].default, "post");
+    // Asking twice asks the same question.
+    assert!(matches!(session.next(), SessionAction::Form { .. }));
+
+    // A panel previews every keystroke, which changes nothing: the clipboard
+    // has not been fetched yet, so it previews as itself.
+    assert_eq!(
+        session.preview_with([("who".to_owned(), "Da".to_owned())].into()),
+        "Hi Da, about {{clipboard}} by post."
+    );
+    assert_eq!(session.preview(), "Hi friend, about {{clipboard}} by post.");
+
+    // The context second, and only what the body asked for.
+    let SessionAction::Context { kinds } = session.submit_form(
+        [
+            ("who".to_owned(), "Dana".to_owned()),
+            ("how".to_owned(), "e-mail".to_owned()),
+        ]
+        .into(),
+    ) else {
+        panic!("the clipboard is asked for after the form");
+    };
+    assert_eq!(kinds, [ContextNeed::Clipboard]);
+
+    // Then the plan, which is a typed expansion's plan: the abbreviation goes
+    // first, and undo takes the whole thing back.
+    let SessionAction::Expand {
+        snippet_id: expanding,
+        steps,
+        undo_delete_count,
+        profile: session_profile,
+    } = session.provide_context(ContextSupply {
+        clipboard: Some("PO-8841".into()),
+        // Nothing asked for these, and the core drops them rather than
+        // trusting a shell not to send them (PRD P4).
+        selection: Some("secret".into()),
+        app: Some("com.apple.TextEdit".into()),
+        window: None,
+    })
+    else {
+        panic!("the expansion comes last");
+    };
+    assert_eq!(expanding, *snippet_id);
+    assert_eq!(
+        steps,
+        [
+            PlanStep::Delete { count: 4 },
+            PlanStep::InsertText {
+                text: "Hi Dana, about PO-8841 by e-mail. ".into()
+            },
+        ]
+    );
+    assert_eq!(undo_delete_count, Some(34));
+
+    // Reading it again reads the same plan rather than a second one: the plan
+    // is a value, and the shell runs it once.
+    assert_eq!(
+        session.next(),
+        SessionAction::Expand {
+            snippet_id: snippet_id.clone(),
+            steps,
+            undo_delete_count,
+            profile: session_profile,
+        }
+    );
+}
+
+/// Nothing was inserted, so cancelling has only one thing to put back: the key
+/// the engine swallowed to open the panel.
+#[test]
+fn a_cancelled_session_puts_back_the_key_that_opened_it() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    core.create_snippet(vec![], draft("Greeting", ";dear", "Dear {{field: who}},"))
+        .unwrap();
+
+    let actions = type_str(&engine, ";dear ");
+    let [KeyAction::StartSession { session, .. }] = actions.as_slice() else {
+        panic!("{actions:?}");
+    };
+    assert_eq!(
+        session.cancel(),
+        [PlanStep::InsertText { text: " ".into() }]
+    );
+    // Cancelled twice is still cancelled, and there is nothing left to ask.
+    assert_eq!(session.cancel(), []);
+    assert_eq!(session.next(), SessionAction::Done);
+    assert_eq!(session.preview(), "");
+}
+
+/// The same from the palette: a picked snippet that asks something first.
+#[test]
+fn a_picked_snippet_with_a_form_starts_a_session_too() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    let id = core
+        .create_snippet(vec![], draft("Ticket", ";tkt", "Hi {{field: who}}"))
+        .unwrap();
+    engine.set_front_app("app.aralo.Aralo".into());
+
+    let InsertOutcome::StartSession {
+        snippet_id,
+        session,
+    } = engine.insert(id.clone(), "com.apple.Terminal".into())
+    else {
+        panic!("a form field cannot be answered on the keystroke");
+    };
+    assert_eq!(snippet_id, id);
+    assert!(matches!(session.next(), SessionAction::Form { .. }));
+
+    // Nothing was typed, so the plan has nothing to delete, and it is for the
+    // app that was named rather than for Aralo's own window.
+    let SessionAction::Expand { steps, profile, .. } =
+        session.submit_form([("who".to_owned(), "Dana".to_owned())].into())
+    else {
+        panic!("one answer is all it wanted");
+    };
+    assert_eq!(
+        steps,
+        [PlanStep::InsertText {
+            text: "Hi Dana".into()
+        }]
+    );
+    // Terminal's row of the table, not Aralo's own window's.
+    assert_eq!(profile.insert, InsertChoice::Type);
+}
+
+/// The palette's Enter: a snippet picked from a list, typed into the app the
+/// user came from rather than the one Aralo's own window is.
+#[test]
+fn a_picked_snippet_inserts_its_body_into_the_app_that_was_named() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    let id = core
+        .create_snippet(vec![], draft("Sign off", "sig", "Best,\nAnand"))
+        .unwrap();
+    // The picker has the keyboard while the user chooses.
+    engine.set_front_app("app.aralo.Aralo".into());
+
+    let outcome = engine.insert(id.clone(), "com.apple.Terminal".into());
+    let InsertOutcome::Insert {
+        snippet_id,
+        steps,
+        undo_delete_count: Some(11),
+        profile,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(snippet_id, id);
+    assert_eq!(
+        steps,
+        [PlanStep::InsertText {
+            text: "Best,\nAnand".into()
+        }],
+        "nothing was typed, so there is nothing to delete"
+    );
+    // Terminal's row of the table, not Aralo's own window's.
+    assert_eq!(profile.insert, InsertChoice::Type);
+    assert_eq!(profile.undo, UndoStyle::Backspace);
+
+    // The app the text went into is the front app now, so the system's own
+    // report of the switch arrives as news of nothing and leaves undo armed.
+    assert_eq!(engine.injection_profile(), profile);
+    engine.set_front_app("com.apple.Terminal".into());
+
+    // And the undo key takes it back, with nothing to retype.
+    engine.expansion_done(snippet_id, 11, InsertMethod::Typed);
+    assert_eq!(
+        engine.on_key(KeyInput::Undo),
+        KeyAction::UndoExpansion {
+            delete_count: 11,
+            retype: String::new(),
+            method: InsertMethod::Typed,
+            profile,
+        }
+    );
+}
+
+#[test]
+fn a_picked_snippet_is_refused_when_it_is_gone_paused_or_for_an_app_aralo_stays_out_of() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    let id = core
+        .create_snippet(vec![], draft("Sign off", "sig", "Best"))
+        .unwrap();
+    let refusal = |outcome| match outcome {
+        InsertOutcome::Refused { reason } => reason,
+        other => panic!("{other:?}"),
+    };
+
+    let excluded = aralo_ffi::excluded_app_presets()[0].clone();
+    assert_eq!(
+        refusal(engine.insert(id.clone(), excluded)),
+        InsertRefusal::ExcludedApp,
+        "a deliberate pick is still not typed into a password manager"
+    );
+
+    engine.set_paused(true);
+    assert_eq!(
+        refusal(engine.insert(id.clone(), "com.apple.TextEdit".into())),
+        InsertRefusal::Paused
+    );
+    // A refusal arms nothing, so the undo key stays the app's own.
+    assert_eq!(engine.on_key(KeyInput::Undo), KeyAction::Pass);
+    engine.set_paused(false);
+
+    assert_eq!(
+        refusal(engine.insert("not-an-id".into(), "com.apple.TextEdit".into())),
+        InsertRefusal::SnippetGone
+    );
+    core.delete_snippet(id.clone()).unwrap();
+    assert_eq!(
+        refusal(engine.insert(id, "com.apple.TextEdit".into())),
+        InsertRefusal::SnippetGone,
+        "the list was drawn before the file went"
+    );
+}
+
+#[test]
+fn a_picked_snippet_cannot_complete_an_abbreviation_across_what_it_inserted() {
+    let (_folder, core) = open();
+    let engine = core.engine();
+    let id = core
+        .create_snippet(vec![], draft("Sign off", "sig", "Best"))
+        .unwrap();
+
+    // Half of the starter library's "ty" is in the document.
+    assert_eq!(type_str(&engine, "t"), []);
+    assert!(matches!(
+        engine.insert(id, "com.apple.TextEdit".into()),
+        InsertOutcome::Insert { .. }
+    ));
+    // The "y " lands after the inserted text, so "ty " is not what was typed.
+    assert_eq!(type_str(&engine, "y "), []);
 }
 
 #[test]
@@ -443,6 +822,92 @@ fn the_editor_is_warned_about_a_draft_before_it_saves_it() {
     assert_ne!(core.suggest_abbreviation("Address".into()), ";addr");
 }
 
+fn try_typing(trial: &aralo_ffi::DraftTrial, text: &str) -> Vec<TrialAction> {
+    text.chars().map(|c| trial.key(key(c))).collect()
+}
+
+#[test]
+fn the_test_field_expands_the_draft_on_screen_without_saving_it() {
+    let (_folder, core) = open();
+    let before = core.snippets().len();
+    let trial = core.try_draft(
+        draft("Sign off", ";sig", "Bye {{cursor}}!"),
+        Vec::new(),
+        None,
+    );
+    assert_eq!(trial.abbreviations(), 1);
+
+    let actions = try_typing(&trial, "ok ;sig ");
+    assert_eq!(actions.last(), Some(&TrialAction::Expanded));
+    // "ok Bye |! " in UTF-16: the caret sits before the "!".
+    assert_eq!(
+        trial.field(),
+        TrialField {
+            text: "ok Bye ! ".into(),
+            caret: 7,
+            selected: 0,
+        }
+    );
+    assert_eq!(core.snippets().len(), before, "trying a draft wrote it");
+
+    // The caret moved, so there is no undo to offer: Backspace is Backspace,
+    // as it would be in any app.
+    trial.key(KeyInput::Backspace);
+    assert_eq!(trial.field().text, "ok Bye! ");
+
+    trial.clear();
+    assert_eq!(trial.field().text, "");
+}
+
+#[test]
+fn the_test_field_counts_in_utf16_like_a_text_view() {
+    let (_folder, core) = open();
+    let trial = core.try_draft(draft("Smile", ";sm", "\u{1F600}"), Vec::new(), None);
+    try_typing(&trial, "\u{e9} ;sm ");
+    let field = trial.field();
+    assert_eq!(field.text, "\u{e9} \u{1F600} ");
+    assert_eq!(field.caret, 5, "one unit, a space, two units, a space");
+
+    // A click between the two halves of the emoji lands before it.
+    trial.move_caret(3);
+    trial.key(key('x'));
+    assert_eq!(trial.field().text, "\u{e9} x\u{1F600} ");
+}
+
+#[test]
+fn a_draft_with_a_form_hands_the_test_field_a_session() {
+    let (_folder, core) = open();
+    let body = "Hi {{field: who | default: friend}}.";
+    let trial = core.try_draft(draft("Hello", ";hi", body), Vec::new(), None);
+
+    let Some(TrialAction::Session { session }) = try_typing(&trial, ";hi ").pop() else {
+        panic!("expected a session");
+    };
+    assert_eq!(trial.field().text, ";hi", "nothing goes in while it asks");
+    assert!(matches!(session.next(), SessionAction::Form { .. }));
+    let answers = [("who".to_owned(), "Dana".to_owned())]
+        .into_iter()
+        .collect();
+    let SessionAction::Expand {
+        steps,
+        undo_delete_count,
+        ..
+    } = session.submit_form(answers)
+    else {
+        panic!("expected a plan");
+    };
+    trial.finish(steps, undo_delete_count);
+    assert_eq!(trial.field().text, "Hi Dana. ");
+
+    // And one the user closes puts the space back.
+    trial.clear();
+    let Some(TrialAction::Session { session }) = try_typing(&trial, ";hi ").pop() else {
+        panic!("expected a session");
+    };
+    trial.cancel(session);
+    assert_eq!(trial.field().text, ";hi ");
+}
+
 #[test]
 fn search_finds_what_was_just_written() {
     let (_folder, core) = open();
@@ -576,6 +1041,10 @@ fn an_import_says_what_it_would_do_before_it_does_it() {
         .unwrap();
     assert_eq!(signature.group, ["Imported", "Work"]);
     assert!(signature.path.is_some());
+    // The report names the snippet each entry became, so it can open it.
+    let id = signature.id.clone().unwrap();
+    assert_eq!(core.snippet(id).unwrap().draft.label, "Signature");
+    assert!(planned.entries.iter().all(|entry| entry.id.is_none()));
     assert_eq!(type_str(&core.engine(), ";sig ").len(), 1);
 
     assert!(core
@@ -611,4 +1080,114 @@ fn lists_snippets_and_diagnostics() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].path, "README.md");
     assert_eq!(diagnostics[0].level, aralo_ffi::DiagnosticLevel::Note);
+}
+
+/// A shell's Trash: it moves what it is given into a folder of its own and
+/// writes down what that was, or refuses when told to.
+#[derive(Clone)]
+struct Bin {
+    folder: std::path::PathBuf,
+    taken: Arc<Mutex<Vec<String>>>,
+    refuse: bool,
+}
+
+impl Trash for Bin {
+    fn discard(&self, path: String) -> Result<(), BridgeError> {
+        if self.refuse {
+            return Err(BridgeError::Trash {
+                message: "the Trash is full".into(),
+            });
+        }
+        let name = std::path::Path::new(&path).file_name().unwrap().to_owned();
+        std::fs::create_dir_all(&self.folder).unwrap();
+        std::fs::rename(&path, self.folder.join(name)).unwrap();
+        self.taken.lock().unwrap().push(path);
+        Ok(())
+    }
+}
+
+const SIG_ID: &str = "01J8ZK3V5Q8W6T9X2N4R7M0ABC";
+
+/// A library where both machines renamed one snippet, opened with `bin` as its
+/// Trash. With no base yet, nothing about the two can merge.
+fn clashing(bin: &Bin) -> (tempfile::TempDir, Arc<Core>) {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("Aralo");
+    std::fs::create_dir_all(&library).unwrap();
+    let sig =
+        |label: &str| format!("---\nid: {SIG_ID}\nlabel: {label}\nabbr: [;sig]\n---\nBest,\nSam\n");
+    std::fs::write(library.join("sig.md"), sig("Mine")).unwrap();
+    std::fs::write(library.join("sig 2.md"), sig("Theirs")).unwrap();
+    let core = Core::open_library(
+        library.to_string_lossy().into_owned(),
+        Some(folder.path().join("cache").to_string_lossy().into_owned()),
+        None,
+        Some(Arc::new(bin.clone())),
+    )
+    .unwrap();
+    (folder, core)
+}
+
+#[test]
+fn a_conflict_is_shown_and_resolved_into_the_shells_trash() {
+    let trash = tempfile::tempdir().unwrap();
+    let bin = Bin {
+        folder: trash.path().to_owned(),
+        taken: Arc::default(),
+        refuse: false,
+    };
+    let (_folder, core) = clashing(&bin);
+
+    let waiting = core.conflicts();
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].copy, "sig 2.md");
+    assert_eq!(waiting[0].original, "sig.md");
+    assert_eq!(waiting[0].snippet_id, SIG_ID);
+
+    let detail = core.conflict("sig 2.md".into()).unwrap();
+    assert!(detail.original_text.contains("label: Mine"));
+    assert!(detail.copy_text.contains("label: Theirs"));
+    assert_eq!(detail.base_text, None);
+    assert_eq!(detail.clashing_keys, ["label"]);
+    assert!(!detail.body_clashes);
+    assert!(core.conflict("sig.md".into()).is_err());
+
+    core.resolve_conflict("sig 2.md".into(), ConflictChoice::KeepCopy)
+        .unwrap();
+    assert!(core.conflicts().is_empty());
+    let taken = bin.taken.lock().unwrap().clone();
+    assert_eq!(taken.len(), 1);
+    assert!(taken[0].ends_with("sig 2.md"));
+    assert!(trash.path().join("sig 2.md").exists());
+    let kept = core.snippet(SIG_ID.into()).unwrap();
+    assert_eq!(kept.draft.label, "Theirs");
+}
+
+#[test]
+fn a_trash_that_refuses_leaves_the_conflict_waiting() {
+    let trash = tempfile::tempdir().unwrap();
+    let bin = Bin {
+        folder: trash.path().to_owned(),
+        taken: Arc::default(),
+        refuse: true,
+    };
+    let (folder, core) = clashing(&bin);
+
+    let refused = core.resolve_conflict("sig 2.md".into(), ConflictChoice::KeepOriginal);
+    assert!(refused
+        .unwrap_err()
+        .to_string()
+        .contains("the Trash is full"));
+    assert_eq!(core.conflicts().len(), 1);
+    assert!(folder.path().join("Aralo/sig 2.md").exists());
+
+    // A version that is not a snippet file is refused before anything moves.
+    let unreadable = core.resolve_conflict(
+        "sig 2.md".into(),
+        ConflictChoice::Write {
+            text: "---\nabbr: [\n---\n".into(),
+        },
+    );
+    assert!(unreadable.is_err());
+    assert_eq!(core.conflicts().len(), 1);
 }

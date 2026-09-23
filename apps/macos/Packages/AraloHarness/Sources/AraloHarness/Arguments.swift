@@ -15,6 +15,8 @@ public struct Arguments: Equatable, Sendable {
     public var only: [String] = []
     public var cases = MatrixCase.allCases
     public var attempts = 3
+    /// Seconds a form panel gets to open before its answer is typed.
+    public var formPause = 0.75
     public var includePending = false
     /// Seconds a person gets to click into a field. Zero: nobody is there.
     public var manualWait = 0.0
@@ -44,8 +46,9 @@ public struct Arguments: Equatable, Sendable {
           --method chosen|type|paste   the table as shipped, or one method forced on every app [chosen]
           --undo native|backspace      undo style for a forced method [native]
           --only ID[,ID...]            just these bundle IDs (latency: the first; default TextEdit)
-          --cases NAME[,NAME...]       of: ascii unicode long cursor undo clipboard
+          --cases NAME[,NAME...]       of: ascii unicode long cursor undo clipboard form
           --attempts N                 a failure counts after N in a row [3]
+          --form-pause SECONDS         how long the form panel gets to open, for a slow machine [0.75]
           --include-pending            also run cases that wait on a later milestone
           --manual-wait SECONDS        let a person click into apps that need it [0: skip them]
           --runs N                     latency: expansions per insert method [50]
@@ -85,13 +88,14 @@ public struct Arguments: Equatable, Sendable {
             guard let value = rest.popFirst() else { throw Problem(description: "\(flag) needs a value") }
             try setChoice(flag, value)
             try setCount(flag, value)
+            try setSeconds(flag, value)
             setPath(flag, value)
         }
     }
 
     private static let valued: Set<String> = [
         "--method", "--undo", "--only", "--cases", "--attempts", "--manual-wait", "--runs", "--require",
-        "--aralo", "--library", "--recipes", "--json", "--markdown"
+        "--form-pause", "--aralo", "--library", "--recipes", "--json", "--markdown"
     ]
 
     private mutating func setChoice(_ flag: String, _ text: String) throws {
@@ -114,6 +118,16 @@ public struct Arguments: Equatable, Sendable {
         case "--runs": runs = max(1, number)
         default: require = number
         }
+    }
+
+    /// The one flag measured in fractions of a second: a panel that opens in a
+    /// third of a second is worth saying so.
+    private mutating func setSeconds(_ flag: String, _ text: String) throws {
+        guard flag == "--form-pause" else { return }
+        guard let seconds = Double(text), seconds >= 0, seconds.isFinite else {
+            throw Problem(description: "\(flag) \(text): not a number of seconds")
+        }
+        formPause = seconds
     }
 
     private mutating func setPath(_ flag: String, _ text: String) {

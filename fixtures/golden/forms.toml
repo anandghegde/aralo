@@ -1,0 +1,76 @@
+about = "forms: what a field asks for, what it stands on, and what an answer does"
+
+[[case]]
+name = "a field goes in as it was answered"
+body = "Hi {{field: who | label: Their name | default: friend}},\nthanks."
+answers = { who = "Dana" }
+
+[[case]]
+name = "a field nobody answered stands on its default"
+body = "Hi {{field: who | default: friend}},"
+
+[[case]]
+name = "a field with no default and no answer inserts nothing"
+body = "Hi {{field: who}}!"
+
+[[case]]
+name = "one name twice is one field and one answer"
+body = "{{field: who}}, it is {{field: who}} again"
+answers = { who = "Dana" }
+
+[[case]]
+name = "a field with room to write in takes an answer with line breaks"
+body = "Case notes:\n{{field: notes | lines: 4}}"
+answers = { notes = "Called back.\nAsked for the log." }
+
+[[case]]
+name = "a height Aralo cannot read is left out, and the box is one line"
+body = "Case notes:\n{{field: notes | lines: plenty}}"
+answers = { notes = "Called back." }
+
+[[case]]
+name = "a drop-down stands on its first option"
+body = "Ships by {{choice: speed | options: post, courier, pigeon}}."
+
+[[case]]
+name = "a drop-down with a default stands on the default"
+body = "Ships by {{choice: speed | options: post, courier | default: courier}}."
+
+[[case]]
+name = "an answer the drop-down did not offer is still the answer"
+body = "Ships by {{choice: speed | options: post, courier}}."
+answers = { speed = "by hand" }
+
+[[case]]
+name = "a drop-down with nothing to choose from says so"
+body = "Ships by {{choice: speed}}."
+
+[[case]]
+name = "a field with no name cannot be answered"
+body = "Hi {{field}}!"
+
+[[case]]
+name = "the form and the clipboard are answered in that order"
+body = "Hi {{field: who}}, about {{clipboard}}."
+answers = { who = "Dana" }
+clipboard = "PO-8841"
+
+[[case]]
+name = "the case the abbreviation was typed in re-cases the answer"
+abbr = ";case"
+typed = ";Case "
+answers = { who = "dana" }
+body = "hi {{field: who}}, and {{date: %B}}"
+
+[[case]]
+name = "an abbreviation typed in capitals shouts the whole expansion"
+abbr = ";case"
+typed = ";CASE "
+answers = { who = "dana" }
+body = "hi {{field: who}}, and {{date: %B}}"
+
+[[case]]
+name = "a form the user escapes inserts nothing and keeps what was typed"
+typed = ";x "
+cancel = true
+body = "Hi {{field: who | default: friend}},"

@@ -93,8 +93,11 @@ replace them.
    acted on it, so the expansion offers no undo.
 
 A static snippet goes from `on_key` to a finished plan without leaving the
-tap and injector threads. Forms and AI blocks (M3, M4) will move the session
-onto the core runtime and the main thread.
+tap and injector threads. A body that asks something first — a form to fill
+in, a clipboard to fetch — answers `StartSession` instead: nothing has gone
+into the document yet, the shell drives the session on the main thread, and a
+session the user cancels leaves what they typed where it was. AI blocks (M4)
+join that path.
 
 ## Permissions and the first run
 
@@ -154,8 +157,129 @@ editor would show.
   folder is the user's, and a snippet that collides is still a file they wrote
   on purpose.
 - The preview is of the body being typed, not of the file
-  (`preview_draft(body)`), so it keeps up with the keystroke. A placeholder
-  previews as its own source until the evaluator lands in M3.
+  (`preview_draft(body)`), so it keeps up with the keystroke. It is a real
+  expansion on the form's defaults, so what it shows is what goes in (L10); a
+  placeholder Aralo cannot expand previews as its own source.
+- The body editor is a TextKit 2 `NSTextView`, and it invents nothing about the
+  grammar: `outline_draft(body)` hands back the placeholders and the problems
+  the parser found, in UTF-16 code units, and the view colours and underlines
+  those ranges. It is the parse an expansion runs, so what is marked is what
+  would happen (L10). The problem's words are the core's, so a second shell
+  says the same thing about the same body, and clicking one selects the range
+  it is about.
+- The Insert menu is `placeholder_choices()`: the core says what to insert and
+  which part of it the reader replaces, so the menu is the format's list rather
+  than a copy of it kept in the shell. The insertion goes in through AppKit's
+  own text input, so one undo takes it back.
+- The test field is `try_draft(draft, group, editing?)`: a `DraftTrial`, which
+  is a text field in memory with an engine of its own that knows one snippet,
+  the draft on screen, under the settings of the group it would be saved in.
+  The shell's text view never edits itself. Each key goes to `key(KeyInput)`,
+  which runs the matcher and the expansion path a real app gets, and the view
+  draws `field()`: the text, the caret and any selection, in UTF-16 code
+  units. A click or an arrow key is `move_caret`, which resets the buffer as
+  navigation does elsewhere. A draft with a form hands back an
+  `ExpansionSession`, which the same `FormSession` drives, in a sheet; its plan
+  goes to `finish` and a cancel to `cancel`. Nothing is written, a switched-off
+  draft still expands here, and a nested snippet is read from the library as
+  saved. While the field or its sheet has the keyboard, the live tap is
+  suspended as it is for the palette, or an abbreviation typed there would
+  expand twice.
+
+- Import and export are on the window's toolbar, and Import is in the menu
+  bar too. Choosing a file opens a sheet on a dry run: what the file would
+  become, the format, the macro handling and the group it goes into. Every
+  change of option runs the dry run again, so the sheet shows what the import
+  would do rather than a guess at it, and nothing is written until the user
+  presses Import. The report then lists the snippets that need an edit first,
+  each with the core's note and a button that opens it, then the ones left
+  out, then the rest. `LibraryImport` in AraloKit is the sheet apart from its
+  window. Export writes the group the sidebar has selected, which at the root
+  is the whole library, in a format Aralo also reads.
+
+## The search palette
+
+A hot key anywhere (⌃⌥⌘Space), a few letters, and Enter puts the snippet into
+the app the user was already in. It is the way to reach a snippet whose
+abbreviation nobody remembers, and the way to use Aralo at all in an app where
+typing an abbreviation is awkward.
+
+`PaletteStore` in AraloKit is the palette apart from its window: the rows for
+what has been typed, the row Enter would insert, the preview beside it, and
+what happened to the last pick. The ranking is the core's `search(SearchQuery)`
+with `enabled_only`, so the palette and the snippet window agree about what
+matches; an empty query is the `recents(limit)` list, then the rest of the
+library in its own order. A switched-off snippet does not expand when it is
+typed, so it is not offered here either.
+
+- The window is a non-activating `NSPanel`. The app underneath stays the
+  frontmost one and keeps its insertion point, so nothing has to be restored
+  afterwards.
+- While the palette has the keyboard, the tap is suspended
+  (`ExpansionController.setSuspended`) and the buffer is emptied on the way in
+  and on the way out. What is typed into the search box is a query, not text in
+  a document, and the two sides of the palette cannot join up into an
+  abbreviation neither of them typed.
+- The panel gives the keyboard back **before** any text is typed, in that
+  order: synthetic keys follow the keyboard, and a snippet inserted with the
+  palette still up would land in the search box. The buffer is cleared first
+  for the same reason: clearing it takes the undo record with it, and the
+  snippet about to land has to be undoable.
+- The plan runs through the same `ExpansionController` and the same serial
+  injector queue as a typed expansion, and arms the same undo. To the user it
+  is the same thing arriving by another route: one undo key takes it back, and
+  because nothing was typed to ask for it, nothing is retyped in its place.
+- A pick is refused while Aralo is paused and in the apps it stays out of (P2,
+  E10). Neither refusal is about the snippet, and the palette is the one place
+  a user is *told* why nothing was inserted: an expansion they typed into a
+  password manager simply does not happen, but a snippet they picked from a
+  list and watched do nothing needs an answer. So a refusal keeps the window
+  up, with the words the core's reasons are given in the shell.
+
+## The form panel
+
+A snippet whose body asks something — a `{{field: …}}` to fill in, a
+`{{choice: …}}` to pick from — cannot be a plan the moment the abbreviation
+completes. `on_key` answers `StartSession` instead: the key that matched is
+swallowed, nothing is typed, and a panel asks the questions.
+
+`FormSession` in AraloKit is the panel apart from its window: the fields to
+draw, the answers as they stand, the preview of what Enter would insert, and
+whether the session is over. It drives one `ExpansionSession` — the form, then
+whatever the body wants from outside it, then the plan — and knows nothing
+about windows or injectors. What it hands over goes to an `ExpansionRunner`,
+which in the app is the same `ExpansionController` the tap talks to.
+
+- Asking changes nothing. The preview is `preview_with(answers)`, so it is the
+  expansion itself run on a copy, and a user who opens a form and thinks better
+  of it has typed nothing anywhere.
+- The fields open on their defaults, and a drop-down on its first choice, so a
+  form is answerable by pressing Enter.
+- A field that asked for lines (`{{field: notes | lines: 4}}`) is drawn as a
+  box with room to write in, that many lines tall. Return then belongs to the
+  box rather than to the Insert button, so such a form inserts with Command
+  and Return, and the panel says so.
+- The context the body wants is fetched without asking the user: a snippet that
+  wants the clipboard is not a snippet that wants a dialogue about the
+  clipboard. Only what `SessionAction.Context` names is read, and only then, so
+  a body that never mentions the clipboard never causes the pasteboard to be
+  touched. A pasteboard with no text on it is an empty clipboard, not a missing
+  one — copying an image must not leave `{{clipboard}}` in the document.
+- A body that asks only for context has no panel at all: the session runs to
+  its plan while the model is being built, and `FormSession` is finished before
+  a window could be shown.
+- The window is a non-activating `NSPanel` on the palette's terms, and gives
+  the keyboard back **before** it submits, for the same reasons
+  ([The search palette](#the-search-palette)). Clicking away is a way of saying
+  never mind.
+- Cancelling puts back what the match swallowed and nothing else: one
+  keystroke, typed, with nothing to delete because nothing was inserted.
+- One panel per session. The boxes belong to the snippet that asked, and the
+  last snippet's are not this one's.
+- The tap is suspended while any window of Aralo's own holds the keyboard, and a
+  form panel can open from the palette, so the two are counted rather than
+  flagged: the palette closing must not start the tap while the panel is still
+  up.
 
 ## The compatibility table
 
@@ -224,15 +348,29 @@ it selects all, copies, reads the clipboard and puts the clipboard back.
 | `ascii` | `mxascii` | the sentence arrives |
 | `unicode` | `mxemoji` | emoji with joiners and skin tones, a combining accent and CJK arrive unchanged |
 | `long` | `mxlong` | all 2,000 characters arrive |
-| `cursor` | `mxcursor` | the next key lands where `{{cursor}}` was. Pending: needs the template evaluator (M2) |
+| `cursor` | `mxcursor` | the next key lands where `{{cursor}}` was. The expectation is read from the plan's `MoveCursor` steps |
 | `undo` | `mxascii`, then Cmd+Z | the abbreviation is back and the expansion is gone |
 | `clipboard` | `mxlong` | the text arrives and the clipboard holds what it held before |
+| `form` | `mxform`, then an answer and Return | the form panel takes the delimiter, and the answer typed into it arrives in the app |
 
 The text a case expects is never written down twice. The harness opens the
 same library through the bridge, feeds the abbreviation to `Engine.on_key`
 and reads the plan, so it compares the field with what the core says, under
 the very table row Aralo will use (`compat_apps` lists the rows). A forced
-method is a generated table handed to both through `ARALO_COMPAT`.
+method is a generated table handed to both through `ARALO_COMPAT`. A body that
+asks something comes back as a session rather than a plan, and the harness
+drives it the way the panel does, with its own answer in every box; a body that
+wants the clipboard or the selection is the shell's to fetch, so the harness
+says so instead of comparing the field with a guess.
+
+**The form case.** The panel is Aralo's own window and takes the keyboard
+without activating, so the app under test stays frontmost and the harness reads
+its field as before. There is nothing to watch for — a swallowed delimiter looks
+like a delimiter the app has not shown yet — so the panel gets `--form-pause`
+(0.75 s) before the answer is typed and Return pressed. An answer that turns up
+in the document instead says exactly that: the panel was not up in time, which
+is a slow machine, not a broken expansion, and the case is retried like any
+other.
 
 **Verdicts.** A case that fails is tried again, three times in all (the
 plan's rule against flaky desktop automation). `pass` is a first-try pass,
@@ -298,8 +436,9 @@ keychain certificate named in the variable `MATRIX_SIGN_IDENTITY`
 
 The library folder is the only source of truth
 ([ADR-0006](adr/0006-files-as-source-of-truth.md)). Everything else about it is
-a cache that can be deleted and rebuilt. `aralo-library` holds three pieces:
-the loader, a watcher and a SQLite index.
+a cache that can be deleted and rebuilt. `aralo-library` holds four pieces:
+the loader, a watcher, a SQLite index and the merge that folds a sync client's
+conflict copy back into its snippet.
 
 **The watcher** (`Watch`) wraps `notify` — FSEvents on macOS, inotify on Linux
 — on a thread of its own, and calls back with a debounced batch of paths once
@@ -335,12 +474,13 @@ folder is a corruption waiting to happen.
 | `groups` | The folder tree the snippets describe, with the count in each | Yes |
 | `snippets_fts` | FTS5 over label, abbreviation, tags and body | Yes |
 | `stats` | Expansion counts and last-used time | **No.** Local only, never synced |
+| `bases` | Each snippet's last settled file, the base a conflict copy merges against | **No.** Only this machine saw it |
 | `vectors` | Embedding blobs keyed by content hash and model | **No.** Hours of compute |
 
 `sync` is the usual path: it compares each snippet's content hash, path, group
 and enabled flag against the row already there and writes only what differs, so
 a folder nobody touched costs one pass and no writes. `rebuild` clears the
-three derived tables and writes everything; it never touches the two that are
+three derived tables and writes everything; it never touches the three that are
 not rebuildable. The two must agree, and `Index::rows` is what checks that —
 it dumps every derived row in a fixed order, and the test suite asserts that an
 incremental sync lands exactly where a rebuild lands.
@@ -391,6 +531,65 @@ if no window has drawn yet. Where both locks are held, the library is taken
 first and the matcher second, on every thread; the keystroke path takes one at
 a time.
 
+### Conflict copies
+
+Two machines that change one snippet before either sees the other's change
+leave the sync client holding two files. Every client keeps both, under a name
+of its own making: `sig (conflicted copy 2026-09-23).md` (Dropbox, Nextcloud),
+`sig (1).md` (Google Drive, Box), `sig 2.md` (iCloud Drive),
+`sig.sync-conflict-….md` (Syncthing), `sig_conflict-….md` (ownCloud) and
+`sig-MACHINE.md` (OneDrive).
+
+A name alone is not enough to go on, because `Invoice 2.md` may be a snippet
+the user made on purpose. The loader pairs a file with an original only when
+all three hold: the two sit in one folder, they carry one `id`, and the name is
+one of those a client gives a copy of the original's name. The original is
+loaded and the copy is left out, reported as `ConflictCopy` rather than
+`DuplicateId`. Anything else with a contested `id` is still a duplicate. When
+several files claim one `id`, the original is the one the most others are
+copies of.
+
+The merge is three-way ([ADR-0008](adr/0008-crate-choices.md) picks `diffy`).
+The base is the version this machine last saw settled, which the index keeps in
+`bases`, keyed by the hash of the file's raw bytes. The index's content hash
+would not do, because it misses keys such as `case`. A base is not moved while
+a copy of its snippet is waiting, so it stays the common ancestor of both
+sides. The front matter merges key by key, keys this version does not know
+included, and the body merges line by line. A side that left something as the
+base had it takes the other side's change. Both sides making one change is that
+change. Anything else is a clash, and nothing is guessed. With no base, only
+what the two sides agree on merges.
+
+`Runtime` merges whenever it reads the folder: when it opens, after the watcher
+reports a change, and on `reload`. A clean merge is written over the original
+before the copy is discarded, so a failure between the two leaves a copy that
+merges cleanly again the next time. The shell hears `LibraryChange::Merged`
+with the copies that went. A clash leaves both files where they are, and the
+diagnostic tells the user to keep one.
+
+A clash waits for the user. `Core::conflict(copy)` returns both files as they
+are on disk, the base when the index has one, and what the two changed
+differently: the front-matter keys, and whether the body's lines overlap.
+`Core::resolve_conflict(copy, resolution)` takes one of three decisions: keep
+the original, keep the copy, or keep a version the user wrote. Whichever is
+kept is written into the original's file under the snippet's own `id`, and the
+copy is discarded as a clean merge's is. Text that is not a snippet file is
+refused before anything moves. The runtime runs a resolution as an edit, so the
+index catches up and the shell hears `Edited`.
+
+Discarding goes through a `Discard` the shell supplies. The Mac shell passes a
+`Trash` (`SystemTrash`, which uses `FileManager.trashItem`), so a merged or
+resolved copy lands in the Finder's Trash and Put Back returns it. A shell that
+passes none gets the copy set aside in `<cache>/merged/<library>/`, named after
+the moment it moved, and the command line does the same. A `Trash` that refuses
+leaves the copy where it was and the conflict still waiting.
+
+On the Mac, a waiting copy shows in two places: a toolbar menu in the snippet
+window lists each one, and the snippet it belongs to carries a banner. Both
+open the resolver, a sheet with the two files side by side, the base under a
+disclosure, a sentence naming what clashed, and the three ways out.
+`ConflictResolver` in AraloKit is that sheet apart from its view.
+
 ### Editing
 
 `Core`'s editing calls are the other half of ADR-0006: every one of them writes
@@ -412,31 +611,45 @@ the event tap.
 
 | Object | Calls | Kind |
 | --- | --- | --- |
-| `Engine` | `on_key(KeyInput) -> KeyAction`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
-| `Core` | `open_library(path, cache?, events?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
+| `Engine` | `on_key(KeyInput) -> KeyAction`, `insert(snippet_id, into_app) -> InsertOutcome`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
+| `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
 | `Core`, editing | `create_snippet`, `save_snippet`, `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
-| `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `recents(limit)` | Synchronous |
+| `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `outline_draft(body)`, `try_draft(draft, group, editing?) -> DraftTrial`, `recents(limit)` | Synchronous |
+| `DraftTrial` | `key(KeyInput) -> TrialAction` (`Typed`, `Expanded` or `Session { session }`), `field() -> TrialField`, `move_caret(caret)`, `clear()`, `finish(steps, undo_delete_count?)`, `cancel(session)`, `abbreviations()`. Offsets are UTF-16 | Synchronous |
+| `Core`, the locale | `set_locale(tag)`, `locale()`: which locale `{{date}}` is written in. The Mac shell passes `Locale.current.identifier`; a terminal falls back to `LC_ALL`, `LC_TIME` or `LANG` ([ADR-0014](adr/0014-clock-and-locale.md)) | Synchronous |
+| `ExpansionSession` | `next()`, `submit_form(answers)`, `provide_context(values)`, `preview()`, `preview_with(answers)`, `cancel()`, `snippet_id()`. Asking twice asks the same question; `preview_with` is what a panel redraws as the user types, and changes nothing; `cancel` hands back the steps that put the typed key back | Synchronous |
 | `Core`, interchange | `import(source, settings)`, `export(format, group)` | Synchronous |
-| `CoreEvents` | `library_changed(event)`: `Outside`, `Edited`, `Reloaded`, `Failed`, `Indexed`. The shell implements it | Called on a background thread |
-| Functions | `core_version()`, `excluded_app_presets()`, `compat_apps(path?)`: the rows of a table, for the injection matrix | Synchronous |
+| `Core`, sync conflicts | `conflicts()`, `conflict(copy) -> ConflictDetail`, `resolve_conflict(copy, ConflictChoice)`: `KeepOriginal`, `KeepCopy` or `Write { text }` | Synchronous |
+| `CoreEvents` | `library_changed(event)`: `Outside`, `Edited`, `Reloaded`, `Failed`, `Merged`, `Indexed`. The shell implements it | Called on a background thread |
+| `Trash` | `discard(path)`: moves a merged or resolved conflict copy out of the library. The shell implements it | Called on whichever thread read the folder, with the library locked |
+| Functions | `core_version()`, `excluded_app_presets()`, `placeholder_choices()`: what an editor's insert menu offers, `compat_apps(path?)`: the rows of a table, for the injection matrix | Synchronous |
 
 `KeyAction` is one of `Pass`, `Expand { snippet_id, consume, steps,
-undo_delete_count, profile }` or `UndoExpansion { delete_count, retype,
-method, profile }`.
+undo_delete_count, profile }`, `StartSession { snippet_id, consume, session }`
+or `UndoExpansion { delete_count, retype, method, profile }`. A session ends
+in `SessionAction.Expand`, which carries the same steps and profile an
+`Expand` would have.
 `set_excluded_apps` always keeps the built-in password-manager presets, so a
 shell that forgets to pass them cannot drop them.
+`insert` is the same expansion asked for by identity rather than by typing: it
+answers `Insert { snippet_id, steps, undo_delete_count, profile }`,
+`StartSession { snippet_id, session }` or `Refused { Paused | ExcludedApp |
+SnippetGone }`. It names the app the text is for, and
+the core takes that as the app holding the keyboard, so the later report that
+the app came forward changes nothing and undo survives it.
 
 **Planned** (plan section 3; names may change):
 
 | Object | Calls | Arrives |
 | --- | --- | --- |
-| `ExpansionSession` | `next() -> Step`, `submit_form`, `provide_context`, `regenerate`, `cancel` | M3, M4 |
+| `ExpansionSession` | `regenerate`: ask a model for another answer, for an AI block | M4 |
 | `AiProfiles` | `save`, `test_connection`, `probe_capabilities`, `list_models`, `detect_local_servers` | M4 |
-| Callbacks the shell implements | `ContextProvider`, optional `SecretStore` | M3, M4 |
+| Callbacks the shell implements | `ContextProvider`, optional `SecretStore` | M4. A session asks the shell for context by returning `SessionAction.Context`, so nothing is needed for the clipboard |
 
-An import comes back as the report the app can show
+An import comes back as the report the app shows
 ([ADR-0013](adr/0013-import-and-export.md)), with a dry run that reads the
-source and writes nothing. A search hit carries the characters that matched, so
+source and writes nothing. After a real import each entry also names the
+snippet it became, so the report can open the ones that need an edit. A search hit carries the characters that matched, so
 a list highlights them without searching again, and an empty query is the whole
 library in list order, which makes a list and its search box one call.
 
@@ -451,7 +664,7 @@ is the exception: its crates may depend on each other.
 | 3 | `aralo-ffi`, `aralo-cli` | The bridge carries the keystroke path, editing, search and interchange. The CLI also imports, exports, searches and expands |
 | 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search, editing, and the runtime that watches and indexes |
 | 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. The rest are empty |
-| 0 | `aralo-engine`, `aralo-snippet`, `aralo-template` | Implemented. The template evaluator is not |
+| 0 | `aralo-engine`, `aralo-snippet`, `aralo-template` | Implemented, evaluator included: dates and times in 15 locales, the clipboard, forms, nested snippets and cursor stops. An AI block inserts its fallback until M4 |
 
 The rule covers every dependency kind, including dev and build dependencies.
 A new crate must be added to the table in the script before CI passes.

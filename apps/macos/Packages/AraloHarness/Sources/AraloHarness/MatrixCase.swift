@@ -8,6 +8,7 @@ public enum MatrixCase: String, CaseIterable, Codable, Sendable {
     case cursor
     case undo
     case clipboard
+    case form
 
     /// The abbreviation to type, from `fixtures/matrix/library`. Lower-case
     /// letters only, so every Latin keyboard layout has them on unshifted keys.
@@ -17,12 +18,22 @@ public enum MatrixCase: String, CaseIterable, Codable, Sendable {
         case .unicode: "mxemoji"
         case .long, .clipboard: "mxlong"
         case .cursor: "mxcursor"
+        case .form: "mxform"
         }
     }
 
-    /// Why the case cannot pass yet, for a case that waits on a later milestone.
+    /// Why the case cannot pass yet. Nothing waits on a later milestone now
+    /// that the evaluator and the form panel are in; a case added ahead of what
+    /// it tests says so here and is skipped unless `--include-pending`.
     public var pendingReason: String? {
-        self == .cursor ? "needs the template evaluator (M2)" : nil
+        nil
+    }
+
+    /// Whether a form panel opens and has to be answered before anything is
+    /// inserted. The panel is Aralo's own window, so the app under test stays
+    /// frontmost and the answer is typed with the same keyboard.
+    public var answersAForm: Bool {
+        self == .form
     }
 
     /// Whether the time from the delimiter to the text counts as a latency sample.

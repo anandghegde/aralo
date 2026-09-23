@@ -32,16 +32,25 @@ public struct Expectation: Equatable, Sendable {
 
     public enum Problem: Error, Equatable, CustomStringConvertible {
         case noExpansion(String)
+        case needsContext(String)
 
         public var description: String {
             switch self {
             case .noExpansion(let abbreviation):
                 "the library does not expand \"\(abbreviation)\"; is it fixtures/matrix/library?"
+            case .needsContext(let abbreviation):
+                "\"\(abbreviation)\" wants something from outside the core that the harness cannot supply"
             }
         }
     }
 
     public static let delimiter = " "
+
+    /// What the harness types into every box of a form panel. One word of
+    /// lower-case letters, so any Latin layout can type it, and nothing a
+    /// matrix body says itself, so finding it in the field means the answer
+    /// went in.
+    public static let formAnswer = "dana"
 
     /// Types the abbreviation into `engine` and reads the plan that comes back.
     public static func ask(_ engine: Engine, abbreviation: String) throws -> Expectation {
@@ -49,15 +58,54 @@ public struct Expectation: Equatable, Sendable {
         let typed = abbreviation + delimiter
         var answer: Expectation?
         for scalar in typed.unicodeScalars {
-            guard case .expand(_, _, let steps, let undoDeleteCount, let profile) =
-                engine.onKey(key: .char(scalar: scalar.value))
-            else { continue }
-            answer = read(steps, profile: profile, typed: typed, undoable: undoDeleteCount != nil)
+            switch engine.onKey(key: .char(scalar: scalar.value)) {
+            case .expand(_, _, let steps, let undoDeleteCount, let profile):
+                answer = read(steps, profile: profile, typed: typed, undoable: undoDeleteCount != nil)
+            case .startSession(_, _, let session):
+                answer = try drive(session, typed: typed, abbreviation: abbreviation)
+            case .pass, .undoExpansion:
+                continue
+            }
         }
         engine.reset(reason: .manual)
         guard let answer else { throw Problem.noExpansion(abbreviation) }
         return answer
     }
+
+    /// A body that asks something is driven the way the panel drives it, with
+    /// `formAnswer` in every box: what the harness is about to type, so what
+    /// comes back is what the app should end up with.
+    ///
+    /// Asking the core changes nothing, so this costs the matrix nothing but the
+    /// call. The phases are the session's own — the form, then what the body
+    /// wants from outside it — so the walk is bounded by them.
+    private static func drive(
+        _ session: ExpansionSession, typed: String, abbreviation: String
+    ) throws -> Expectation? {
+        var action = session.next()
+        for _ in 0...sessionQuestions {
+            switch action {
+            case .form(let fields):
+                let answers = fields.map { ($0.name, formAnswer) }
+                action = session.submitForm(answers: Dictionary(answers, uniquingKeysWith: { first, _ in first }))
+            case .context:
+                // The clipboard and the rest are the shell's to fetch, and the
+                // harness is not the shell. A matrix body that wants them would
+                // be compared against a guess, so say so instead.
+                throw Problem.needsContext(abbreviation)
+            case .expand(_, let steps, let undoDeleteCount, let profile):
+                return read(steps, profile: profile, typed: typed, undoable: undoDeleteCount != nil)
+            case .done:
+                return nil
+            }
+        }
+        return nil
+    }
+
+    /// How many questions a session asks before it has a plan: the form, then
+    /// whatever the body wants from outside it. A bound, so a session that keeps
+    /// asking cannot keep the harness in a loop.
+    private static let sessionQuestions = 2
 
     private static func read(
         _ steps: [PlanStep], profile: InjectionProfile, typed: String, undoable: Bool

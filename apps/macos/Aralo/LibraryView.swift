@@ -9,9 +9,15 @@ struct LibraryView: View {
     @Bindable var store: LibraryStore
     /// Where a file lives on disk, for "Reveal in Finder".
     let root: URL
+    /// Asks for a file to import. The panel is the window's, so it is the
+    /// controller's to show.
+    var chooseImport: () -> Void = {}
+    /// Asks where to write the selected group, in the format given.
+    var export: (ExportFormat) -> Void = { _ in }
 
     @State private var renaming: Rename?
     @State private var deletingGroup: [String]?
+    @State private var resolving: ConflictResolver?
 
     var body: some View {
         NavigationSplitView {
@@ -24,6 +30,16 @@ struct LibraryView: View {
             detail
         }
         .frame(minWidth: 860, minHeight: 520)
+        .toolbar {
+            conflictsButton
+            interchangeMenu
+        }
+        .sheet(item: $resolving) { resolver in
+            ConflictResolverView(resolver: resolver)
+        }
+        .sheet(item: $store.importing) { job in
+            ImportSheet(job: job) { entry in store.open(imported: entry) }
+        }
         .alert("That did not work", isPresented: failureShown) {
             Button("OK") { store.dismissFailure() }
         } message: {
@@ -52,7 +68,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var detail: some View {
         if let editing = Binding($store.editing) {
-            SnippetEditorView(store: store, editing: editing, root: root)
+            SnippetEditorView(store: store, editing: editing, root: root, resolve: resolve)
         } else {
             ContentUnavailableView(
                 "No Snippet Selected",
@@ -60,6 +76,68 @@ struct LibraryView: View {
                 description: Text("Pick one from the list, or press \u{2318}N to write a new one.")
             )
         }
+    }
+
+    // MARK: - Import and export
+
+    /// Import brings snippets in; export writes out the group the sidebar has
+    /// selected, which at the root is the whole library.
+    @ToolbarContentBuilder
+    private var interchangeMenu: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button("Import Snippets\u{2026}", action: chooseImport)
+                Divider()
+                Section(exportTitle) {
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        Button("\(format.title)\u{2026}") {
+                            leave()
+                            export(format)
+                        }
+                    }
+                }
+            } label: {
+                Label("Import and Export", systemImage: "square.and.arrow.down.on.square")
+            }
+            .help("Bring snippets in from another expander, or write these out")
+        }
+    }
+
+    private var exportTitle: String {
+        store.selectedGroup.isEmpty
+            ? "Export the Library As"
+            : "Export \u{201C}\(store.selectedGroup.last ?? "")\u{201D} As"
+    }
+
+    // MARK: - Sync conflicts
+
+    /// Shown only while a conflict copy waits: one per copy, named after the
+    /// snippet it is a copy of.
+    @ToolbarContentBuilder
+    private var conflictsButton: some ToolbarContent {
+        if !store.conflicts.isEmpty {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(store.conflicts, id: \.copy) { conflict in
+                        Button(conflict.original) { resolve(conflict.copy) }
+                    }
+                } label: {
+                    Label(conflictsTitle, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                }
+                .help("Sync made two versions of a snippet. Choose which to keep.")
+            }
+        }
+    }
+
+    private var conflictsTitle: String {
+        store.conflicts.count == 1 ? "1 Sync Conflict" : "\(store.conflicts.count) Sync Conflicts"
+    }
+
+    /// Saves what is typed first, so the resolver shows the file as it now
+    /// is and the user's edit is one of the versions to choose from.
+    private func resolve(_ copy: String) {
+        leave()
+        resolving = store.resolver(for: copy)
     }
 
     // MARK: - Selection

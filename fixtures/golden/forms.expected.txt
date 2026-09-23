@@ -1,0 +1,222 @@
+# forms.toml: forms: what a field asks for, what it stands on, and what an answer does
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== a field goes in as it was answered
+--- en_US
+field: "Hi Dana,\nthanks.|"
+preview: "Hi friend,\nthanks."
+undo: 16 backspaces
+--- de_DE
+field: "Hi Dana,\nthanks.|"
+preview: "Hi friend,\nthanks."
+undo: 16 backspaces
+--- ja_JP
+field: "Hi Dana,\nthanks.|"
+preview: "Hi friend,\nthanks."
+undo: 16 backspaces
+
+=== a field nobody answered stands on its default
+--- en_US
+field: "Hi friend,|"
+preview: "Hi friend,"
+undo: 10 backspaces
+--- de_DE
+field: "Hi friend,|"
+preview: "Hi friend,"
+undo: 10 backspaces
+--- ja_JP
+field: "Hi friend,|"
+preview: "Hi friend,"
+undo: 10 backspaces
+
+=== a field with no default and no answer inserts nothing
+--- en_US
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+--- de_DE
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+--- ja_JP
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+
+=== one name twice is one field and one answer
+--- en_US
+field: "Dana, it is Dana again|"
+preview: ", it is  again"
+undo: 22 backspaces
+--- de_DE
+field: "Dana, it is Dana again|"
+preview: ", it is  again"
+undo: 22 backspaces
+--- ja_JP
+field: "Dana, it is Dana again|"
+preview: ", it is  again"
+undo: 22 backspaces
+
+=== a field with room to write in takes an answer with line breaks
+--- en_US
+field: "Case notes:\nCalled back.\nAsked for the log.|"
+preview: "Case notes:\n"
+undo: 43 backspaces
+--- de_DE
+field: "Case notes:\nCalled back.\nAsked for the log.|"
+preview: "Case notes:\n"
+undo: 43 backspaces
+--- ja_JP
+field: "Case notes:\nCalled back.\nAsked for the log.|"
+preview: "Case notes:\n"
+undo: 43 backspaces
+
+=== a height Aralo cannot read is left out, and the box is one line
+--- en_US
+field: "Case notes:\nCalled back.|"
+preview: "Case notes:\n"
+undo: 24 backspaces
+note: "Aralo cannot read the lines option here, so it is left out."
+--- de_DE
+field: "Case notes:\nCalled back.|"
+preview: "Case notes:\n"
+undo: 24 backspaces
+note: "Aralo cannot read the lines option here, so it is left out."
+--- ja_JP
+field: "Case notes:\nCalled back.|"
+preview: "Case notes:\n"
+undo: 24 backspaces
+note: "Aralo cannot read the lines option here, so it is left out."
+
+=== a drop-down stands on its first option
+--- en_US
+field: "Ships by post.|"
+preview: "Ships by post."
+undo: 14 backspaces
+--- de_DE
+field: "Ships by post.|"
+preview: "Ships by post."
+undo: 14 backspaces
+--- ja_JP
+field: "Ships by post.|"
+preview: "Ships by post."
+undo: 14 backspaces
+
+=== a drop-down with a default stands on the default
+--- en_US
+field: "Ships by courier.|"
+preview: "Ships by courier."
+undo: 17 backspaces
+--- de_DE
+field: "Ships by courier.|"
+preview: "Ships by courier."
+undo: 17 backspaces
+--- ja_JP
+field: "Ships by courier.|"
+preview: "Ships by courier."
+undo: 17 backspaces
+
+=== an answer the drop-down did not offer is still the answer
+--- en_US
+field: "Ships by by hand.|"
+preview: "Ships by post."
+undo: 17 backspaces
+--- de_DE
+field: "Ships by by hand.|"
+preview: "Ships by post."
+undo: 17 backspaces
+--- ja_JP
+field: "Ships by by hand.|"
+preview: "Ships by post."
+undo: 17 backspaces
+
+=== a drop-down with nothing to choose from says so
+--- en_US
+field: "Ships by .|"
+preview: "Ships by ."
+undo: 10 backspaces
+error: "speed has nothing to choose from. Write | options: a, b, c."
+--- de_DE
+field: "Ships by .|"
+preview: "Ships by ."
+undo: 10 backspaces
+error: "speed has nothing to choose from. Write | options: a, b, c."
+--- ja_JP
+field: "Ships by .|"
+preview: "Ships by ."
+undo: 10 backspaces
+error: "speed has nothing to choose from. Write | options: a, b, c."
+
+=== a field with no name cannot be answered
+--- en_US
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+error: "Write {{field: a-name}}: without a name there is no answer to put in."
+--- de_DE
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+error: "Write {{field: a-name}}: without a name there is no answer to put in."
+--- ja_JP
+field: "Hi !|"
+preview: "Hi !"
+undo: 4 backspaces
+error: "Write {{field: a-name}}: without a name there is no answer to put in."
+
+=== the form and the clipboard are answered in that order
+--- en_US
+field: "Hi Dana, about PO-8841.|"
+preview: "Hi , about {{clipboard}}."
+undo: 23 backspaces
+--- de_DE
+field: "Hi Dana, about PO-8841.|"
+preview: "Hi , about {{clipboard}}."
+undo: 23 backspaces
+--- ja_JP
+field: "Hi Dana, about PO-8841.|"
+preview: "Hi , about {{clipboard}}."
+undo: 23 backspaces
+
+=== the case the abbreviation was typed in re-cases the answer
+--- en_US
+field: "Hi dana, and March |"
+preview: "hi , and March"
+undo: 19 backspaces
+--- de_DE
+field: "Hi dana, and März |"
+preview: "hi , and März"
+undo: 18 backspaces
+--- ja_JP
+field: "Hi dana, and 3月 |"
+preview: "hi , and 3月"
+undo: 16 backspaces
+
+=== an abbreviation typed in capitals shouts the whole expansion
+--- en_US
+field: "HI DANA, AND MARCH |"
+preview: "hi , and March"
+undo: 19 backspaces
+--- de_DE
+field: "HI DANA, AND MÄRZ |"
+preview: "hi , and März"
+undo: 18 backspaces
+--- ja_JP
+field: "HI DANA, AND 3月 |"
+preview: "hi , and 3月"
+undo: 16 backspaces
+
+=== a form the user escapes inserts nothing and keeps what was typed
+--- en_US
+field: ";x |"
+preview: "Hi friend,"
+undo: nothing was inserted
+--- de_DE
+field: ";x |"
+preview: "Hi friend,"
+undo: nothing was inserted
+--- ja_JP
+field: ";x |"
+preview: "Hi friend,"
+undo: nothing was inserted

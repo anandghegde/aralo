@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use aralo_engine::{
-    Abbreviation, CaseMode, CasePattern, Engine, ExpansionRecord, InsertMethod, KeyEvent,
-    KeyVerdict, ResetReason, Scope, SnapshotBuilder, SnippetId, Trigger,
+    Abbreviation, CaseMode, CasePattern, Engine, ExpansionRecord, InsertMethod, InsertRefusal,
+    KeyEvent, KeyVerdict, ResetReason, Scope, SnapshotBuilder, SnippetId, Trigger,
 };
 
 fn engine_with(abbreviations: Vec<Abbreviation>) -> Engine {
@@ -377,6 +377,70 @@ fn undo_is_not_offered_after_another_key_a_reset_or_an_unfinished_expansion() {
         KeyVerdict::Match { .. }
     ));
     assert_eq!(engine.on_key(KeyEvent::Backspace), KeyVerdict::Pass);
+}
+
+#[test]
+fn a_picked_snippet_is_undone_like_one_that_was_typed_and_retypes_nothing() {
+    let mut engine = engine_with(vec![Abbreviation::new(SnippetId(1), ";rf")]);
+    // Half an abbreviation is in the document when the picker opens.
+    type_str(&mut engine, ";r");
+
+    engine
+        .chosen(SnippetId(1), "com.apple.TextEdit")
+        .expect("TextEdit is not excluded and the engine is running");
+    engine.expansion_done(ExpansionRecord {
+        snippet_id: SnippetId(1),
+        delete_count: 9,
+        method: InsertMethod::Pasted,
+    });
+    assert_eq!(
+        engine.on_key(KeyEvent::Undo),
+        KeyVerdict::UndoLast {
+            delete_count: 9,
+            // Nothing was typed to trigger it, so nothing comes back.
+            retype: String::new(),
+            method: InsertMethod::Pasted,
+        }
+    );
+    // The ";r" that preceded the insertion cannot complete an abbreviation
+    // across it: the picked text is what the caret sits after now.
+    assert_eq!(last_verdict(&mut engine, "f "), KeyVerdict::Pass);
+}
+
+#[test]
+fn a_picked_snippet_is_refused_while_paused_or_in_an_app_aralo_stays_out_of() {
+    let mut engine = engine_with(vec![Abbreviation::new(SnippetId(1), ";rf")]);
+
+    assert_eq!(
+        engine.chosen(SnippetId(1), "com.1password.1password"),
+        Err(InsertRefusal::ExcludedApp),
+        "a deliberate pick is still not typed into a password manager"
+    );
+
+    engine.set_paused(true);
+    assert_eq!(
+        engine.chosen(SnippetId(1), "com.apple.TextEdit"),
+        Err(InsertRefusal::Paused)
+    );
+    // A refusal arms nothing: the undo key is the app's own again.
+    assert!(engine.holds_no_keystrokes());
+    assert_eq!(engine.on_key(KeyEvent::Undo), KeyVerdict::Pass);
+
+    engine.set_paused(false);
+    assert_eq!(engine.chosen(SnippetId(1), "com.apple.TextEdit"), Ok(()));
+}
+
+#[test]
+fn the_app_a_pick_goes_into_is_the_one_named_not_the_one_in_front() {
+    let mut engine = engine_with(vec![Abbreviation::new(SnippetId(1), ";rf")]);
+    // The picker has the keyboard, so Aralo itself is the front app. What the
+    // exclusion list is checked against is the app the text goes into.
+    engine.set_front_app("app.aralo.Aralo");
+    assert_eq!(engine.chosen(SnippetId(1), "com.apple.TextEdit"), Ok(()));
+    assert_eq!(
+        engine.chosen(SnippetId(1), "org.keepassxc.keepassxc"),
+        Err(InsertRefusal::ExcludedApp)
+    );
 }
 
 #[test]

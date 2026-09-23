@@ -43,10 +43,19 @@ public final class LibraryStore {
     /// that works clears it.
     public private(set) var failure: String?
 
+    /// The sync conflict copies that did not merge on their own and wait for
+    /// the user, in path order.
+    public private(set) var conflicts: [ConflictSummary] = []
+
+    /// Told when the editor's test field takes the keyboard and gives it
+    /// back, so the live tap can stand aside.
+    @ObservationIgnored public var onTestFieldKeyboard: (@MainActor (Bool) -> Void)?
+
     @ObservationIgnored private let core: Core
 
-    public init(core: Core) {
+    public init(core: Core, onTestFieldKeyboard: (@MainActor (Bool) -> Void)? = nil) {
         self.core = core
+        self.onTestFieldKeyboard = onTestFieldKeyboard
         refresh()
     }
 
@@ -98,6 +107,7 @@ public final class LibraryStore {
     /// edited, the open snippet. The window calls this on every library event.
     public func refresh() {
         root = GroupNode.tree(from: core.groups())
+        conflicts = core.conflicts()
         // A group can go while it is selected, if someone deletes the folder.
         if selectedGroup != [], root?.find(selectedGroup) == nil {
             selectedGroup = []
@@ -122,6 +132,34 @@ public final class LibraryStore {
         core.previewDraft(body: body)
     }
 
+    /// What an editor draws over the body being typed: where its placeholders
+    /// are, what is wrong with them, and what to say about it. As with the
+    /// preview, the file is not consulted, and it is the same reading an
+    /// expansion does, so what the editor underlines is what would happen.
+    public func outline(of body: String) -> BodyHighlight {
+        BodyHighlight(outline: core.outlineDraft(body: body), body: body)
+    }
+
+    /// A test field for the draft on screen, as it stands and in the group it
+    /// would be saved in. Nothing is written. Nil when nothing is being
+    /// edited.
+    ///
+    /// `clipboard` is read only if the draft asks for it.
+    public func testField(clipboard: @escaping @MainActor () -> String? = { nil }) -> TestField? {
+        guard let editing else { return nil }
+        let trial = core.tryDraft(
+            draft: editing.draft,
+            group: editing.group,
+            editing: editing.id.isEmpty ? nil : editing.id
+        )
+        return TestField(
+            trial: trial,
+            label: editing.draft.label,
+            clipboard: clipboard,
+            claimKeyboard: { [weak self] in self?.onTestFieldKeyboard?($0) }
+        )
+    }
+
     /// The core's change events. The window hands them straight over.
     public func libraryChanged(_ event: LibraryEvent) {
         if case .failed(let message) = event {
@@ -143,6 +181,70 @@ public final class LibraryStore {
             )
         )
         rows = hits.map(SnippetRow.init)
+    }
+
+    // MARK: - Sync conflicts
+
+    /// The conflict copy waiting for a snippet, when one is.
+    public func conflict(for snippet: String) -> ConflictSummary? {
+        conflicts.first { $0.snippetId == snippet }
+    }
+
+    /// A resolver for the conflict copy at `copy`. Nil, with `failure` set,
+    /// when the copy has gone or will not read.
+    public func resolver(for copy: String) -> ConflictResolver? {
+        do {
+            let detail = try core.conflict(copy: copy)
+            failure = nil
+            return ConflictResolver(core: core, detail: detail) { [weak self] in self?.refresh() }
+        } catch {
+            failure = error.reason
+            return nil
+        }
+    }
+
+    // MARK: - Import and export
+
+    /// The import on screen, from the file being chosen to its report being
+    /// closed. Nil the rest of the time.
+    public var importing: LibraryImport?
+
+    /// Puts an import of `source` on screen. What was typed into the open
+    /// snippet is written first, so an import never lands under an edit.
+    public func beginImport(of source: URL) {
+        attempt { try $0.save() }
+        importing = importer(for: source)
+    }
+
+    /// An import of `source`, with its dry run done. When it runs, the list
+    /// reads the folder again and selects the group it went into, so what was
+    /// imported is what the window shows next.
+    public func importer(for source: URL) -> LibraryImport {
+        LibraryImport(core: core, source: source) { [weak self] _, group in
+            guard let self else { return }
+            refresh()
+            if !group.isEmpty, root?.find(group) != nil {
+                select(group: group)
+            } else {
+                select(group: [])
+            }
+        }
+    }
+
+    /// Opens one of the snippets an import wrote, for a report whose "needs an
+    /// edit" row is a link to the thing that needs it.
+    public func open(imported entry: ImportedSnippet) {
+        guard let id = entry.id, let detail = core.snippet(id: id) else { return }
+        // The list has to show it for the selection to mean anything.
+        if !detail.group.starts(with: selectedGroup) { selectedGroup = [] }
+        search("")
+        select(snippet: id)
+    }
+
+    /// The selected group, and everything inside it, as an interchange file.
+    /// The root is the whole library.
+    public func export(as format: ExportFormat) throws -> Data {
+        try core.export(format: format.rawValue, group: selectedGroup)
     }
 
     // MARK: - Editing snippets

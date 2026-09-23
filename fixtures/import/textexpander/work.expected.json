@@ -1,5 +1,5 @@
 {
-  "clean": 15,
+  "clean": 17,
   "entries": [
     {
       "abbr": [
@@ -199,13 +199,8 @@
         "Support"
       ],
       "label": "Case notes",
-      "notes": [
-        {
-          "detail": "a multi-line fill-in became a single-line field",
-          "kind": "approximated"
-        }
-      ],
-      "outcome": "needs-edit",
+      "notes": [],
+      "outcome": "clean",
       "path": "Work/Support/case-notes.md"
     },
     {
@@ -217,13 +212,8 @@
         "Support"
       ],
       "label": "Fill the contact form",
-      "notes": [
-        {
-          "detail": "%key:tab% became the character it types",
-          "kind": "approximated"
-        }
-      ],
-      "outcome": "needs-edit",
+      "notes": [],
+      "outcome": "clean",
       "path": "Work/Support/fill-the-contact-form.md"
     },
     {
@@ -275,7 +265,7 @@
       "outcome": "skipped"
     }
   ],
-  "fidelity": 0.75,
+  "fidelity": 0.85,
   "library": [
     {
       "abbr": [
@@ -372,7 +362,7 @@
       "abbr": [
         ";notes"
       ],
-      "body": "Case notes:\n{{field: Notes}}",
+      "body": "Case notes:\n{{field: Notes | lines: 4}}",
       "group": [
         "Work",
         "Support"
@@ -398,7 +388,7 @@
       "abbr": [
         ";form"
       ],
-      "body": "{{field: Name}}\t{{field: Email}}",
+      "body": "{{field: Name}}{{key: tab}}{{field: Email}}",
       "group": [
         "Work",
         "Support"
@@ -519,7 +509,7 @@
       "type": "text"
     }
   ],
-  "needs_edit": 4,
+  "needs_edit": 2,
   "notes": [],
   "skipped": 1
 }

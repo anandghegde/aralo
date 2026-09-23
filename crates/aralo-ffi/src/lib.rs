@@ -22,6 +22,7 @@
 //! `uniffi::setup_scaffolding!` generates, which is why this is the one crate
 //! that does not forbid it.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
@@ -43,6 +44,19 @@ pub enum BridgeError {
     CompatTable { message: String },
     #[error("{message}")]
     Import { message: String },
+    /// The shell's `Trash` could not take a file.
+    #[error("{message}")]
+    Trash { message: String },
+}
+
+/// A `Trash` written in Swift can fail in a way UniFFI has no name for, and it
+/// arrives as this.
+impl From<uniffi::UnexpectedUniFFICallbackError> for BridgeError {
+    fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        BridgeError::Trash {
+            message: error.reason,
+        }
+    }
 }
 
 impl From<aralo_core::CoreError> for BridgeError {
@@ -69,6 +83,17 @@ pub enum KeyInput {
     Undo,
 }
 
+impl KeyInput {
+    /// The character the key produced, when it produced one. A key the engine
+    /// swallowed to make a match is what a cancelled session puts back.
+    fn character(self) -> Option<char> {
+        match self {
+            Self::Char { scalar } => char::from_u32(scalar),
+            Self::Backspace | Self::Undo => None,
+        }
+    }
+}
+
 /// What the shell does with the key it just reported.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum KeyAction {
@@ -83,6 +108,15 @@ pub enum KeyAction {
         undo_delete_count: Option<u32>,
         profile: InjectionProfile,
     },
+    /// Swallow the key if `consume`, then drive `session`: it has a form to
+    /// put in front of the user, or context to fetch, before there is any
+    /// text. Nothing has gone into the document yet, so a session the user
+    /// cancels leaves what they typed where it was.
+    StartSession {
+        snippet_id: String,
+        consume: bool,
+        session: Arc<ExpansionSession>,
+    },
     /// Swallow the key, take the expansion back the way `profile` says
     /// (`delete_count` Backspaces, or one undo shortcut), type `retype`.
     UndoExpansion {
@@ -91,6 +125,47 @@ pub enum KeyAction {
         method: InsertMethod,
         profile: InjectionProfile,
     },
+}
+
+/// What a snippet the user picked from a list does: the plan for it, or why
+/// nothing goes in.
+///
+/// The steps are a match's steps with nothing to delete, so a snippet inserts
+/// the same text however it was asked for, and the shell runs them on the same
+/// injector queue.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum InsertOutcome {
+    /// Run these steps in the app that was named, then report
+    /// [`Engine::expansion_done`] so that the undo key takes the insertion
+    /// back the way it takes an expansion back.
+    Insert {
+        snippet_id: String,
+        steps: Vec<PlanStep>,
+        undo_delete_count: Option<u32>,
+        profile: InjectionProfile,
+    },
+    /// The snippet asks something first. Drive the session; what it ends with
+    /// goes into the app that was named, exactly as `Insert` would have.
+    StartSession {
+        snippet_id: String,
+        session: Arc<ExpansionSession>,
+    },
+    /// Nothing goes in, and why. The picker is the one place a user is told
+    /// this: an expansion they typed simply does not happen.
+    Refused { reason: InsertRefusal },
+}
+
+/// Why a pick inserts nothing. None of them is about the snippet's own text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InsertRefusal {
+    /// Aralo is paused, which is a pause of every insertion, not only of the
+    /// ones the user did not ask for.
+    Paused,
+    /// The app is one Aralo stays out of (PRD P2, E10).
+    ExcludedApp,
+    /// The snippet is no longer in the library: deleted, or its file moved,
+    /// between the list being drawn and Enter being pressed.
+    SnippetGone,
 }
 
 /// How to insert, delete and undo in the app that has the keyboard; one row of
@@ -144,6 +219,396 @@ pub enum PlanStep {
     KeyPress { key: PlanKey },
     Delay { millis: u32 },
     MoveCursor { graphemes: u32, select: bool },
+}
+
+/// One expansion that cannot happen on the keystroke, because someone has to
+/// be asked first: a form to fill in, the clipboard to read, or both.
+///
+/// The shell calls [`next`](Self::next) for the question, answers it, and
+/// repeats until it gets `Expand`. Nothing reaches the document before that,
+/// so [`cancel`](Self::cancel) leaves the user's text as they typed it.
+///
+/// While a panel is open the keys the user presses are the panel's, not the
+/// document's. The shell resets the engine when it opens one, so nothing typed
+/// into a form can complete an abbreviation.
+#[derive(uniffi::Object)]
+pub struct ExpansionSession {
+    /// `None` once the session has been cancelled: a cancelled session cannot
+    /// be made to insert anything.
+    session: Mutex<Option<aralo_core::Session>>,
+    snippet_id: String,
+    /// The app the text is for, resolved when the session opened. The user may
+    /// bring another app forward while the panel is up; the text still goes in
+    /// the way the app it was started for wants it.
+    profile: InjectionProfile,
+}
+
+// Like the engine, never prints what was typed, and a session holds answers.
+impl std::fmt::Debug for ExpansionSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExpansionSession")
+            .field("snippet_id", &self.snippet_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Two handles are equal when they are the same session. What is inside one is
+/// never compared: it holds what the user typed into a form.
+impl PartialEq for ExpansionSession {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Eq for ExpansionSession {}
+
+/// What the shell does next with a session.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum SessionAction {
+    /// Put these fields in front of the user, then call `submit_form`, or
+    /// `cancel` if they change their mind.
+    Form { fields: Vec<FormFieldInfo> },
+    /// Fetch these and call `provide_context`. The list is what the snippet
+    /// asked for; nothing else is wanted, and anything else is dropped (PRD
+    /// P4).
+    Context { kinds: Vec<ContextNeed> },
+    /// Run the steps the way `profile` says, then report `expansion_done` when
+    /// `undo_delete_count` is present, exactly as for a typed expansion.
+    Expand {
+        snippet_id: String,
+        steps: Vec<PlanStep>,
+        undo_delete_count: Option<u32>,
+        profile: InjectionProfile,
+    },
+    /// The session was cancelled. Nothing goes in.
+    Done,
+}
+
+/// One field of a form, as a panel draws it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FormFieldInfo {
+    /// What the body calls it. The same name twice is one field and one
+    /// answer.
+    pub name: String,
+    /// What to put beside the box: the snippet's `label`, or the name.
+    pub label: String,
+    /// What the box starts with.
+    pub default: String,
+    /// Empty for a box to type in; the choices for a drop-down.
+    pub options: Vec<String>,
+    /// How many lines tall the box is: one for an ordinary box and for a
+    /// drop-down, more for a body that asked for room to write in.
+    pub lines: u32,
+}
+
+/// Something about the moment of the expansion that only the shell can fetch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ContextNeed {
+    Clipboard,
+    Selection,
+    App,
+    Window,
+}
+
+/// What the shell fetched. A kind the snippet did not ask for is dropped by
+/// the core rather than trusted to be absent.
+#[derive(Debug, Clone, PartialEq, Eq, Default, uniffi::Record)]
+pub struct ContextSupply {
+    pub clipboard: Option<String>,
+    pub selection: Option<String>,
+    pub app: Option<String>,
+    pub window: Option<String>,
+}
+
+impl ExpansionSession {
+    fn new(
+        session: aralo_core::Session,
+        snippet_id: String,
+        profile: InjectionProfile,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            session: Mutex::new(Some(session)),
+            snippet_id,
+            profile,
+        })
+    }
+
+    fn held(&self) -> MutexGuard<'_, Option<aralo_core::Session>> {
+        self.session.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn act(&self, step: aralo_core::SessionStep) -> SessionAction {
+        match step {
+            aralo_core::SessionStep::Form(form) => SessionAction::Form {
+                fields: form.fields.iter().map(FormFieldInfo::from).collect(),
+            },
+            aralo_core::SessionStep::Context(kinds) => SessionAction::Context {
+                kinds: kinds.into_iter().map(ContextNeed::from).collect(),
+            },
+            aralo_core::SessionStep::Ready(expansion) => SessionAction::Expand {
+                snippet_id: self.snippet_id.clone(),
+                steps: expansion
+                    .plan
+                    .steps
+                    .into_iter()
+                    .map(PlanStep::from)
+                    .collect(),
+                undo_delete_count: expansion.undo_delete_count,
+                profile: self.profile,
+            },
+        }
+    }
+}
+
+#[uniffi::export]
+impl ExpansionSession {
+    /// Which snippet is expanding.
+    pub fn snippet_id(&self) -> String {
+        self.snippet_id.clone()
+    }
+
+    /// The question to ask, or the plan to run. Asking twice asks the same
+    /// question: a session moves on when it is answered.
+    pub fn next(&self) -> SessionAction {
+        match self.held().as_mut() {
+            Some(session) => self.act(session.step()),
+            None => SessionAction::Done,
+        }
+    }
+
+    /// The form is filled in. A field left out of `answers` keeps its default,
+    /// and a name the form does not have is ignored.
+    pub fn submit_form(&self, answers: std::collections::HashMap<String, String>) -> SessionAction {
+        let answers: aralo_core::Answers = answers.into_iter().collect();
+        match self.held().as_mut() {
+            Some(session) => self.act(session.submit_form(answers)),
+            None => SessionAction::Done,
+        }
+    }
+
+    /// What the shell fetched for the kinds the snippet asked for.
+    pub fn provide_context(&self, values: ContextSupply) -> SessionAction {
+        let values = aralo_core::ContextValues {
+            clipboard: values.clipboard,
+            selection: values.selection,
+            app: values.app,
+            window: values.window,
+        };
+        match self.held().as_mut() {
+            Some(session) => self.act(session.provide_context(values)),
+            None => SessionAction::Done,
+        }
+    }
+
+    /// What the expansion would insert as it stands, for a panel that shows
+    /// the result while the form is being filled in. Empty once the session
+    /// has been cancelled.
+    pub fn preview(&self) -> String {
+        self.preview_with(std::collections::HashMap::new())
+    }
+
+    /// The same, for a form that is being typed into: `answers` are the boxes
+    /// as they stand, over what the session already has. It changes nothing,
+    /// so a panel can call it on every keystroke.
+    pub fn preview_with(&self, answers: std::collections::HashMap<String, String>) -> String {
+        let answers: aralo_core::Answers = answers.into_iter().collect();
+        match self.held().as_ref() {
+            Some(session) => session.preview_with(&answers),
+            None => String::new(),
+        }
+    }
+
+    /// The user changed their mind. Run these steps — usually none, or the one
+    /// character the engine swallowed to open the session — and forget the
+    /// session.
+    pub fn cancel(&self) -> Vec<PlanStep> {
+        match self.held().take() {
+            Some(session) => session
+                .cancel()
+                .steps
+                .into_iter()
+                .map(PlanStep::from)
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// The editor's test field: a text field in memory that expands one draft.
+///
+/// The shell forwards the keys typed into its text view and draws what comes
+/// back; the field here is the one that counts. A draft that asks something
+/// hands back a session, which the shell drives with the same form panel as a
+/// real expansion, then gives the plan to [`finish`](Self::finish).
+#[derive(uniffi::Object)]
+pub struct DraftTrial {
+    trial: Mutex<aralo_core::Trial>,
+    shared: Arc<Shared>,
+}
+
+// Never prints what was typed.
+impl std::fmt::Debug for DraftTrial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DraftTrial").finish_non_exhaustive()
+    }
+}
+
+/// What a key typed into the test field did.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum TrialAction {
+    /// Nothing matched; the key went into the field.
+    Typed,
+    /// The draft expanded, or Backspace took an expansion back.
+    Expanded,
+    /// The draft asks something first. Drive the session, then call
+    /// `finish` with its plan or `cancel` with the session.
+    Session { session: Arc<ExpansionSession> },
+}
+
+/// The test field as a text view draws it. Offsets are UTF-16 code units.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TrialField {
+    pub text: String,
+    /// Where the caret is, or where the selection starts.
+    pub caret: u32,
+    /// How much is selected after `caret`; zero when nothing is.
+    pub selected: u32,
+}
+
+impl DraftTrial {
+    fn held(&self) -> MutexGuard<'_, aralo_core::Trial> {
+        self.trial.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[uniffi::export]
+impl DraftTrial {
+    /// One key, typed at the caret.
+    pub fn key(&self, key: KeyInput) -> TrialAction {
+        let event = match key {
+            KeyInput::Char { scalar } => match char::from_u32(scalar) {
+                Some(c) => matcher::KeyEvent::Char(c),
+                None => return TrialAction::Typed,
+            },
+            KeyInput::Backspace => matcher::KeyEvent::Backspace,
+            KeyInput::Undo => matcher::KeyEvent::Undo,
+        };
+        let mut trial = self.held();
+        let id = trial.snippet_id().to_string();
+        let done = self.shared.runtime.read(|core| trial.key(core, event));
+        match done {
+            aralo_core::TrialKey::Typed => TrialAction::Typed,
+            aralo_core::TrialKey::Expanded => TrialAction::Expanded,
+            aralo_core::TrialKey::Session(session) => TrialAction::Session {
+                session: ExpansionSession::new(
+                    *session,
+                    id,
+                    self.shared.compat().profile_for("").into(),
+                ),
+            },
+        }
+    }
+
+    /// Runs the plan a session came to, from `SessionAction::Expand`.
+    pub fn finish(&self, steps: Vec<PlanStep>, undo_delete_count: Option<u32>) {
+        let plan = aralo_core::ExpansionPlan {
+            steps: steps.into_iter().map(Step::from).collect(),
+        };
+        self.held().finish(&aralo_core::Expansion {
+            plan,
+            undo_delete_count,
+            template_diagnostics: Vec::new(),
+        });
+    }
+
+    /// The user closed the panel: the key that opened it goes back.
+    pub fn cancel(&self, session: Arc<ExpansionSession>) {
+        let plan = aralo_core::ExpansionPlan {
+            steps: session.cancel().into_iter().map(Step::from).collect(),
+        };
+        self.held().put_back(&plan);
+    }
+
+    /// The user clicked or pressed an arrow key: the caret is at `caret`, in
+    /// UTF-16 code units, and what was typed before no longer leads up to it.
+    pub fn move_caret(&self, caret: u32) {
+        let mut trial = self.held();
+        let at = byte_offset(trial.text(), caret);
+        trial.move_caret(at);
+    }
+
+    pub fn clear(&self) {
+        self.held().clear();
+    }
+
+    /// The field as it stands, for the text view to draw.
+    pub fn field(&self) -> TrialField {
+        let trial = self.held();
+        let text = trial.text();
+        let (start, end) = match trial.selection() {
+            Some(range) => (range.start, range.end),
+            None => (trial.caret(), trial.caret()),
+        };
+        let caret = utf16_len(&text[..start]);
+        TrialField {
+            text: text.to_owned(),
+            caret,
+            selected: utf16_len(&text[start..end]),
+        }
+    }
+
+    /// How many of the draft's abbreviations can be typed into the field. Zero
+    /// means nothing typed there will expand, which the editor says.
+    pub fn abbreviations(&self) -> u32 {
+        u32::try_from(self.held().abbreviations()).unwrap_or(u32::MAX)
+    }
+}
+
+fn utf16_len(text: &str) -> u32 {
+    u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
+}
+
+/// The byte offset of the character boundary at or before `units` UTF-16 code
+/// units into `text`.
+fn byte_offset(text: &str, units: u32) -> usize {
+    let mut seen = 0u32;
+    for (at, c) in text.char_indices() {
+        let width = u32::try_from(c.len_utf16()).unwrap_or(2);
+        if seen + width > units {
+            return at;
+        }
+        seen += width;
+    }
+    text.len()
+}
+
+impl From<&aralo_core::FormField> for FormFieldInfo {
+    fn from(field: &aralo_core::FormField) -> Self {
+        Self {
+            name: field.name.clone(),
+            label: field.label.clone(),
+            default: field.default().to_owned(),
+            options: match &field.kind {
+                aralo_core::FieldKind::Choice { options } => options.clone(),
+                aralo_core::FieldKind::Line | aralo_core::FieldKind::Area { .. } => Vec::new(),
+            },
+            lines: match &field.kind {
+                aralo_core::FieldKind::Area { lines } => *lines,
+                aralo_core::FieldKind::Line | aralo_core::FieldKind::Choice { .. } => 1,
+            },
+        }
+    }
+}
+
+impl From<aralo_core::ContextKind> for ContextNeed {
+    fn from(kind: aralo_core::ContextKind) -> Self {
+        match kind {
+            aralo_core::ContextKind::Clipboard => Self::Clipboard,
+            aralo_core::ContextKind::Selection => Self::Selection,
+            aralo_core::ContextKind::App => Self::App,
+            aralo_core::ContextKind::Window => Self::Window,
+        }
+    }
 }
 
 /// One app the compatibility table names, with its row resolved.
@@ -317,17 +782,19 @@ impl Engine {
                 case,
                 trailing,
             } => {
-                let expansion = self.shared.runtime.read(|core| {
+                let expand = self.shared.runtime.read(|core| {
                     core.expand(MatchInfo {
                         snippet_id,
                         delete_count,
                         case,
                         trailing,
+                        swallowed: consume.then_some(key).and_then(KeyInput::character),
                     })
                 });
-                match expansion {
-                    Some(expansion) => KeyAction::Expand {
-                        snippet_id: SnippetId::from_u128(snippet_id.0).to_string(),
+                let id = SnippetId::from_u128(snippet_id.0).to_string();
+                match expand {
+                    Some(aralo_core::Expand::Ready(expansion)) => KeyAction::Expand {
+                        snippet_id: id,
                         consume,
                         steps: expansion
                             .plan
@@ -337,6 +804,11 @@ impl Engine {
                             .collect(),
                         undo_delete_count: expansion.undo_delete_count,
                         profile: self.profile(),
+                    },
+                    Some(aralo_core::Expand::Session(session)) => KeyAction::StartSession {
+                        session: ExpansionSession::new(*session, id.clone(), self.profile()),
+                        snippet_id: id,
+                        consume,
                     },
                     // The snippet went away between the snapshot and now.
                     None => KeyAction::Pass,
@@ -354,6 +826,65 @@ impl Engine {
                     matcher::InsertMethod::Pasted => InsertMethod::Pasted,
                 },
                 profile: self.profile(),
+            },
+        }
+    }
+
+    /// The plan for a snippet the user picked from a list, and the profile of
+    /// the app it is going into.
+    ///
+    /// `into_app` is named rather than read from [`Engine::set_front_app`]
+    /// because a picker holds the keyboard while the user chooses: the app in
+    /// front is Aralo's own window, and the text is for the app behind it. The
+    /// plan follows that app's row of the compatibility table, so a pick goes
+    /// in the way typing the abbreviation there would.
+    ///
+    /// The buffer is cleared, so what was typed before the picker opened cannot
+    /// complete an abbreviation across the inserted text. The named app becomes
+    /// the front app, so the shell may call this the moment it has brought that
+    /// app forward, without waiting for the system to say so.
+    pub fn insert(&self, snippet_id: String, into_app: String) -> InsertOutcome {
+        let refused = |reason| InsertOutcome::Refused { reason };
+        let Ok(id) = snippet_id.parse::<SnippetId>() else {
+            return refused(InsertRefusal::SnippetGone);
+        };
+        // The library's lock first and the matcher's second, as everywhere
+        // else; neither is held while the other is.
+        let Some(expand) = self.shared.runtime.read(|core| core.insert(id)) else {
+            return refused(InsertRefusal::SnippetGone);
+        };
+        let recorded = self
+            .matcher()
+            .chosen(matcher::SnippetId(id.as_u128()), &into_app);
+        if let Err(reason) = recorded {
+            return refused(match reason {
+                matcher::InsertRefusal::Paused => InsertRefusal::Paused,
+                matcher::InsertRefusal::ExcludedApp => InsertRefusal::ExcludedApp,
+            });
+        }
+        // The app the text is for is the app that has the keyboard as far as
+        // the core is concerned, so that an undo of this insertion follows that
+        // app's row of the table rather than Aralo's own window's.
+        let profile = self.shared.compat().profile_for(&into_app);
+        *self.front_app() = FrontApp {
+            bundle_id: into_app,
+            profile,
+        };
+        match expand {
+            aralo_core::Expand::Ready(expansion) => InsertOutcome::Insert {
+                snippet_id: id.to_string(),
+                steps: expansion
+                    .plan
+                    .steps
+                    .into_iter()
+                    .map(PlanStep::from)
+                    .collect(),
+                undo_delete_count: expansion.undo_delete_count,
+                profile: profile.into(),
+            },
+            aralo_core::Expand::Session(session) => InsertOutcome::StartSession {
+                session: ExpansionSession::new(*session, id.to_string(), profile.into()),
+                snippet_id: id.to_string(),
             },
         }
     }
@@ -452,11 +983,16 @@ impl Core {
     /// `events` is how the shell hears about changes it did not make. A shell
     /// that passes none still expands: the matcher is brought up to date
     /// either way.
+    ///
+    /// `trash` is where a conflict copy goes once it has been merged or
+    /// resolved. Without one it is set aside in the cache folder, where the
+    /// user will not find it.
     #[uniffi::constructor]
     pub fn open_library(
         path: String,
         cache: Option<String>,
         events: Option<Arc<dyn CoreEvents>>,
+        trash: Option<Arc<dyn Trash>>,
     ) -> Result<Arc<Self>, BridgeError> {
         let root = PathBuf::from(path);
         let library = aralo_core::Core::open(&root)?;
@@ -465,8 +1001,21 @@ impl Core {
             matcher: Arc::clone(&matcher),
             shell: events,
         });
+        let cache = cache.map(PathBuf::from);
         let options = RuntimeOptions {
-            index: cache.map(|cache| aralo_core::state::index_in(Path::new(&cache), &root)),
+            index: cache
+                .as_deref()
+                .map(|cache| aralo_core::state::index_in(cache, &root)),
+            // A shell that has no Trash to offer gets the copies set aside
+            // beside the index, in the folder it named.
+            discard: match trash {
+                Some(trash) => Some(Arc::new(ShellTrash(trash)) as Arc<dyn aralo_core::Discard>),
+                None => cache.as_deref().map(|cache| {
+                    Arc::new(aralo_core::SetAside::new(aralo_core::state::set_aside_in(
+                        cache, &root,
+                    ))) as Arc<dyn aralo_core::Discard>
+                }),
+            },
             ..RuntimeOptions::default()
         };
         let runtime = Runtime::with_core(library, options, listener)?;
@@ -539,6 +1088,132 @@ impl Core {
                 })
                 .collect()
         })
+    }
+}
+
+/// Sync conflicts: the copies a sync client left that did not merge on their
+/// own, and the user's decision about each.
+#[uniffi::export]
+impl Core {
+    /// The conflict copies waiting for the user, in path order.
+    pub fn conflicts(&self) -> Vec<ConflictSummary> {
+        self.shared.runtime.read(|core| {
+            let mut conflicts: Vec<_> = core
+                .conflicts()
+                .iter()
+                .map(|conflict| ConflictSummary {
+                    copy: conflict.copy.to_string_lossy().into_owned(),
+                    original: conflict.original.to_string_lossy().into_owned(),
+                    snippet_id: conflict.id.to_string(),
+                })
+                .collect();
+            conflicts.sort_by(|a, b| a.copy.cmp(&b.copy));
+            conflicts
+        })
+    }
+
+    /// Both sides of the conflict copy at `copy`, a path relative to the
+    /// library root, for the resolver to show.
+    pub fn conflict(&self, copy: String) -> Result<ConflictDetail, BridgeError> {
+        let sides = self.shared.runtime.conflict(&PathBuf::from(copy))?;
+        Ok(ConflictDetail {
+            copy: sides.conflict.copy.to_string_lossy().into_owned(),
+            original: sides.conflict.original.to_string_lossy().into_owned(),
+            snippet_id: sides.conflict.id.to_string(),
+            original_text: sides.original,
+            copy_text: sides.copy,
+            base_text: sides.base,
+            clashing_keys: sides.clashes.keys,
+            body_clashes: sides.clashes.body,
+            copy_problem: sides.copy_problem,
+        })
+    }
+
+    /// Settles the conflict copy at `copy` and puts the copy in the trash.
+    /// The shell hears `Edited`.
+    pub fn resolve_conflict(
+        &self,
+        copy: String,
+        choice: ConflictChoice,
+    ) -> Result<(), BridgeError> {
+        let resolution = match choice {
+            ConflictChoice::KeepOriginal => aralo_core::Resolution::KeepOriginal,
+            ConflictChoice::KeepCopy => aralo_core::Resolution::KeepCopy,
+            ConflictChoice::Write { text } => aralo_core::Resolution::Write(text),
+        };
+        Ok(self
+            .shared
+            .runtime
+            .resolve_conflict(&PathBuf::from(copy), resolution)?)
+    }
+}
+
+/// A conflict copy waiting for the user.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ConflictSummary {
+    /// The copy's path, relative to the library root.
+    pub copy: String,
+    /// The original's path, relative to the library root.
+    pub original: String,
+    pub snippet_id: String,
+}
+
+/// Everything a resolver shows about one conflict copy.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ConflictDetail {
+    pub copy: String,
+    pub original: String,
+    pub snippet_id: String,
+    /// The two files, as they are on disk.
+    pub original_text: String,
+    pub copy_text: String,
+    /// The version both were edited from, when this machine has it.
+    pub base_text: Option<String>,
+    /// Front-matter keys the two sides changed differently.
+    pub clashing_keys: Vec<String>,
+    /// Both sides changed the same lines of the body.
+    pub body_clashes: bool,
+    /// Why the copy is not a snippet file, when it is not one. Keeping the
+    /// original is then the only choice that works as it is.
+    pub copy_problem: Option<String>,
+}
+
+/// What the user decided about a conflict copy.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum ConflictChoice {
+    /// The original stays as it is.
+    KeepOriginal,
+    /// The copy's version goes into the original's file.
+    KeepCopy,
+    /// This text, a whole snippet file, goes into the original's file.
+    Write { text: String },
+}
+
+/// Where the platform keeps files a user may want back. The Mac shell's puts
+/// them in the Trash.
+///
+/// Called with the library locked, on whichever thread read the folder: move
+/// the file and return.
+#[uniffi::export(with_foreign)]
+pub trait Trash: Send + Sync {
+    /// Moves the file at the absolute path `path` out of the library.
+    fn discard(&self, path: String) -> Result<(), BridgeError>;
+}
+
+/// The shell's `Trash`, as the core's `Discard`.
+struct ShellTrash(Arc<dyn Trash>);
+
+impl std::fmt::Debug for ShellTrash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShellTrash")
+    }
+}
+
+impl aralo_core::Discard for ShellTrash {
+    fn discard(&self, path: &std::path::Path) -> std::io::Result<()> {
+        self.0
+            .discard(path.to_string_lossy().into_owned())
+            .map_err(std::io::Error::other)
     }
 }
 
@@ -742,6 +1417,31 @@ impl Core {
         })
     }
 
+    /// A test field for the draft on screen, as if it were saved in `group`.
+    /// Typing into it runs the matcher and the expansion path on the draft as
+    /// it stands; nothing is written. `editing` is the snippet on screen, or
+    /// nothing for a new one.
+    ///
+    /// The trial is for this draft. The editor asks for a new one when the
+    /// draft changes, and the field starts empty again.
+    pub fn try_draft(
+        &self,
+        draft: SnippetDraft,
+        group: Vec<String>,
+        editing: Option<String>,
+    ) -> Arc<DraftTrial> {
+        let draft = Draft::from(&draft);
+        let editing = editing.and_then(|id| id.parse::<SnippetId>().ok());
+        let trial = self
+            .shared
+            .runtime
+            .read(|core| core.try_draft(&draft, &group, editing));
+        Arc::new(DraftTrial {
+            trial: Mutex::new(trial),
+            shared: Arc::clone(&self.shared),
+        })
+    }
+
     /// An abbreviation for a snippet called `label` that nothing answers to
     /// yet, for the editor to fill the field with. Empty when the label has no
     /// letters in it.
@@ -779,7 +1479,33 @@ impl Core {
     /// What a body that is still being typed would expand to. The file is not
     /// consulted, so the editor's preview keeps up with the keystroke.
     pub fn preview_draft(&self, body: String) -> String {
-        aralo_core::Core::preview_body(&body)
+        self.shared.runtime.read(|core| core.preview_body(&body))
+    }
+
+    /// What the editor draws over the body being typed: where its placeholders
+    /// are, and what is wrong with them. The file is not consulted, so it keeps
+    /// up with the keystroke, and the ranges are UTF-16 code units, which is
+    /// what a text view counts in.
+    ///
+    /// It is the same parse an expansion runs, so what the editor underlines is
+    /// what typing the abbreviation would do (PRD L10).
+    pub fn outline_draft(&self, body: String) -> BodyOutline {
+        BodyOutline::from(self.shared.runtime.read(|core| core.outline_body(&body)))
+    }
+
+    /// Writes dates and times in `tag`, for example `de_DE`. The shell passes
+    /// what the operating system says the user reads; a macOS app started from
+    /// Finder has no `LANG` for the core to read.
+    ///
+    /// An unknown tag falls back to the nearest language, then to `en_US`, so
+    /// a locale Aralo has no month names for still expands.
+    pub fn set_locale(&self, tag: String) {
+        self.shared.runtime.configure(|core| core.set_locale(&tag));
+    }
+
+    /// The locale dates are being written in.
+    pub fn locale(&self) -> String {
+        self.shared.runtime.read(|core| core.locale().to_owned())
     }
 
     /// The snippets expanded most recently, most recent first. Empty when
@@ -830,7 +1556,26 @@ impl Core {
             .shared
             .runtime
             .edit(|core| core.import(&source, &settings))?;
-        Ok(ImportSummary::from(&report))
+        let mut summary = ImportSummary::from(&report);
+        if !summary.dry_run {
+            // The library has been read again by now, so every file the import
+            // wrote is a snippet with an ID.
+            self.shared.runtime.read(|core| {
+                let ids: HashMap<&Path, SnippetId> = core
+                    .snippets()
+                    .iter()
+                    .map(|snippet| (snippet.path.as_path(), snippet.id))
+                    .collect();
+                for entry in &mut summary.entries {
+                    entry.id = entry
+                        .path
+                        .as_deref()
+                        .and_then(|path| ids.get(Path::new(path)))
+                        .map(ToString::to_string);
+                }
+            });
+        }
+        Ok(summary)
     }
 
     /// The library, or one group of it, as the bytes of an interchange file.
@@ -867,6 +1612,9 @@ pub enum LibraryEvent {
     /// The folder changed and reading it failed. The library in memory is the
     /// last one that loaded, and expansion carries on with it.
     Failed { message: String },
+    /// Conflict copies a sync client left were merged into their originals and
+    /// discarded. The paths are the copies', relative to the library root.
+    Merged { copies: Vec<String> },
     /// The search index caught up with the library.
     Indexed {
         added: u32,
@@ -1056,6 +1804,9 @@ pub struct ImportedSnippet {
     pub group: Vec<String>,
     /// Path from the library root, when one was written.
     pub path: Option<String>,
+    /// The snippet it became, for a report that opens it in the editor. `None`
+    /// on a dry run and for anything skipped.
+    pub id: Option<String>,
     pub outcome: ImportOutcome,
     pub notes: Vec<String>,
 }
@@ -1068,6 +1819,62 @@ pub enum ImportOutcome {
     NeedsEdit,
     /// Not imported.
     Skipped,
+}
+
+/// What an editor draws over a body: where the placeholders are, and what it
+/// should say about them.
+///
+/// Every range is in UTF-16 code units from the start of the body, which is
+/// what `NSTextView` and every other text view Aralo drives counts in, so a
+/// shell converts nothing.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BodyOutline {
+    /// Every `{{…}}` the core read, in the order they appear.
+    pub placeholders: Vec<BodyPlaceholder>,
+    /// What to show under the body, in the order the problems appear. Empty for
+    /// a body that expands as it reads.
+    pub problems: Vec<BodyProblem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BodyPlaceholder {
+    pub name: String,
+    /// False when no placeholder has this name. It still parses, so this marks
+    /// one to point at, not a broken one; `problems` carries the note.
+    pub known: bool,
+    /// False while the core does not expand this name yet, in which case it
+    /// inserts as the text it is written as.
+    pub evaluated: bool,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// Something for the editor to show under a range of the body.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BodyProblem {
+    pub level: DiagnosticLevel,
+    /// One sentence, in the core's words.
+    pub message: String,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// One placeholder an editor's insert menu offers.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PlaceholderChoice {
+    pub name: String,
+    /// One line for the menu item.
+    pub summary: String,
+    /// The text to insert at the caret.
+    pub insert: String,
+    /// What to select inside `insert` once it is in, in UTF-16 code units from
+    /// its start: the part the user replaces with their own words. Equal
+    /// offsets select nothing and leave the caret after the insertion.
+    pub select_start: u32,
+    pub select_end: u32,
+    /// False while the core does not expand it yet, in which case it inserts as
+    /// the text it is written as.
+    pub evaluated: bool,
 }
 
 const PREVIEW_CHARS: usize = 120;
@@ -1084,6 +1891,17 @@ pub fn excluded_app_presets() -> Vec<String> {
     matcher::EXCLUDED_APP_PRESETS
         .iter()
         .map(|id| (*id).to_owned())
+        .collect()
+}
+
+/// Every placeholder the format defines, in the order a menu offers them. The
+/// list is the core's, so a second shell offers the same placeholders in the
+/// same words.
+#[uniffi::export]
+pub fn placeholder_choices() -> Vec<PlaceholderChoice> {
+    aralo_core::Core::placeholders()
+        .iter()
+        .map(PlaceholderChoice::from)
         .collect()
 }
 
@@ -1157,6 +1975,24 @@ impl From<Step> for PlanStep {
     }
 }
 
+impl From<PlanStep> for Step {
+    fn from(step: PlanStep) -> Self {
+        match step {
+            PlanStep::Delete { count } => Step::Delete { count },
+            PlanStep::InsertText { text } => Step::InsertText { text },
+            PlanStep::InsertRich { html, plain } => Step::InsertRich { html, plain },
+            PlanStep::KeyPress { key } => Step::KeyPress {
+                key: match key {
+                    PlanKey::Return => aralo_core::Key::Return,
+                    PlanKey::Tab => aralo_core::Key::Tab,
+                },
+            },
+            PlanStep::Delay { millis } => Step::Delay { millis },
+            PlanStep::MoveCursor { graphemes, select } => Step::MoveCursor { graphemes, select },
+        }
+    }
+}
+
 fn summarise(snippet: &aralo_core::LoadedSnippet) -> SnippetSummary {
     SnippetSummary {
         id: snippet.id.to_string(),
@@ -1195,6 +2031,12 @@ impl From<LibraryChange> for LibraryEvent {
             LibraryChange::Edited => LibraryEvent::Edited,
             LibraryChange::Reloaded => LibraryEvent::Reloaded,
             LibraryChange::Failed { message } => LibraryEvent::Failed { message },
+            LibraryChange::Merged { copies } => LibraryEvent::Merged {
+                copies: copies
+                    .iter()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect(),
+            },
             LibraryChange::Indexed {
                 added,
                 updated,
@@ -1376,6 +2218,7 @@ impl From<&ImportReport> for ImportSummary {
                         .path
                         .as_ref()
                         .map(|path| path.to_string_lossy().into_owned()),
+                    id: None,
                     outcome: match entry.outcome {
                         Outcome::Clean => ImportOutcome::Clean,
                         Outcome::NeedsEdit => ImportOutcome::NeedsEdit,
@@ -1385,6 +2228,50 @@ impl From<&ImportReport> for ImportSummary {
                 })
                 .collect(),
             report: report.to_string(),
+        }
+    }
+}
+
+impl From<aralo_core::BodyOutline> for BodyOutline {
+    fn from(outline: aralo_core::BodyOutline) -> Self {
+        Self {
+            placeholders: outline
+                .placeholders
+                .into_iter()
+                .map(|placeholder| BodyPlaceholder {
+                    name: placeholder.name,
+                    known: placeholder.known,
+                    evaluated: placeholder.evaluated,
+                    start: placeholder.range.start,
+                    end: placeholder.range.end,
+                })
+                .collect(),
+            problems: outline
+                .problems
+                .into_iter()
+                .map(|problem| BodyProblem {
+                    level: match problem.level {
+                        aralo_core::ProblemLevel::Error => DiagnosticLevel::Error,
+                        aralo_core::ProblemLevel::Note => DiagnosticLevel::Note,
+                    },
+                    message: problem.message,
+                    start: problem.range.start,
+                    end: problem.range.end,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<&aralo_core::PlaceholderInfo> for PlaceholderChoice {
+    fn from(info: &aralo_core::PlaceholderInfo) -> Self {
+        Self {
+            name: info.name.to_owned(),
+            summary: info.summary.to_owned(),
+            insert: info.insert.to_owned(),
+            select_start: info.select.start,
+            select_end: info.select.end,
+            evaluated: info.evaluated,
         }
     }
 }
@@ -1401,6 +2288,13 @@ fn describe(issue: &aralo_core::Issue) -> (DiagnosticLevel, String) {
             format!(
                 "Has the same id as {}, so this file is ignored.",
                 first.display()
+            ),
+        ),
+        Issue::ConflictCopy { original } => (
+            Warning,
+            format!(
+                "A sync conflict copy of {} that changes the same things differently. Choose which to keep.",
+                original.display()
             ),
         ),
         Issue::AbbreviationRejected {

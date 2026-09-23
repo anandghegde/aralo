@@ -1,8 +1,8 @@
 # The import corpus
 
-What `crates/aralo-import/tests/fidelity.rs` measures M2's exit criterion
-against: *import a TextExpander library, edit it and expand from it; import
-fidelity ≥ 90% on the corpus*.
+What `crates/aralo-import/tests/fidelity.rs` measures the exit criterion
+against: M2's *import a TextExpander library, edit it and expand from it;
+import fidelity ≥ 90% on the corpus*, raised to 95% by M3.
 
 Every source here has a golden file beside it, `<name>.expected.json`, holding
 what the import report said and what ended up in the library. The test
@@ -42,28 +42,28 @@ a promise about anyone's library.
 | Source | Snippets | Clean | What it is for |
 | --- | ---: | ---: | --- |
 | `textexpander/personal.textexpander` | 22 | 22 | A personal library: addresses, signatures, a cursor, the clipboard, `%%`, and six date and time formats, in three groups |
-| `textexpander/work.textexpander` | 20 | 15 | A work library: fill-ins, a pop-up, a nested snippet, two nested groups, and the five things that cannot convert cleanly (below) |
+| `textexpander/work.textexpander` | 20 | 17 | A work library: fill-ins, a pop-up, a nested snippet, two nested groups, and the three things that cannot convert cleanly (below) |
 | `csv/spreadsheet.csv` | 8 | 8 | A spreadsheet export: a header in someone else's spelling, a multi-line cell, tags |
 | `csv/no-header.csv` | 4 | 4 | A file with no header row, read positionally as abbreviation, body, label |
 | `json/other-tool.json` | 6 | 6 | A bare JSON array, as another tool or a hand-written file gives it, including braces that are text |
 | `yaml/other-tool.yaml` | 5 | 5 | The same, in YAML |
-| **Total** | **65** | **60** | **92.3%** |
+| **Total** | **65** | **62** | **95.4%** |
 
-The five that are not clean are all in `work.textexpander`, and they are the
-five kinds of loss the importer can have:
+The three that are not clean are all in `work.textexpander`, and they are the
+three kinds of loss the importer has left:
 
 | Snippet | Note | Why |
 | --- | --- | --- |
-| `;notes` | approximated | `%fillarea%` becomes a single-line field |
-| `;form` | approximated | `%key:tab%` becomes the character it types |
 | `;wait` | not converted | `%delay:500%` has no placeholder; it stays in the body as text |
 | `;stamp` | not converted | a script snippet; Aralo does not run scripts yet |
 | `;logo` | skipped | a picture: there is no plain text to import |
 
-That is five losses in sixty-five snippets. A library that leans harder on
-keys, delays and scripts would score lower, and the report says which snippets
-they are every time, so the user can see what they have rather than a
-percentage.
+That is three losses in sixty-five snippets. Two more were losses until M3
+gave the format what they needed: `;notes` lands in a box with room to write
+in (`{{field: Notes \| lines: 4}}`) and `;form` presses a real Tab between the
+two fields it fills (`{{key: tab}}`). A library that leans harder on delays
+and scripts would score lower, and the report says which snippets they are
+every time, so the user can see what they have rather than a percentage.
 
 Each of those macros is also covered on its own by the unit tests in
 `crates/aralo-import/src/macros.rs`; the corpus is here to weigh them as an

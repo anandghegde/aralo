@@ -494,12 +494,22 @@ fn a_preview_is_what_typing_the_abbreviation_would_produce() {
         )
         .unwrap();
 
+    let unexpandable = core
+        .create_snippet(&[], &draft("Odd", "odd", "one {{nonsense}} two"))
+        .unwrap();
+
     assert_eq!(core.preview(plain).as_deref(), Some("Best,\nAnand"));
     assert_eq!(
         core.preview(placeholder).as_deref(),
-        Some("12 Somewhere Street\n{{cursor}}"),
-        "a placeholder expands as its own source until the evaluator lands in M3, \
-         and the preview shows what would really be typed rather than pretending"
+        Some("12 Somewhere Street\n"),
+        "a cursor stop is where the caret lands, not text, so the preview shows \
+         the address and nothing after it"
+    );
+    assert_eq!(
+        core.preview(unexpandable).as_deref(),
+        Some("one {{nonsense}} two"),
+        "a placeholder Aralo cannot expand stays as written, in the preview and \
+         in the expansion alike, rather than quietly becoming nothing"
     );
     core.delete_snippet(plain).unwrap();
     assert_eq!(core.preview(plain), None);

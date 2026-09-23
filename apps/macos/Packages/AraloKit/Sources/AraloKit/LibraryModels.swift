@@ -142,3 +142,21 @@ public struct Editing: Equatable, Sendable {
     /// not reported as taken by itself.
     var savedID: String { id }
 }
+
+/// A format the library can be written out in. Aralo writes only the formats it
+/// also reads, so every export imports back (ADR-0013).
+public enum ExportFormat: String, CaseIterable, Sendable {
+    case json
+    case yaml
+    case csv
+
+    public var title: String {
+        switch self {
+        case .json: "JSON"
+        case .yaml: "YAML"
+        case .csv: "CSV"
+        }
+    }
+
+    public var fileExtension: String { rawValue }
+}

@@ -13,6 +13,11 @@ public final class MatrixRunner {
         public var pollInterval: TimeInterval = 0.002
         /// Between an expansion and the key that follows it.
         public var pause: TimeInterval = 0.15
+        /// How long a form panel gets to open before the answer is typed. The
+        /// panel is Aralo's own window and the app under test stays frontmost,
+        /// so there is nothing to watch for: it gets a moment, and a case that
+        /// is answered too early is retried like any other.
+        public var formPause: TimeInterval = 0.75
         public var includePending = false
 
         public init() {}
@@ -159,6 +164,10 @@ public final class MatrixRunner {
         let started = desktop.now()
         _ = desktop.type(Expectation.delimiter)
 
+        if matrixCase.answersAForm, let why = try answerForm(in: app) {
+            return Attempt(passed: false, reason: why)
+        }
+
         let patience = options.timeout * matrixCase.patience
         let seenAfter = waitForText(patience) { $0.contains(expectation.text) }
         var attempt = Attempt(passed: seenAfter != nil, readBack: seenAfter == nil ? nil : .accessibility)
@@ -176,8 +185,31 @@ public final class MatrixRunner {
         if !attempt.passed {
             attempt = try confirmByCopy(app, expectation: expectation)
         }
+        if !attempt.passed, matrixCase.answersAForm,
+            desktop.focusedText()?.contains(Expectation.formAnswer) == true {
+            // The answer is in the document, so it was typed before the panel
+            // was up to take it: a slow machine, not a broken expansion.
+            attempt.reason = "the answer was typed into the app: the form panel was not up in time"
+        }
         guard attempt.passed else { return attempt }
         return try followUp(matrixCase, in: app, expectation: expectation, seen: attempt)
+    }
+
+    /// Answers the panel the delimiter opened, instead of anything being
+    /// inserted. Returns why it could not be, or nil once the answer is in.
+    ///
+    /// The same keyboard does it: synthetic keys follow the keyboard, and the
+    /// keyboard is the panel's while it is up. Nothing says when it opened — a
+    /// swallowed delimiter looks like one the app has not drawn yet — so it gets
+    /// `formPause`, and a case answered too early is retried like any other.
+    private func answerForm(in app: CompatApp) throws -> String? {
+        desktop.wait(options.formPause)
+        try checkFront(app)
+        guard desktop.type(Expectation.formAnswer) else {
+            return "the keyboard layout cannot type the answer"
+        }
+        desktop.press(.return)
+        return nil
     }
 
     /// The second half of the cases that press something after the expansion.
@@ -200,7 +232,7 @@ public final class MatrixRunner {
             let wanted = expectation.text(withAtCaret: "x")
             attempt.passed = try settles(app, within: options.timeout) { $0.contains(wanted) }
             attempt.reason = attempt.passed ? nil : "the caret was not where the marker is"
-        case .ascii, .unicode, .long, .clipboard:
+        case .ascii, .unicode, .long, .clipboard, .form:
             break
         }
         return attempt

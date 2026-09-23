@@ -1,3 +1,4 @@
+import AraloBridge
 @testable import AraloKit
 import Carbon.HIToolbox
 import Foundation
@@ -60,5 +61,24 @@ final class FakePasteboard: PasteboardAccess {
     func copyFromElsewhere(_ text: String) {
         changeCount += 1
         items = [["public.utf8-plain-text": Data(text.utf8)]]
+    }
+}
+
+/// Catches the session the controller hands over. The handover happens on the
+/// tap thread, so this is the one thing a test shares with it.
+final class SessionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: ExpansionSession?
+
+    func hold(_ session: ExpansionSession) {
+        lock.lock()
+        held = session
+        lock.unlock()
+    }
+
+    var session: ExpansionSession? {
+        lock.lock()
+        defer { lock.unlock() }
+        return held
     }
 }

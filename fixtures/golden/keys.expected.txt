@@ -1,0 +1,121 @@
+# keys.toml: keys: what a body presses rather than types, and what that costs
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== a tab between two fields fills a form out
+--- en_US
+field: "Dana Ruiz\tdana@acme.example|"
+preview: "\t"
+undo: not by backspace
+--- de_DE
+field: "Dana Ruiz\tdana@acme.example|"
+preview: "\t"
+undo: not by backspace
+--- ja_JP
+field: "Dana Ruiz\tdana@acme.example|"
+preview: "\t"
+undo: not by backspace
+
+=== a return goes back as a key, so backspace cannot take it back
+--- en_US
+field: "Subject\nBody|"
+preview: "Subject\nBody"
+undo: not by backspace
+--- de_DE
+field: "Subject\nBody|"
+preview: "Subject\nBody"
+undo: not by backspace
+--- ja_JP
+field: "Subject\nBody|"
+preview: "Subject\nBody"
+undo: not by backspace
+
+=== enter is another spelling of return
+--- en_US
+field: "One\nTwo|"
+preview: "One\nTwo"
+undo: not by backspace
+--- de_DE
+field: "One\nTwo|"
+preview: "One\nTwo"
+undo: not by backspace
+--- ja_JP
+field: "One\nTwo|"
+preview: "One\nTwo"
+undo: not by backspace
+
+=== a key at the start presses before anything is typed
+--- en_US
+field: "\tDana|"
+preview: "\tDana"
+undo: not by backspace
+--- de_DE
+field: "\tDana|"
+preview: "\tDana"
+undo: not by backspace
+--- ja_JP
+field: "\tDana|"
+preview: "\tDana"
+undo: not by backspace
+
+=== a key Aralo cannot press stays as written
+--- en_US
+field: "Go {{key: left}} one.|"
+preview: "Go {{key: left}} one."
+undo: 21 backspaces
+note: "Aralo can press Tab and Return, not left, so this stays as written."
+--- de_DE
+field: "Go {{key: left}} one.|"
+preview: "Go {{key: left}} one."
+undo: 21 backspaces
+note: "Aralo can press Tab and Return, not left, so this stays as written."
+--- ja_JP
+field: "Go {{key: left}} one.|"
+preview: "Go {{key: left}} one."
+undo: 21 backspaces
+note: "Aralo can press Tab and Return, not left, so this stays as written."
+
+=== a key with nothing named says which keys there are
+--- en_US
+field: "Go {{key}} on.|"
+preview: "Go {{key}} on."
+undo: 14 backspaces
+note: "Write {{key: tab}} or {{key: return}}: those are the keys Aralo can press."
+--- de_DE
+field: "Go {{key}} on.|"
+preview: "Go {{key}} on."
+undo: 14 backspaces
+note: "Write {{key: tab}} or {{key: return}}: those are the keys Aralo can press."
+--- ja_JP
+field: "Go {{key}} on.|"
+preview: "Go {{key}} on."
+undo: 14 backspaces
+note: "Write {{key: tab}} or {{key: return}}: those are the keys Aralo can press."
+
+=== a cursor stop counts the key it moves back over
+--- en_US
+field: "|Name\tEmail"
+preview: "Name\tEmail"
+undo: not by backspace
+--- de_DE
+field: "|Name\tEmail"
+preview: "Name\tEmail"
+undo: not by backspace
+--- ja_JP
+field: "|Name\tEmail"
+preview: "Name\tEmail"
+undo: not by backspace
+
+=== the case the abbreviation was typed in reaches across a key
+--- en_US
+field: "NAME\tEMAIL |"
+preview: "name\temail"
+undo: not by backspace
+--- de_DE
+field: "NAME\tEMAIL |"
+preview: "name\temail"
+undo: not by backspace
+--- ja_JP
+field: "NAME\tEMAIL |"
+preview: "name\temail"
+undo: not by backspace

@@ -1,9 +1,10 @@
 //! Where Aralo keeps what it can throw away.
 //!
 //! The library is the user's folder and the truth ([ADR-0006]). Everything in
-//! here is derived from it: the search index, and later the vectors and the
-//! merge bases. Deleting this folder costs a rebuild, never a snippet, which is
-//! why it may live somewhere the user never looks
+//! here is derived from it: the search index with the merge bases in it, the
+//! conflict copies Aralo has merged and set aside, and later the vectors.
+//! Deleting this folder costs a rebuild, never a snippet, which is why it may
+//! live somewhere the user never looks
 //! ([ADR-0011](../../../docs/adr/0011-shell-defaults.md)).
 //!
 //! Usage statistics are the exception: they are not rebuildable, because
@@ -53,6 +54,26 @@ pub fn index_path(root: &Path) -> Option<PathBuf> {
 /// The same, in a cache folder the caller names. A shell knows where its
 /// platform puts caches; the core only decides what the file is called.
 pub fn index_in(cache: &Path, root: &Path) -> PathBuf {
+    cache
+        .join("index")
+        .join(format!("{}.sqlite3", library_key(root)))
+}
+
+/// Where the conflict copies of the library at `root` go once they have been
+/// merged, when the shell has nowhere kinder to put them, such as the Trash.
+pub fn set_aside_path(root: &Path) -> Option<PathBuf> {
+    Some(set_aside_in(&state_folder()?, root))
+}
+
+/// The same, in a cache folder the caller names.
+pub fn set_aside_in(cache: &Path, root: &Path) -> PathBuf {
+    cache.join("merged").join(library_key(root))
+}
+
+/// The name everything Aralo keeps for one library goes under: the folder's own
+/// name, readable, and a hash of its whole path, so two libraries called
+/// `Aralo` in two places do not share anything.
+fn library_key(root: &Path) -> String {
     let canonical = root.canonicalize();
     let path = canonical.as_deref().unwrap_or(root);
     let hash = blake3::hash(path.as_os_str().as_encoded_bytes()).to_hex();
@@ -60,10 +81,7 @@ pub fn index_in(cache: &Path, root: &Path) -> PathBuf {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
-    let name = sanitise(&name);
-    cache
-        .join("index")
-        .join(format!("{name}-{}.sqlite3", &hash[..HASH_CHARS]))
+    format!("{}-{}", sanitise(&name), &hash[..HASH_CHARS])
 }
 
 /// A folder name a file system will take: letters, digits and hyphens, and

@@ -1,23 +1,35 @@
 //! The facade the shells talk to.
 //!
-//! This is the M0/M1 slice: open a library folder, hand the engine its
-//! snapshot, and turn a match into an [`ExpansionPlan`]. Expansion sessions
-//! (forms, AI, scripts), settings and events arrive with the milestones that
-//! need them.
+//! Open a library folder, hand the engine its snapshot, and turn a match into
+//! an [`ExpansionPlan`]. A body that needs nothing but the clock expands on
+//! the keystroke; one that needs a form filled in or the clipboard read opens
+//! a [`Session`] the shell drives. AI blocks, scripts, settings and events
+//! arrive with the milestones that need them.
+//!
+//! This is also where the clock is. `aralo-template` formats a moment it is
+//! handed, so every expansion takes the time from the [`Clock`] on the core,
+//! and a test can stop it.
 
+pub mod clock;
 pub mod compat;
 mod edit;
+mod field;
+mod merge;
 mod runtime;
+mod session;
 mod simulate;
 mod starter;
 pub mod state;
+mod trial;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use aralo_engine::{CasePattern, Engine, Snapshot};
+use aralo_engine::{Engine, Snapshot};
 use aralo_library::{Library, LibraryError, Searcher};
-use aralo_template::{static_plan, CaseTransform, StaticExpansion};
+use aralo_template::{Context, Nested, Resolved, Shape, Snippets};
+
+use crate::clock::{Clock, SystemClock};
 
 pub use aralo_engine as engine;
 pub use aralo_import as import;
@@ -25,15 +37,24 @@ pub use aralo_import::{
     ExportOptions, Format, ImportOptions, ImportReport, MacroPolicy, Outcome, SnippetRecord,
 };
 pub use aralo_library::{
-    Diagnostic, Field, Issue, LoadedGroup, LoadedSnippet, Query, Recent, Settings, Stats,
+    Conflict, Diagnostic, Field, Issue, LoadedGroup, LoadedSnippet, Query, Recent, Settings, Stats,
 };
 pub use aralo_snippet as snippet;
-pub use aralo_template::{ExpansionPlan, Key, Step};
+pub use aralo_template as template;
+pub use aralo_template::{
+    Answers, BodyOutline, BodyPlaceholder, BodyProblem, BodyRange, CivilTime, ContextKind,
+    ContextValues, ExpansionPlan, FieldKind, Form, FormField, Key, PlaceholderInfo, ProblemLevel,
+    Step,
+};
+pub use clock::{FixedClock, SystemClock as SystemTimeClock};
 pub use compat::{CompatError, CompatTable, InjectionProfile};
 pub use edit::{Draft, DraftIssue, Problem};
+pub use merge::{ConflictSides, Discard, MergeReport, Resolution, SetAside};
 pub use runtime::{LibraryChange, LibraryListener, Runtime, RuntimeOptions};
+pub use session::{Expand, Session, SessionStep};
 pub use simulate::Simulator;
 pub use starter::FILES as STARTER_FILES;
+pub use trial::{Trial, TrialKey};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -50,6 +71,17 @@ pub enum CoreError {
     NoSuchSnippet(String),
     #[error("no group at {0} is in the library")]
     NoSuchGroup(String),
+    #[error("no conflict copy at {0} is waiting in the library")]
+    NoSuchConflict(String),
+    #[error("that is not a snippet file: {0}")]
+    NotASnippet(String),
+    #[error("this machine will not say where a discarded conflict copy can go")]
+    NowhereToDiscard,
+    #[error("cannot read {path}: {source}")]
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("{name:?} cannot be a folder name: {reason}")]
     InvalidName { name: String, reason: String },
     #[error(transparent)]
@@ -66,8 +98,12 @@ pub enum CoreError {
 pub struct MatchInfo {
     pub snippet_id: aralo_engine::SnippetId,
     pub delete_count: u32,
-    pub case: CasePattern,
+    pub case: aralo_engine::CasePattern,
     pub trailing: Option<char>,
+    /// The key the engine swallowed to make the match, when it swallowed one.
+    /// A session that is cancelled puts it back; an expansion that runs
+    /// replaces it. `None` when the key reached the app.
+    pub swallowed: Option<char>,
 }
 
 /// A plan, plus what the shell reports back once it has run it.
@@ -113,6 +149,10 @@ pub struct Core {
     /// The fuzzy matcher's scratch buffers, kept between searches because the
     /// editor searches on every keystroke.
     searcher: Mutex<Searcher>,
+    /// Where `{{date}}` and `{{time}}` read the moment.
+    clock: Arc<dyn Clock>,
+    /// The locale tag they are written in, for example `de_DE`.
+    locale: String,
 }
 
 impl Core {
@@ -158,7 +198,41 @@ impl Core {
             rejected,
             starter_files_written,
             searcher: Mutex::new(Searcher::new()),
+            clock: Arc::new(SystemClock),
+            locale: clock::environment_locale(),
         }
+    }
+
+    /// Reads the time from `clock` instead of the machine's. For tests and
+    /// the golden files, where the answer has to be the same tomorrow.
+    #[must_use]
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// Writes dates in `tag`, for example `de_DE` or `ja-JP`. An unknown tag
+    /// falls back to the nearest language, then to `en_US`; see
+    /// [`aralo_template::locale`].
+    #[must_use]
+    pub fn in_locale(mut self, tag: &str) -> Self {
+        self.locale = tag.to_owned();
+        self
+    }
+
+    /// The same after opening, for a shell that learns the user's locale from
+    /// the operating system rather than from the environment.
+    pub fn set_locale(&mut self, tag: &str) {
+        self.locale = tag.to_owned();
+    }
+
+    pub fn locale(&self) -> &str {
+        &self.locale
+    }
+
+    /// The moment an expansion asked for now would use.
+    pub fn now(&self) -> CivilTime {
+        self.clock.now()
     }
 
     /// Reads the folder again. On failure the old library stays in use.
@@ -168,7 +242,11 @@ impl Core {
     /// the reload rather than being taken for someone else's edit.
     pub fn reload(&mut self) -> Result<(), CoreError> {
         let library = self.library.reload()?;
+        let clock = Arc::clone(&self.clock);
+        let locale = std::mem::take(&mut self.locale);
         *self = Self::with_library(library, self.starter_files_written);
+        self.clock = clock;
+        self.locale = locale;
         Ok(())
     }
 
@@ -272,41 +350,180 @@ impl Core {
     /// as it parses, which is what makes the preview useful while typing it.
     pub fn preview(&self, id: aralo_snippet::SnippetId) -> Option<String> {
         let snippet = self.library.snippet(id)?;
-        Some(Self::preview_body(&snippet.file.body))
+        Some(self.preview_body(&snippet.file.body))
     }
 
     /// The same for a body that is still being typed, which is what an editor
-    /// wants: the library is not consulted, so the preview keeps up with the
-    /// keystroke rather than with the last save.
-    pub fn preview_body(body: &str) -> String {
-        let (plan, _) = static_plan(StaticExpansion {
-            body,
-            delete_count: 0,
-            case: CaseTransform::AsDefined,
-            trailing: None,
-        });
-        plan.inserted_text()
+    /// wants: the library is read for nested snippets, but the body itself
+    /// comes from the caller, so the preview keeps up with the keystroke
+    /// rather than with the last save.
+    ///
+    /// Dates and times are the real ones. A form field shows its default,
+    /// since no one has been asked yet, and a placeholder waiting on the
+    /// shell — `{{clipboard}}` — stays as written: the preview panel does not
+    /// read the clipboard, and an editor that wants the real thing opens a
+    /// session (PRD P4).
+    pub fn preview_body(&self, body: &str) -> String {
+        let resolved = self.resolve(body);
+        // The form's defaults, which is what a session starts with: a
+        // drop-down stands on its first option, so the preview stands there
+        // too rather than showing a gap.
+        let answers = resolved.form().defaults();
+        aralo_template::render(&resolved, self.context().with_answers(&answers)).text()
     }
 
-    /// The plan for a match the engine reported. `None` when the snippet has
-    /// gone since the snapshot was built; the shell then lets the key through.
-    pub fn expand(&self, matched: MatchInfo) -> Option<Expansion> {
-        let id = aralo_snippet::SnippetId::from_u128(matched.snippet_id.0);
+    /// What an editor draws over a body being typed: where its placeholders
+    /// are, and what is wrong with them. The ranges are UTF-16 code units,
+    /// which is what a text view counts in.
+    ///
+    /// It is the same reading the expansion path runs, against the same
+    /// library, so what the editor underlines is what an expansion does, down
+    /// to a `{{snippet: …}}` that names nothing (PRD L10).
+    pub fn outline_body(&self, body: &str) -> BodyOutline {
+        let snippets = self.nested();
+        aralo_template::outline_with(body, Some(&snippets))
+    }
+
+    /// Every placeholder the format defines, for an editor's insert menu. The
+    /// list is the core's, so two shells offer the same placeholders in the
+    /// same words.
+    pub fn placeholders() -> &'static [PlaceholderInfo] {
+        aralo_template::catalogue()
+    }
+
+    /// The plan for a match the engine reported, or the session that gets
+    /// there. `None` when the snippet has gone since the snapshot was built;
+    /// the shell then lets the key through.
+    pub fn expand(&self, matched: MatchInfo) -> Option<Expand> {
+        self.begin(
+            aralo_snippet::SnippetId::from_u128(matched.snippet_id.0),
+            session::shape(matched),
+            matched.swallowed,
+        )
+    }
+
+    /// The same for a snippet the user picked from a list rather than typed.
+    ///
+    /// It is the same expansion an abbreviation produces, with nothing to
+    /// delete because nothing was typed, and in the snippet's own case because
+    /// there is no typing to take a case from. So a snippet inserts the same
+    /// text however it was asked for, and a snippet with a form asks the same
+    /// question.
+    ///
+    /// `None` when the snippet has gone since the list was drawn.
+    pub fn insert(&self, id: aralo_snippet::SnippetId) -> Option<Expand> {
+        self.begin(id, Shape::default(), None)
+    }
+
+    /// Reads the body, and either finishes it or opens a session.
+    ///
+    /// The decision is the body's: a form field or a context placeholder
+    /// means someone has to be asked, and everything else is already here.
+    fn begin(
+        &self,
+        id: aralo_snippet::SnippetId,
+        shape: Shape,
+        swallowed: Option<char>,
+    ) -> Option<Expand> {
         let snippet = self.library.snippet(id)?;
-        let (plan, template_diagnostics) = static_plan(StaticExpansion {
-            body: &snippet.file.body,
-            delete_count: matched.delete_count,
-            case: match matched.case {
-                CasePattern::AsDefined => CaseTransform::AsDefined,
-                CasePattern::Title => CaseTransform::Title,
-                CasePattern::Upper => CaseTransform::Upper,
-            },
-            trailing: matched.trailing,
-        });
-        Some(Expansion {
+        Some(self.begin_body(id, &snippet.file.body, shape, swallowed))
+    }
+
+    /// The same for a body that need not be in the library: a draft in the
+    /// editor expands through here exactly as its saved file would.
+    fn begin_body(
+        &self,
+        id: aralo_snippet::SnippetId,
+        body: &str,
+        shape: Shape,
+        swallowed: Option<char>,
+    ) -> Expand {
+        let resolved = self.resolve(body);
+        if resolved.form().fields.is_empty() && resolved.needs().is_empty() {
+            return Expand::Ready(self.settle(&resolved, shape));
+        }
+        Expand::Session(Box::new(Session::new(
+            id,
+            resolved,
+            shape,
+            self.clock.now(),
+            self.locale.clone(),
+            swallowed,
+        )))
+    }
+
+    /// The body with its nested snippets pulled in, and everything that can be
+    /// said about it before the clock is read.
+    fn resolve(&self, body: &str) -> Resolved {
+        let snippets = self.nested();
+        aralo_template::resolve(body, Some(&snippets))
+    }
+
+    /// Everything a body needs from outside itself, except what only the shell
+    /// can fetch: that arrives through a [`Session`].
+    fn context(&self) -> Context<'_> {
+        Context::at(self.clock.now()).in_locale(&self.locale)
+    }
+
+    fn nested(&self) -> LibrarySnippets<'_> {
+        LibrarySnippets {
+            library: &self.library,
+        }
+    }
+
+    fn settle(&self, resolved: &Resolved, shape: Shape) -> Expansion {
+        let (plan, template_diagnostics) = aralo_template::finish(resolved, self.context(), shape);
+        Expansion {
             undo_delete_count: plan.undo_delete_count(),
             plan,
             template_diagnostics,
+        }
+    }
+}
+
+/// Where `{{snippet: name-or-id}}` looks.
+///
+/// A reference is an id, an abbreviation, or the name the snippet goes by in a
+/// list, tried in that order: an id is unambiguous, an abbreviation is what the
+/// user types, and a name is what they read. Nothing is matched loosely, so
+/// renaming a snippet breaks the reference visibly instead of quietly nesting
+/// a different one.
+///
+/// A snippet that is switched off is still nested when another one names it.
+/// Being switched off means it does not expand on its own; the body that names
+/// it asked for it.
+struct LibrarySnippets<'a> {
+    library: &'a Library,
+}
+
+impl Snippets for LibrarySnippets<'_> {
+    fn body(&self, reference: &str) -> Option<Nested> {
+        let wanted = reference.trim();
+        if wanted.is_empty() {
+            return None;
+        }
+        let by_id = wanted
+            .parse::<aralo_snippet::SnippetId>()
+            .ok()
+            .and_then(|id| self.library.snippet(id));
+        let found = by_id
+            .or_else(|| {
+                self.library
+                    .snippets()
+                    .iter()
+                    .find(|snippet| snippet.file.front.abbr.iter().any(|abbr| abbr == wanted))
+            })
+            .or_else(|| {
+                self.library
+                    .snippets()
+                    .iter()
+                    .find(|snippet| snippet.display_name() == wanted)
+            })?;
+        Some(Nested {
+            // The id, whichever name the body used, so two references to one
+            // snippet are one snippet when a cycle is looked for.
+            key: found.id.to_string(),
+            body: found.file.body.clone(),
         })
     }
 }

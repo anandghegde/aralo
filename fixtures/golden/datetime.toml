@@ -1,0 +1,49 @@
+about = "dates and times: the locale's own words, the formats a body chooses"
+
+[[case]]
+name = "a bare date and time are written the way the locale writes them"
+body = "{{date}} at {{time}}"
+
+[[case]]
+name = "a format the body chooses reads the same in every locale"
+body = "{{date: %Y-%m-%d}}T{{time: %H:%M:%S}}"
+
+[[case]]
+name = "month and weekday names come from the locale"
+body = "{{date: %A, %-d %B %Y}} ({{date: %a %b}})"
+
+[[case]]
+name = "a twelve-hour clock uses the locale's own am and pm"
+body = "{{time: %-I:%M %p}} / {{time: %I:%M %P}}"
+
+[[case]]
+name = "padding is the body's choice, not the locale's"
+body = "[{{date: %d/%m}}] [{{date: %-d/%-m}}] [{{date: %e}}] [{{time: %k:%M}}]"
+
+[[case]]
+name = "the shorthands expand to the locale's patterns"
+body = "%c: {{date: %c}}\n%x: {{date: %x}}\n%X: {{time: %X}}\n%F %T: {{date: %F}} {{time: %T}}"
+
+[[case]]
+name = "the day of the year and the day of the week are numbers"
+body = "{{date: %j}} {{date: %u}} {{date: %w}} {{date: %y}}"
+
+[[case]]
+name = "the offset from UTC is the one the clock came with"
+body = "{{time: %H:%M%z}} {{time: %H:%M%:z}}"
+
+[[case]]
+name = "a literal per cent, a newline and a tab are the pattern's, not the body's"
+body = "{{time: 100%% done:%n%tat %R}} but %n stays"
+
+[[case]]
+name = "a locale the body names is not the system's business"
+body = "{{date: %-d %B | locale: fr_FR}} / {{date: %-d %B | locale: pt-BR}}"
+
+[[case]]
+name = "a locale Aralo does not carry reads in English and says so"
+body = "{{date: %-d %B | locale: xx_ZZ}}"
+
+[[case]]
+name = "a directive Aralo cannot write stays as written"
+body = "{{date: %Q}} and {{time: %H:%M}}"

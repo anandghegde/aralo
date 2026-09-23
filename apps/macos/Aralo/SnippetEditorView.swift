@@ -4,21 +4,26 @@ import SwiftUI
 
 /// The editor: the snippet's fields, what its settings come to once the groups
 /// above it are applied, anything the core has to say about the draft, and
-/// what typing the abbreviation would produce.
+/// what typing the abbreviation would produce, and a field to type it into.
 ///
-/// The body is a plain text view for now. The highlighting editor is M2's next
-/// task; nothing here depends on which one it is.
+/// The body is [`BodyEditor`], which draws the core's reading of it. Nothing
+/// else here knows about placeholders.
 struct SnippetEditorView: View {
     let store: LibraryStore
     @Binding var editing: Editing
     let root: URL
+    /// Opens the resolver for a conflict copy.
+    let resolve: (String) -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                if let copy = store.conflict(for: editing.id)?.copy {
+                    conflictBanner(copy: copy)
+                }
                 fields
                 Divider()
-                body(of: editing)
+                bodyEditor
                 if !store.problems.isEmpty {
                     problems
                 }
@@ -26,12 +31,34 @@ struct SnippetEditorView: View {
                 settings
                 Divider()
                 preview
+                TestFieldView(store: store, editing: editing)
             }
             .padding(20)
         }
         .toolbar { toolbar }
         .navigationTitle(editing.draft.label.isEmpty ? "Untitled" : editing.draft.label)
         .navigationSubtitle(editing.path)
+    }
+
+    // MARK: - Sync conflict
+
+    /// A sync client left a second version of this snippet that does not
+    /// merge. The one on screen is still the one that expands.
+    private func conflictBanner(copy: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath").foregroundStyle(.orange)
+            Text(
+                "Sync left another version of this snippet, and the two changed the same thing. "
+                    + "This one expands until you choose."
+            )
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Choose\u{2026}") { resolve(copy) }
+        }
+        .font(.callout)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Fields
@@ -93,16 +120,8 @@ struct SnippetEditorView: View {
         )
     }
 
-    private func body(of editing: Editing) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Body").font(.headline)
-            TextEditor(text: $editing.draft.body)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 160)
-                .scrollContentBackground(.hidden)
-                .padding(6)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-        }
+    private var bodyEditor: some View {
+        BodyEditor(store: store, text: $editing.draft.body)
     }
 
     // MARK: - Advice

@@ -25,6 +25,9 @@ const MAX_SEPARATOR: usize = 4;
 const FILL_KEYS: [&str; 6] = ["name=", "default=", "width=", "height=", "lines=", "id="];
 
 const OPTIONAL_SECTION: &str = "%fillpart…% (an optional section)";
+/// How tall a box a fill-in area becomes when the source does not say. Enough
+/// for a paragraph of case notes, which is what an area is usually for.
+const AREA_LINES: u32 = 4;
 const CLEANED_FOR_GRAMMAR: &str = "a value was cleaned for the placeholder grammar";
 
 /// Converts one snippet body. The notes are deduplicated: a body with four
@@ -156,21 +159,16 @@ fn simple(rest: &str, out: &mut String) -> Option<usize> {
     })
 }
 
-/// `%key:tab%`. Aralo v0 has no key placeholder, so the three keys that are
-/// also characters become those characters and the rest stay literal.
+/// `%key:tab%`. Tab and Return are keys Aralo presses too; the rest stay
+/// literal, because a key that is not a character cannot be typed as one.
 fn key(rest: &str, out: &mut String, notes: &mut Notes) -> Option<usize> {
     let (name, consumed) = delimited(rest, "%key:")?;
     let name = name.to_ascii_lowercase();
     match name.as_str() {
         // A space key types a space; nothing is lost.
         "space" => out.push(' '),
-        "tab" | "return" | "enter" => {
-            notes.push(
-                NoteKind::Approximated,
-                format!("%key:{name}% became the character it types"),
-            );
-            out.push(if name == "tab" { '\t' } else { '\n' });
-        }
+        "tab" => out.push_str("{{key: tab}}"),
+        "return" | "enter" => out.push_str("{{key: return}}"),
         _ => {
             notes.push(
                 NoteKind::Unconvertible,
@@ -236,19 +234,19 @@ fn fill(rest: &str, out: &mut String, notes: &mut Notes) -> Option<usize> {
             out.push_str(" | default: ");
             out.push_str(&default);
         }
+        // A fill-in area is a box with room to write in, which Aralo asks for
+        // by the line. The source counts them when it says so, and a box whose
+        // height was in pixels gets the same box a new one would.
+        if head == "%fillarea:" {
+            out.push_str(" | lines: ");
+            out.push_str(&fields.lines.unwrap_or(AREA_LINES).to_string());
+        }
         out.push_str("}}");
         if changed {
             notes.push(NoteKind::Approximated, CLEANED_FOR_GRAMMAR);
         }
-        match head {
-            "%fillarea:" => notes.push(
-                NoteKind::Approximated,
-                "a multi-line fill-in became a single-line field",
-            ),
-            "%filldate:" => {
-                notes.push(NoteKind::Approximated, "a date picker became a plain field")
-            }
-            _ => {}
+        if head == "%filldate:" {
+            notes.push(NoteKind::Approximated, "a date picker became a plain field");
         }
         return Some(consumed);
     }
@@ -293,6 +291,8 @@ fn popup_options(mut rest: &str) -> (Vec<&str>, usize) {
 struct FillFields<'a> {
     name: Option<&'a str>,
     default: Option<&'a str>,
+    /// `lines=6` on a fill-in area, when the source counted them.
+    lines: Option<u32>,
 }
 
 /// Splits `name=Customer:default=Hi there` without cutting a default that
@@ -317,6 +317,9 @@ fn fill_fields(spec: &str) -> FillFields<'_> {
         match part.split_once('=') {
             Some(("name", value)) => fields.name = Some(value),
             Some(("default", value)) => fields.default = Some(value),
+            Some(("lines", value)) => {
+                fields.lines = value.trim().parse().ok().filter(|lines| *lines > 1)
+            }
             _ => {}
         }
     }
@@ -491,8 +494,24 @@ mod tests {
     }
 
     #[test]
-    fn an_area_and_a_date_picker_convert_but_are_flagged() {
-        assert_eq!(kinds("%fillarea:name=Body%"), [NoteKind::Approximated]);
+    fn an_area_becomes_a_box_with_room_to_write_in() {
+        assert_eq!(body("%fillarea:name=Body%"), "{{field: Body | lines: 4}}");
+        assert!(kinds("%fillarea:name=Body%").is_empty());
+        // The source counts the lines when it says so, and says it in pixels
+        // when it does not.
+        assert_eq!(
+            body("%fillarea:name=Body:default=Hi:lines=8%"),
+            "{{field: Body | default: Hi | lines: 8}}"
+        );
+        assert_eq!(
+            body("%fillarea:name=Body:height=120%"),
+            "{{field: Body | lines: 4}}"
+        );
+    }
+
+    #[test]
+    fn a_date_picker_converts_but_is_flagged() {
+        assert_eq!(body("%filldate:name=When%"), "{{field: When}}");
         assert_eq!(kinds("%filldate:name=When%"), [NoteKind::Approximated]);
     }
 
@@ -519,9 +538,12 @@ mod tests {
     }
 
     #[test]
-    fn a_key_press_that_is_a_character_becomes_that_character() {
-        assert_eq!(body("a%key:tab%b"), "a\tb");
-        assert_eq!(kinds("a%key:tab%b"), [NoteKind::Approximated]);
+    fn the_keys_aralo_presses_become_the_key_placeholder() {
+        assert_eq!(body("a%key:tab%b"), "a{{key: tab}}b");
+        assert_eq!(body("%key:return%"), "{{key: return}}");
+        assert_eq!(body("%key:enter%"), "{{key: return}}");
+        assert!(kinds("a%key:tab%b%key:enter%").is_empty());
+        // A space key types a space, which is a character and not a key.
         assert_eq!(body("a%key:space%b"), "a b");
         assert!(kinds("a%key:space%b").is_empty());
     }

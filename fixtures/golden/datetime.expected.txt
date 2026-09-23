@@ -1,0 +1,177 @@
+# datetime.toml: dates and times: the locale's own words, the formats a body chooses
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== a bare date and time are written the way the locale writes them
+--- en_US
+field: "03/09/2026 at 02:05:07 PM|"
+preview: "03/09/2026 at 02:05:07 PM"
+undo: 25 backspaces
+--- de_DE
+field: "09.03.2026 at 14:05:07|"
+preview: "09.03.2026 at 14:05:07"
+undo: 22 backspaces
+--- ja_JP
+field: "2026年03月09日 at 14:05:07|"
+preview: "2026年03月09日 at 14:05:07"
+undo: 23 backspaces
+
+=== a format the body chooses reads the same in every locale
+--- en_US
+field: "2026-03-09T14:05:07|"
+preview: "2026-03-09T14:05:07"
+undo: 19 backspaces
+--- de_DE
+field: "2026-03-09T14:05:07|"
+preview: "2026-03-09T14:05:07"
+undo: 19 backspaces
+--- ja_JP
+field: "2026-03-09T14:05:07|"
+preview: "2026-03-09T14:05:07"
+undo: 19 backspaces
+
+=== month and weekday names come from the locale
+--- en_US
+field: "Monday, 9 March 2026 (Mon Mar)|"
+preview: "Monday, 9 March 2026 (Mon Mar)"
+undo: 30 backspaces
+--- de_DE
+field: "Montag, 9 März 2026 (Mo Mär)|"
+preview: "Montag, 9 März 2026 (Mo Mär)"
+undo: 28 backspaces
+--- ja_JP
+field: "月曜日, 9 3月 2026 (月 3月)|"
+preview: "月曜日, 9 3月 2026 (月 3月)"
+undo: 21 backspaces
+
+=== a twelve-hour clock uses the locale's own am and pm
+--- en_US
+field: "2:05 PM / 02:05 pm|"
+preview: "2:05 PM / 02:05 pm"
+undo: 18 backspaces
+--- de_DE
+field: "2:05 nachm. / 02:05 nachm.|"
+preview: "2:05 nachm. / 02:05 nachm."
+undo: 26 backspaces
+--- ja_JP
+field: "2:05 午後 / 02:05 午後|"
+preview: "2:05 午後 / 02:05 午後"
+undo: 18 backspaces
+
+=== padding is the body's choice, not the locale's
+--- en_US
+field: "[09/03] [9/3] [ 9] [14:05]|"
+preview: "[09/03] [9/3] [ 9] [14:05]"
+undo: 26 backspaces
+--- de_DE
+field: "[09/03] [9/3] [ 9] [14:05]|"
+preview: "[09/03] [9/3] [ 9] [14:05]"
+undo: 26 backspaces
+--- ja_JP
+field: "[09/03] [9/3] [ 9] [14:05]|"
+preview: "[09/03] [9/3] [ 9] [14:05]"
+undo: 26 backspaces
+
+=== the shorthands expand to the locale's patterns
+--- en_US
+field: "%c: 03/09/2026 02:05:07 PM\n%x: 03/09/2026\n%X: 02:05:07 PM\n%F %T: 2026-03-09 14:05:07|"
+preview: "%c: 03/09/2026 02:05:07 PM\n%x: 03/09/2026\n%X: 02:05:07 PM\n%F %T: 2026-03-09 14:05:07"
+undo: 84 backspaces
+--- de_DE
+field: "%c: 09.03.2026 14:05:07\n%x: 09.03.2026\n%X: 14:05:07\n%F %T: 2026-03-09 14:05:07|"
+preview: "%c: 09.03.2026 14:05:07\n%x: 09.03.2026\n%X: 14:05:07\n%F %T: 2026-03-09 14:05:07"
+undo: 78 backspaces
+--- ja_JP
+field: "%c: 2026年03月09日 14:05:07\n%x: 2026年03月09日\n%X: 14:05:07\n%F %T: 2026-03-09 14:05:07|"
+preview: "%c: 2026年03月09日 14:05:07\n%x: 2026年03月09日\n%X: 14:05:07\n%F %T: 2026-03-09 14:05:07"
+undo: 80 backspaces
+
+=== the day of the year and the day of the week are numbers
+--- en_US
+field: "068 1 1 26|"
+preview: "068 1 1 26"
+undo: 10 backspaces
+--- de_DE
+field: "068 1 1 26|"
+preview: "068 1 1 26"
+undo: 10 backspaces
+--- ja_JP
+field: "068 1 1 26|"
+preview: "068 1 1 26"
+undo: 10 backspaces
+
+=== the offset from UTC is the one the clock came with
+--- en_US
+field: "14:05+0100 14:05+01:00|"
+preview: "14:05+0100 14:05+01:00"
+undo: 22 backspaces
+--- de_DE
+field: "14:05+0100 14:05+01:00|"
+preview: "14:05+0100 14:05+01:00"
+undo: 22 backspaces
+--- ja_JP
+field: "14:05+0100 14:05+01:00|"
+preview: "14:05+0100 14:05+01:00"
+undo: 22 backspaces
+
+=== a literal per cent, a newline and a tab are the pattern's, not the body's
+--- en_US
+field: "100% done:\n\tat 14:05 but %n stays|"
+preview: "100% done:\n\tat 14:05 but %n stays"
+undo: 33 backspaces
+--- de_DE
+field: "100% done:\n\tat 14:05 but %n stays|"
+preview: "100% done:\n\tat 14:05 but %n stays"
+undo: 33 backspaces
+--- ja_JP
+field: "100% done:\n\tat 14:05 but %n stays|"
+preview: "100% done:\n\tat 14:05 but %n stays"
+undo: 33 backspaces
+
+=== a locale the body names is not the system's business
+--- en_US
+field: "9 mars / 9 março|"
+preview: "9 mars / 9 março"
+undo: 16 backspaces
+--- de_DE
+field: "9 mars / 9 março|"
+preview: "9 mars / 9 março"
+undo: 16 backspaces
+--- ja_JP
+field: "9 mars / 9 março|"
+preview: "9 mars / 9 março"
+undo: 16 backspaces
+
+=== a locale Aralo does not carry reads in English and says so
+--- en_US
+field: "9 March|"
+preview: "9 March"
+undo: 7 backspaces
+note: "Aralo does not carry the locale xx_ZZ, so this reads in English."
+--- de_DE
+field: "9 March|"
+preview: "9 March"
+undo: 7 backspaces
+note: "Aralo does not carry the locale xx_ZZ, so this reads in English."
+--- ja_JP
+field: "9 March|"
+preview: "9 March"
+undo: 7 backspaces
+note: "Aralo does not carry the locale xx_ZZ, so this reads in English."
+
+=== a directive Aralo cannot write stays as written
+--- en_US
+field: "{{date: %Q}} and 14:05|"
+preview: "{{date: %Q}} and 14:05"
+undo: 22 backspaces
+error: "Aralo cannot write %Q in a date or time. The formats it knows are in the placeholder help."
+--- de_DE
+field: "{{date: %Q}} and 14:05|"
+preview: "{{date: %Q}} and 14:05"
+undo: 22 backspaces
+error: "Aralo cannot write %Q in a date or time. The formats it knows are in the placeholder help."
+--- ja_JP
+field: "{{date: %Q}} and 14:05|"
+preview: "{{date: %Q}} and 14:05"
+undo: 22 backspaces
+error: "Aralo cannot write %Q in a date or time. The formats it knows are in the placeholder help."

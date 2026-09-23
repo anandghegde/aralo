@@ -13,6 +13,8 @@
 
 use std::ops::Range;
 
+use crate::highlight::ProblemLevel;
+
 const OPEN: &str = "{{";
 const CLOSE: &str = "}}";
 
@@ -50,12 +52,51 @@ impl Placeholder {
     }
 }
 
+/// Something worth saying about one range of a body: from the parser, from
+/// resolving the body's nested snippets, or from the expansion itself.
+///
+/// The editor and an expansion report from the same list, so what the editor
+/// underlines is what an expansion does (PRD L10).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub kind: DiagnosticKind,
     pub span: Range<usize>,
+    /// The name, locale, reference or directive the message names. The kinds
+    /// that take one are in the table in `docs/format/placeholders.md`.
+    pub detail: Option<String>,
 }
 
+impl Diagnostic {
+    pub fn new(kind: DiagnosticKind, span: Range<usize>) -> Self {
+        Self {
+            kind,
+            span,
+            detail: None,
+        }
+    }
+
+    /// A diagnostic whose message names something in the body.
+    pub fn about(kind: DiagnosticKind, span: Range<usize>, detail: impl Into<String>) -> Self {
+        Self {
+            kind,
+            span,
+            detail: Some(detail.into()),
+        }
+    }
+
+    pub fn level(&self) -> ProblemLevel {
+        self.kind.level()
+    }
+
+    /// One sentence for an editor to show beside the body.
+    pub fn message(&self) -> String {
+        self.kind.message(self.detail.as_deref())
+    }
+}
+
+/// Why a body does not read the way it was written, or why part of it will not
+/// expand. The table, with the detail each kind carries, is in
+/// `docs/format/placeholders.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticKind {
     /// `{{` with no `}}` after it. Kept as literal text.
@@ -64,6 +105,150 @@ pub enum DiagnosticKind {
     InvalidName,
     /// An option without `key:`. The option is ignored.
     MalformedOption,
+    /// A well-formed name the format does not define. Detail: the name.
+    UnknownName,
+    /// A name Aralo will expand in a later release. Detail: the name.
+    NotImplemented,
+    /// An AI block with a `fallback:`, which is what it inserts until models
+    /// arrive.
+    AiFallback,
+    /// A placeholder that needs a name after the colon has none. Detail: the
+    /// placeholder's name.
+    MissingName,
+    /// A `{{choice}}` with nothing to choose from. Detail: the field's name.
+    MissingOptions,
+    /// An option whose value Aralo cannot read, such as `| lines: plenty`. The
+    /// option is ignored and the placeholder stays. Detail: the option's key.
+    BadOption,
+    /// A `{{key}}` naming a key Aralo cannot press. Detail: what was written,
+    /// or none when the body wrote no key at all.
+    UnknownKey,
+    /// A date or time format Aralo cannot write. Detail: the directive.
+    BadFormat,
+    /// A locale Aralo does not carry. Detail: the tag that was asked for.
+    UnknownLocale,
+    /// Nothing supplied a value the body asks for, such as the clipboard.
+    /// Detail: what was missing.
+    NothingSupplied,
+    /// `{{snippet}}` naming nothing in the library. Detail: the reference.
+    SnippetMissing,
+    /// A snippet that reaches itself. Detail: the reference.
+    SnippetCycle,
+    /// Nesting past [`crate::MAX_SNIPPET_DEPTH`]. Detail: the reference.
+    SnippetTooDeep,
+    /// A second cursor stop, which is ignored.
+    ExtraCursor,
+    /// One `{{cursor: select}}`, which needs a pair to select anything.
+    LoneSelection,
+}
+
+impl DiagnosticKind {
+    /// Whether the body still reads the way it was written.
+    pub fn level(self) -> ProblemLevel {
+        match self {
+            Self::Unclosed
+            | Self::InvalidName
+            | Self::MalformedOption
+            | Self::MissingName
+            | Self::MissingOptions
+            | Self::BadFormat
+            | Self::SnippetMissing
+            | Self::SnippetCycle
+            | Self::SnippetTooDeep => ProblemLevel::Error,
+            Self::UnknownName
+            | Self::NotImplemented
+            | Self::AiFallback
+            | Self::BadOption
+            | Self::UnknownKey
+            | Self::UnknownLocale
+            | Self::NothingSupplied
+            | Self::ExtraCursor
+            | Self::LoneSelection => ProblemLevel::Note,
+        }
+    }
+
+    /// One sentence for an editor to show beside the body. The words are the
+    /// core's, so every shell says the same thing about the same body.
+    ///
+    /// `detail` is what the body named: see the variants for which kinds carry
+    /// one. A missing detail leaves the sentence readable rather than empty.
+    pub fn message(self, detail: Option<&str>) -> String {
+        let it = detail.unwrap_or("this");
+        match self {
+            Self::Unclosed => {
+                "This {{ has no }} after it, so the rest of the body is literal text.".to_owned()
+            }
+            Self::InvalidName => "A placeholder name starts with a lower-case letter and holds \
+                 only letters, digits, - and _. This one is literal text."
+                .to_owned(),
+            Self::MalformedOption => {
+                "An option is written key: value. This one is ignored, and the placeholder stays."
+                    .to_owned()
+            }
+            Self::UnknownName => {
+                format!(
+                    "No placeholder is called {it}. The insert menu lists the ones Aralo knows."
+                )
+            }
+            Self::NotImplemented => {
+                format!("Aralo does not expand {it} yet, so it stays as written.")
+            }
+            Self::AiFallback => {
+                "Models arrive in a later release. Until then an AI block inserts its fallback \
+                 text."
+                    .to_owned()
+            }
+            Self::MissingName => {
+                format!("Write {{{{{it}: a-name}}}}: without a name there is no answer to put in.")
+            }
+            Self::MissingOptions => {
+                format!("{it} has nothing to choose from. Write | options: a, b, c.")
+            }
+            Self::BadOption => {
+                format!("Aralo cannot read the {it} option here, so it is left out.")
+            }
+            Self::UnknownKey => match detail {
+                Some(written) => format!(
+                    "Aralo can press Tab and Return, not {written}, so this stays as written."
+                ),
+                None => "Write {{key: tab}} or {{key: return}}: those are the keys Aralo can \
+                     press."
+                    .to_owned(),
+            },
+            Self::BadFormat => {
+                format!(
+                    "Aralo cannot write {it} in a date or time. The formats it knows are in \
+                     the placeholder help."
+                )
+            }
+            Self::UnknownLocale => {
+                format!("Aralo does not carry the locale {it}, so this reads in English.")
+            }
+            Self::NothingSupplied => {
+                format!("Nothing supplied the {it}, so this stays as written.")
+            }
+            Self::SnippetMissing => {
+                format!("No snippet in the library answers to {it}.")
+            }
+            Self::SnippetCycle => {
+                format!("{it} reaches this snippet again, so it is left as written.")
+            }
+            Self::SnippetTooDeep => {
+                format!(
+                    "Snippets are nested {} deep before {it}, which is as far as Aralo goes.",
+                    crate::MAX_SNIPPET_DEPTH
+                )
+            }
+            Self::ExtraCursor => {
+                "An expansion leaves the cursor in one place. This stop is ignored.".to_owned()
+            }
+            Self::LoneSelection => {
+                "Selecting text needs two {{cursor: select}}. This one just leaves the cursor \
+                 here."
+                    .to_owned()
+            }
+        }
+    }
 }
 
 impl Template {
@@ -92,10 +277,9 @@ pub fn parse(body: &str) -> Template {
             at += 3;
         } else if let Some(after_open) = rest.strip_prefix(OPEN) {
             let Some(length) = after_open.find(CLOSE) else {
-                template.diagnostics.push(Diagnostic {
-                    kind: DiagnosticKind::Unclosed,
-                    span: at..body.len(),
-                });
+                template
+                    .diagnostics
+                    .push(Diagnostic::new(DiagnosticKind::Unclosed, at..body.len()));
                 text.push_str(rest);
                 break;
             };
@@ -135,10 +319,7 @@ fn placeholder(
         None => (head.trim(), None),
     };
     if !is_name(name) {
-        diagnostics.push(Diagnostic {
-            kind: DiagnosticKind::InvalidName,
-            span,
-        });
+        diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidName, span));
         return None;
     }
 
@@ -148,10 +329,10 @@ fn placeholder(
             Some((key, value)) if is_name(key.trim()) => {
                 options.push((key.trim().to_owned(), value.trim().to_owned()));
             }
-            _ => diagnostics.push(Diagnostic {
-                kind: DiagnosticKind::MalformedOption,
-                span: span.clone(),
-            }),
+            _ => diagnostics.push(Diagnostic::new(
+                DiagnosticKind::MalformedOption,
+                span.clone(),
+            )),
         }
     }
     Some(Placeholder {
@@ -248,10 +429,7 @@ mod tests {
         assert_eq!(template.nodes, [text(body)]);
         assert_eq!(
             template.diagnostics,
-            [Diagnostic {
-                kind: DiagnosticKind::Unclosed,
-                span: 7..body.len()
-            }]
+            [Diagnostic::new(DiagnosticKind::Unclosed, 7..body.len())]
         );
     }
 

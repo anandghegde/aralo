@@ -1,0 +1,43 @@
+about = "where an expansion leaves the cursor, counted in what a user sees as a character"
+
+[[case]]
+name = "the cursor lands where the body asks"
+body = "Dear {{cursor}},\nthanks"
+typed = ";x "
+
+[[case]]
+name = "the same body picked from the palette has no delimiter to count"
+body = "Dear {{cursor}},\nthanks"
+
+[[case]]
+name = "a cursor at the end leaves the caret at the end"
+body = "see you{{cursor}}"
+typed = ";x "
+
+[[case]]
+name = "a pair of stops selects what is between them"
+body = "Hi {{cursor: select}}there{{cursor: select}}, welcome"
+typed = ";x "
+
+[[case]]
+name = "a second stop is ignored and says so"
+body = "a{{cursor}}b{{cursor}}c"
+
+[[case]]
+name = "one select stop just leaves the cursor there"
+body = "a{{cursor: select}}b"
+
+[[case]]
+name = "the cursor counts a family emoji as one character"
+body = "a{{cursor}}b👨‍👩‍👧‍👦c"
+
+[[case]]
+name = "a delimiter that goes back as a key is counted once"
+body = "Dear {{cursor}},"
+typed = ";x\n"
+
+[[case]]
+name = "the cursor stops where an answer ends"
+body = "{{field: who | default: Sam}}{{cursor}} — sent"
+answers = { who = "Dana" }
+typed = ";x "

@@ -88,9 +88,9 @@ The project is pre-alpha. This table is the honest state of format v0.
 | Snippet, group and manifest files: parse, write, unknown-key preservation, format refusal | Implemented in `aralo-snippet`, with tests |
 | Matching rules | Implemented in `aralo-engine`, with property tests against a naive reference matcher |
 | Placeholder parsing (`{{…}}`, options, escapes, diagnostics) | Implemented in `aralo-template`, without `{{if}}` blocks |
-| Placeholder evaluation (dates, clipboard, fields, nested snippets, AI) | Specified. Not implemented; the evaluator lands in milestone M3. Today a placeholder is inserted as its source text |
+| Placeholder evaluation (dates, clipboard, fields, nested snippets, cursor stops) | Implemented in `aralo-template`, with golden expansions in three locales on a stopped clock ([placeholders.md](placeholders.md)). An AI block inserts its `fallback:`, and `{{selection}}`, `{{app}}` and `{{window}}` stay as written, each with a note |
 | Folder walking, inheritance, `enabled`, skipped names, duplicate and missing IDs, atomic writes | Implemented in `aralo-library`, with tests |
 | Import (TextExpander, CSV, JSON, YAML), the import report, export to JSON, YAML and CSV | Implemented in `aralo-import`, with a golden corpus and a fidelity harness ([import.md](import.md)) |
-| Folder watching, the search index | Implemented in `aralo-library`, with tests. Not yet wired into `aralo-core` |
+| Folder watching, the search index | Implemented in `aralo-library`, with tests, and running under `aralo_core::Runtime` |
 | Conflict merging | Specified in the plan. Not implemented; planned for M2 |
 | `type` values other than `text` | Accepted, stored and reported. Such a snippet gets no abbreviations yet |

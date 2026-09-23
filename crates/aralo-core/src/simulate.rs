@@ -1,25 +1,48 @@
 use aralo_engine::{Engine, ExpansionRecord, InsertMethod, KeyEvent, KeyVerdict};
-use aralo_template::{Key, Step};
-use unicode_segmentation::UnicodeSegmentation;
+use aralo_template::{Answers, ContextValues};
 
-use crate::{Core, MatchInfo};
+use crate::field::Field;
+use crate::{Core, Expand, Expansion, MatchInfo, Session, SessionStep};
 
-/// A text field that exists only in memory. It runs keys through the engine
-/// and applies the plans exactly as a shell would, so the whole expansion path
-/// can be tested, and tried from the command line, without a window server.
+/// What the simulated user does when a snippet asks a question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Reply {
+    /// Fill the form in from [`Simulator::with_answer`], and hand over
+    /// whatever context the simulator was given.
+    #[default]
+    Fill,
+    /// Press Escape. The session is cancelled and the plan it gives back runs
+    /// instead.
+    Cancel,
+}
+
+/// A text field that exists only in memory, with a caret.
+///
+/// It runs keys through the engine, drives expansion sessions and applies the
+/// plans exactly as a shell would, so the whole expansion path can be tested,
+/// and tried from the command line, without a window server.
 pub struct Simulator<'a> {
     core: &'a Core,
     engine: Engine,
-    field: String,
+    field: Field,
+    answers: Answers,
+    values: ContextValues,
+    reply: Reply,
     expansions: usize,
+    cancellations: usize,
+    /// The last expansion this field ran, which is what a shell would report
+    /// back: what it inserted, whether Backspace can undo it, and what was
+    /// wrong with the body.
+    last: Option<Expansion>,
 }
 
 // Like the engine, never prints what was typed.
 impl std::fmt::Debug for Simulator<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Simulator")
-            .field("field_len", &self.field.len())
+            .field("field", &self.field)
             .field("expansions", &self.expansions)
+            .field("cancellations", &self.cancellations)
             .finish_non_exhaustive()
     }
 }
@@ -31,9 +54,43 @@ impl<'a> Simulator<'a> {
         Self {
             core,
             engine,
-            field: String::new(),
+            field: Field::default(),
+            answers: Answers::new(),
+            values: ContextValues::default(),
+            reply: Reply::default(),
             expansions: 0,
+            cancellations: 0,
+            last: None,
         }
+    }
+
+    /// What a form field is answered with when a snippet asks for it. A field
+    /// nothing was given for keeps its default.
+    #[must_use]
+    pub fn with_answer(mut self, name: &str, value: &str) -> Self {
+        self.answers.insert(name.to_owned(), value.to_owned());
+        self
+    }
+
+    /// What the shell would have fetched: the clipboard, the selection. A kind
+    /// the body did not ask for is dropped by the session, not by this.
+    #[must_use]
+    pub fn with_context(mut self, values: ContextValues) -> Self {
+        self.values = values;
+        self
+    }
+
+    #[must_use]
+    pub fn with_clipboard(mut self, text: &str) -> Self {
+        self.values.clipboard = Some(text.to_owned());
+        self
+    }
+
+    /// The user presses Escape instead of filling the form in.
+    #[must_use]
+    pub fn cancelling(mut self) -> Self {
+        self.reply = Reply::Cancel;
+        self
     }
 
     pub fn engine_mut(&mut self) -> &mut Engine {
@@ -42,11 +99,50 @@ impl<'a> Simulator<'a> {
 
     /// What the text field holds now.
     pub fn text(&self) -> &str {
-        &self.field
+        self.field.text()
+    }
+
+    /// Where the caret is, as a byte offset into [`text`](Self::text).
+    pub fn caret(&self) -> usize {
+        self.field.caret()
+    }
+
+    /// What is selected, empty when nothing is.
+    pub fn selected(&self) -> &str {
+        self.field.selected()
+    }
+
+    /// The field with the caret written in as `|`, and a selection in
+    /// brackets: what a test asserts on when where the caret ended up is the
+    /// point. A body that contains those characters itself reads ambiguously,
+    /// so such a test compares [`text`](Self::text) and
+    /// [`caret`](Self::caret) instead.
+    pub fn marked(&self) -> String {
+        self.field.marked()
     }
 
     pub fn expansions(&self) -> usize {
         self.expansions
+    }
+
+    /// Sessions the simulated user cancelled.
+    pub fn cancellations(&self) -> usize {
+        self.cancellations
+    }
+
+    /// The last expansion this field ran, `None` before one has: a session
+    /// the user cancelled never becomes one.
+    pub fn last_expansion(&self) -> Option<&Expansion> {
+        self.last.as_ref()
+    }
+
+    /// What was wrong with the body the last expansion came from: the
+    /// placeholders it could not expand, and why. Empty until one runs.
+    pub fn diagnostics(&self) -> &[aralo_template::Diagnostic] {
+        match &self.last {
+            Some(expansion) => &expansion.template_diagnostics,
+            None => &[],
+        }
     }
 
     pub fn type_str(&mut self, text: &str) -> &mut Self {
@@ -56,11 +152,20 @@ impl<'a> Simulator<'a> {
         self
     }
 
+    /// The snippet is picked from a list rather than typed, as the palette
+    /// does it.
+    pub fn insert(&mut self, id: aralo_snippet::SnippetId) -> &mut Self {
+        if let Some(expand) = self.core.insert(id) {
+            self.carry_out(expand, aralo_engine::SnippetId(id.as_u128()));
+        }
+        self
+    }
+
     pub fn key(&mut self, event: KeyEvent) -> &mut Self {
         match self.engine.on_key(event) {
             KeyVerdict::Pass => match event {
-                KeyEvent::Char(c) => self.field.push(c),
-                KeyEvent::Backspace => self.backspace(1),
+                KeyEvent::Char(c) => self.field.write(c),
+                KeyEvent::Backspace => self.field.backspace(1),
                 // Without an expansion to undo, the app's own undo runs; the
                 // simulator has no history to model it with.
                 KeyEvent::Undo => {}
@@ -72,29 +177,22 @@ impl<'a> Simulator<'a> {
                 trailing,
                 consume,
             } => {
-                let expansion = self.core.expand(MatchInfo {
+                let swallowed = match (consume, event) {
+                    (true, KeyEvent::Char(c)) => Some(c),
+                    _ => None,
+                };
+                let expand = self.core.expand(MatchInfo {
                     snippet_id,
                     delete_count,
                     case,
                     trailing,
+                    swallowed,
                 });
-                match expansion {
-                    Some(expansion) => {
-                        for step in &expansion.plan.steps {
-                            self.apply(step);
-                        }
-                        self.expansions += 1;
-                        if let Some(delete_count) = expansion.undo_delete_count {
-                            self.engine.expansion_done(ExpansionRecord {
-                                snippet_id,
-                                delete_count,
-                                method: InsertMethod::Typed,
-                            });
-                        }
-                    }
+                match expand {
+                    Some(expand) => self.carry_out(expand, snippet_id),
                     None => {
                         if let (false, KeyEvent::Char(c)) = (consume, event) {
-                            self.field.push(c);
+                            self.field.write(c);
                         }
                     }
                 }
@@ -104,31 +202,59 @@ impl<'a> Simulator<'a> {
                 retype,
                 ..
             } => {
-                self.backspace(delete_count);
-                self.field.push_str(&retype);
+                self.field.backspace(delete_count);
+                let retype = retype.clone();
+                self.field.insert_text(&retype);
             }
         }
         self
     }
 
-    fn apply(&mut self, step: &Step) {
-        match step {
-            Step::Delete { count } => self.backspace(*count),
-            Step::InsertText { text } => self.field.push_str(text),
-            Step::InsertRich { plain, .. } => self.field.push_str(plain),
-            Step::KeyPress { key: Key::Return } => self.field.push('\n'),
-            Step::KeyPress { key: Key::Tab } => self.field.push('\t'),
-            Step::Delay { .. } | Step::MoveCursor { .. } => {}
+    /// Runs a plan, or answers the session's questions until there is one.
+    fn carry_out(&mut self, expand: Expand, snippet_id: aralo_engine::SnippetId) {
+        match expand {
+            Expand::Ready(expansion) => self.run(expansion, snippet_id),
+            Expand::Session(session) => self.drive(*session, snippet_id),
         }
     }
 
-    /// Removes user-perceived characters, the unit a text field deletes by.
-    fn backspace(&mut self, count: u32) {
-        for _ in 0..count {
-            match self.field.grapheme_indices(true).next_back() {
-                Some((start, _)) => self.field.truncate(start),
-                None => return,
+    fn drive(&mut self, mut session: Session, snippet_id: aralo_engine::SnippetId) {
+        loop {
+            match session.step() {
+                SessionStep::Form(_) if self.reply == Reply::Cancel => {
+                    let plan = session.cancel();
+                    for step in &plan.steps {
+                        self.field.apply(step);
+                    }
+                    self.cancellations += 1;
+                    return;
+                }
+                SessionStep::Form(_) => {
+                    session.submit_form(self.answers.clone());
+                }
+                SessionStep::Context(_) => {
+                    session.provide_context(self.values.clone());
+                }
+                SessionStep::Ready(expansion) => {
+                    self.run(expansion, snippet_id);
+                    return;
+                }
             }
         }
+    }
+
+    fn run(&mut self, expansion: Expansion, snippet_id: aralo_engine::SnippetId) {
+        for step in &expansion.plan.steps {
+            self.field.apply(step);
+        }
+        self.expansions += 1;
+        if let Some(delete_count) = expansion.undo_delete_count {
+            self.engine.expansion_done(ExpansionRecord {
+                snippet_id,
+                delete_count,
+                method: InsertMethod::Typed,
+            });
+        }
+        self.last = Some(expansion);
     }
 }

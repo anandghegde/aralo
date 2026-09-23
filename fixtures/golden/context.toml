@@ -1,0 +1,39 @@
+about = "what only the shell can fetch, and what Aralo does not fetch at all"
+
+[[case]]
+name = "the clipboard goes in when the shell supplies it"
+body = "Ref {{clipboard}}, thanks."
+clipboard = "PO-8841"
+
+[[case]]
+name = "a clipboard nobody supplied stays as written"
+body = "Ref {{clipboard}}, thanks."
+
+[[case]]
+name = "a clipboard of several lines goes in as it is"
+body = "Quoting:\n{{clipboard}}\nend"
+clipboard = "first line\nsecond line"
+
+[[case]]
+name = "the selection, the app and the window are for AI blocks for now"
+body = "{{selection}} in {{app}} / {{window}}"
+
+[[case]]
+name = "an AI block inserts its fallback until models arrive"
+body = "{{ai: Write a polite refusal | fallback: Thanks, but not this time.}}"
+
+[[case]]
+name = "an AI block with no fallback stays as written"
+body = "{{ai: Write a polite refusal}}"
+
+[[case]]
+name = "a name the format does not define stays as written"
+body = "{{nonsense}} and {{if: never}}"
+
+[[case]]
+name = "a placeholder that was never closed is literal text"
+body = "half a {{placeholder"
+
+[[case]]
+name = "an escaped placeholder is text, not a placeholder"
+body = "write \\{{date}} to get the date"

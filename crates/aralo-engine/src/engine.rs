@@ -52,6 +52,20 @@ pub enum KeyVerdict {
     },
 }
 
+/// Why a snippet the user picked from a list does not go in.
+///
+/// Neither reason is about the snippet: the same pick succeeds once Aralo is
+/// resumed, or with another app in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InsertRefusal {
+    /// Aralo is paused. It inserts nothing anywhere until it is resumed, and a
+    /// deliberate pick is no exception: pause means the keyboard is the user's.
+    Paused,
+    /// The app is one Aralo stays out of (PRD P2, E10). It expands nothing
+    /// there however the expansion was asked for.
+    ExcludedApp,
+}
+
 /// Why the shell is clearing the buffer. Every reason zeroes it (PRD P1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResetReason {
@@ -258,6 +272,44 @@ impl Engine {
         });
         self.buffer.clear();
         verdict
+    }
+
+    /// Records a snippet the user picked from a list rather than typed, so
+    /// that the undo key takes it back the way it takes any expansion back.
+    /// [`Engine::expansion_done`] arms it, as it does for a match.
+    ///
+    /// `app_id` is the app the text is going into. It is named rather than read
+    /// from [`Engine::set_front_app`] because a picker holds the keyboard while
+    /// the user chooses: the front app is Aralo's own window, not the app the
+    /// snippet is for.
+    ///
+    /// Nothing was typed to trigger it, so undo retypes nothing, and the buffer
+    /// is cleared: whatever was typed before the picker opened no longer
+    /// precedes the caret.
+    pub fn chosen(&mut self, snippet_id: SnippetId, app_id: &str) -> Result<(), InsertRefusal> {
+        if self.paused {
+            return Err(InsertRefusal::Paused);
+        }
+        if self.is_excluded(app_id) {
+            return Err(InsertRefusal::ExcludedApp);
+        }
+        // Naming the app the text is for is also naming the app that will have
+        // the keyboard when it lands, so record it here. The shell reports the
+        // same app a moment later, when the system says it came forward, and
+        // that report then changes nothing: were it the first the engine heard
+        // of it, it would clear the undo record between the insertion and the
+        // user's undo key.
+        self.set_front_app(app_id);
+        self.clear();
+        self.last = Some(LastExpansion {
+            snippet_id,
+            typed: TypedText {
+                chars: ['\0'; CAPACITY + 1],
+                len: 0,
+            },
+            done: None,
+        });
+        Ok(())
     }
 
     /// Arms undo for the match that was just reported. Ignored when another key

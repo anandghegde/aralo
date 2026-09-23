@@ -1,0 +1,49 @@
+about = "snippets that nest others: the questions they bring, and where Aralo stops"
+
+[[case]]
+name = "a snippet goes in where another one names it"
+body = "{{snippet: Greeting}}, thanks."
+nested = [{ label = "Greeting", body = "Hi there" }]
+
+[[case]]
+name = "a nested body brings its own questions to the outer form"
+body = "{{snippet: Greeting}},\n{{field: what}}."
+answers = { who = "Dana", what = "see you Tuesday" }
+nested = [{ label = "Greeting", body = "Hi {{field: who | default: friend}}" }]
+
+[[case]]
+name = "a nested date reads the same clock and locale"
+body = "{{snippet: Stamp}}"
+nested = [{ label = "Stamp", body = "sent {{date: %-d %B}} at {{time: %H:%M}}" }]
+
+[[case]]
+name = "a snippet that reaches itself is left as written"
+body = "a {{snippet: Case}} b"
+
+[[case]]
+name = "two snippets that reach each other stop at the second turn"
+body = "{{snippet: Mirror}}"
+nested = [{ label = "Mirror", body = "<{{snippet: Case}}>" }]
+
+[[case]]
+name = "a reference to no snippet says so and stays"
+body = "see {{snippet: nowhere}}"
+
+[[case]]
+name = "a reference with no name at all"
+body = "see {{snippet}}"
+
+[[case]]
+name = "nesting stops at the depth limit"
+body = "{{snippet: s1}}"
+nested = [
+    { label = "s1", body = "1{{snippet: s2}}" },
+    { label = "s2", body = "2{{snippet: s3}}" },
+    { label = "s3", body = "3{{snippet: s4}}" },
+    { label = "s4", body = "4{{snippet: s5}}" },
+    { label = "s5", body = "5{{snippet: s6}}" },
+    { label = "s6", body = "6{{snippet: s7}}" },
+    { label = "s7", body = "7{{snippet: s8}}" },
+    { label = "s8", body = "8{{snippet: s9}}" },
+    { label = "s9", body = "the end" },
+]

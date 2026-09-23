@@ -31,7 +31,9 @@ mod snapshot;
 
 pub use buffer::CAPACITY;
 pub use case::CasePattern;
-pub use engine::{Engine, ExpansionRecord, InsertMethod, KeyEvent, KeyVerdict, ResetReason};
+pub use engine::{
+    Engine, ExpansionRecord, InsertMethod, InsertRefusal, KeyEvent, KeyVerdict, ResetReason,
+};
 pub use presets::EXCLUDED_APP_PRESETS;
 pub use snapshot::{
     Abbreviation, CaseMode, Rejection, RejectionReason, Scope, Snapshot, SnapshotBuilder,

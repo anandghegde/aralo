@@ -13,6 +13,11 @@
 //!   index, so a rebuild cannot collide with a save. Readers get a second
 //!   connection and never wait for it.
 //!
+//! Every time the folder is read, the conflict copies a sync client left in it
+//! are merged against their bases in the index, and the ones that merge
+//! cleanly are discarded ([`crate::merge`]). The ones that do not stay where
+//! they are, reported as [`aralo_library::Issue::ConflictCopy`].
+//!
 //! The index is a cache: a runtime whose index cannot be opened still watches,
 //! still expands and still saves. It loses recents and usage counts until the
 //! next start, which is a worse menu, not lost work.
@@ -27,6 +32,7 @@ use aralo_engine::Snapshot;
 use aralo_library::{Changes, Index, Indexed, Query, Recent, Stats, Watch, DEFAULT_DEBOUNCE};
 use aralo_snippet::SnippetId;
 
+use crate::merge::{ConflictSides, Discard, Resolution, SetAside};
 use crate::{state, Core, CoreError, SearchHit};
 
 /// What the shell is told about, as it happens.
@@ -57,6 +63,9 @@ pub enum LibraryChange {
     /// The folder changed and reading it failed. The library in memory is the
     /// last one that loaded, and expansion carries on with it.
     Failed { message: String },
+    /// Conflict copies a sync client left were merged into their originals
+    /// and discarded. The paths are the copies', relative to the library root.
+    Merged { copies: Vec<PathBuf> },
     /// The index caught up with the library.
     Indexed {
         added: usize,
@@ -77,6 +86,11 @@ pub struct RuntimeOptions {
     /// How long the folder must be quiet before a change is reported. Tests use
     /// a short one; everything else wants [`DEFAULT_DEBOUNCE`].
     pub debounce: Duration,
+    /// Where a conflict copy goes once it is merged. `None` sets it aside in
+    /// the place Aralo keeps things for this library
+    /// ([`state::set_aside_path`]); a machine that will not say where that is
+    /// leaves conflict copies unmerged.
+    pub discard: Option<Arc<dyn Discard>>,
 }
 
 impl Default for RuntimeOptions {
@@ -85,6 +99,7 @@ impl Default for RuntimeOptions {
             index: None,
             watch: true,
             debounce: DEFAULT_DEBOUNCE,
+            discard: None,
         }
     }
 }
@@ -102,8 +117,9 @@ pub struct Runtime {
     /// The connection reads are served from. The indexer writes through its
     /// own, so a read never waits for a rebuild: SQLite in WAL mode allows one
     /// writer and any number of readers at once.
-    reader: Option<Mutex<Index>>,
+    reader: Option<Arc<Mutex<Index>>>,
     indexer: Option<Indexer>,
+    discard: Option<Arc<dyn Discard>>,
     listener: Arc<dyn LibraryListener>,
     /// Why there is no index, when there is none and there should have been.
     index_error: Option<String>,
@@ -132,6 +148,10 @@ impl Runtime {
         let root = core.root().to_owned();
         let writes = core.library().writes().clone();
         let core = Arc::new(RwLock::new(core));
+        let discard = options.discard.or_else(|| {
+            state::set_aside_path(&root)
+                .map(|folder| Arc::new(SetAside::new(folder)) as Arc<dyn Discard>)
+        });
 
         // An index that will not open is a cache that will not open. The
         // library is what matters and it is already loaded, so the runtime
@@ -148,44 +168,72 @@ impl Runtime {
             ),
         };
 
+        // Copies that arrived while Aralo was not running. The indexer's first
+        // sync may already be under way; it leaves the base of a snippet with
+        // a copy waiting alone, so it cannot have moved the base from under
+        // this merge.
+        let merged = settle(&mut write(&core), reader.as_deref(), discard.as_deref());
+        if !merged.is_empty() {
+            if let Some(indexer) = &indexer {
+                let _ = indexer.jobs.send(Job::Sync);
+            }
+        }
+
         let watch = if options.watch {
             let core = Arc::clone(&core);
             let listener = Arc::clone(&listener);
             let jobs = indexer.as_ref().map(Indexer::sender);
+            let reader = reader.clone();
+            let discard = discard.clone();
             Some(Watch::with_debounce(
                 &root,
                 writes,
                 options.debounce,
                 move |changes: Changes| {
-                    let reloaded = write(&core).reload();
-                    let change = match reloaded {
-                        Ok(()) => {
-                            if let Some(jobs) = &jobs {
-                                let _ = jobs.send(Job::Sync);
+                    let mut changes_to_tell = Vec::new();
+                    {
+                        let mut core = write(&core);
+                        match core.reload() {
+                            Ok(()) => {
+                                let merged =
+                                    settle(&mut core, reader.as_deref(), discard.as_deref());
+                                if let Some(jobs) = &jobs {
+                                    let _ = jobs.send(Job::Sync);
+                                }
+                                changes_to_tell.push(LibraryChange::Outside {
+                                    paths: changes.paths,
+                                });
+                                if !merged.is_empty() {
+                                    changes_to_tell.push(LibraryChange::Merged { copies: merged });
+                                }
                             }
-                            LibraryChange::Outside {
-                                paths: changes.paths,
-                            }
+                            Err(error) => changes_to_tell.push(LibraryChange::Failed {
+                                message: error.to_string(),
+                            }),
                         }
-                        Err(error) => LibraryChange::Failed {
-                            message: error.to_string(),
-                        },
-                    };
-                    listener.changed(change, &read(&core));
+                    }
+                    for change in changes_to_tell {
+                        listener.changed(change, &read(&core));
+                    }
                 },
             )?)
         } else {
             None
         };
 
-        Ok(Self {
+        let runtime = Self {
             _watch: watch,
             core,
             reader,
             indexer,
+            discard,
             listener,
             index_error,
-        })
+        };
+        if !merged.is_empty() {
+            runtime.announce(LibraryChange::Merged { copies: merged });
+        }
+        Ok(runtime)
     }
 
     /// Reads the library. The engine's tap thread holds nothing but the
@@ -213,14 +261,47 @@ impl Runtime {
         outcome
     }
 
+    /// Changes something about the core that is not in the folder — the clock,
+    /// the locale dates are written in — so nothing is reindexed and no
+    /// listener is told a snippet changed.
+    pub fn configure<T>(&self, change: impl FnOnce(&mut Core) -> T) -> T {
+        change(&mut write(&self.core))
+    }
+
     /// Reads the folder again, as if something outside had changed it. A shell
     /// offers this as "reload", for a folder that arrived while Aralo was not
     /// looking.
     pub fn reload(&self) -> Result<(), CoreError> {
-        write(&self.core).reload()?;
+        let merged = {
+            let mut core = write(&self.core);
+            core.reload()?;
+            settle(&mut core, self.reader.as_deref(), self.discard.as_deref())
+        };
         self.reindex();
         self.announce(LibraryChange::Reloaded);
+        if !merged.is_empty() {
+            self.announce(LibraryChange::Merged { copies: merged });
+        }
         Ok(())
+    }
+
+    /// Both sides of a conflict copy that did not merge, for a resolver to
+    /// show. `copy` is relative to the library root.
+    pub fn conflict(&self, copy: &Path) -> Result<ConflictSides, CoreError> {
+        let base = |id| {
+            self.reader
+                .as_deref()
+                .and_then(|index| lock(index).base(id).ok().flatten())
+        };
+        read(&self.core).conflict(copy, base)
+    }
+
+    /// Settles a conflict copy the way the user decided, as an edit: the index
+    /// catches up and the listener hears [`LibraryChange::Edited`]. The copy
+    /// goes where a merged one goes.
+    pub fn resolve_conflict(&self, copy: &Path, resolution: Resolution) -> Result<(), CoreError> {
+        let discard = self.discard.as_deref().ok_or(CoreError::NowhereToDiscard)?;
+        self.edit(|core| core.resolve_conflict(copy, resolution, discard))
     }
 
     /// What the engine matches against. Cheap to clone and safe to hold: the
@@ -316,9 +397,31 @@ impl std::fmt::Debug for Runtime {
         f.debug_struct("Runtime")
             .field("watching", &self._watch.is_some())
             .field("indexer", &self.indexer)
+            .field("discard", &self.discard)
             .field("index_error", &self.index_error)
             .finish()
     }
+}
+
+/// Merges the conflict copies in the library that merge cleanly, and returns
+/// the copies it merged. A failure is not reported as one: the copy it was
+/// working on is still in the folder beside its original, reported as a
+/// conflict copy, and the next read of the folder tries it again.
+fn settle(
+    core: &mut Core,
+    reader: Option<&Mutex<Index>>,
+    discard: Option<&dyn Discard>,
+) -> Vec<PathBuf> {
+    let Some(discard) = discard else {
+        return Vec::new();
+    };
+    if core.conflicts().is_empty() {
+        return Vec::new();
+    }
+    let base = |id| reader.and_then(|index| lock(index).base(id).ok().flatten());
+    core.merge_conflicts(base, discard)
+        .map(|report| report.merged)
+        .unwrap_or_default()
 }
 
 /// Opens the index and starts the thread that writes to it.
@@ -330,11 +433,11 @@ fn open_index(
     path: &Path,
     core: &Arc<RwLock<Core>>,
     listener: &Arc<dyn LibraryListener>,
-) -> Result<(Mutex<Index>, Indexer), CoreError> {
+) -> Result<(Arc<Mutex<Index>>, Indexer), CoreError> {
     let writer = Index::open(path)?;
     let reader = Index::open(path)?;
     let indexer = Indexer::start(writer, Arc::clone(core), Arc::clone(listener))?;
-    Ok((Mutex::new(reader), indexer))
+    Ok((Arc::new(Mutex::new(reader)), indexer))
 }
 
 /// The thread that owns the index's writing connection.

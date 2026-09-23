@@ -1,0 +1,36 @@
+about = "keys: what a body presses rather than types, and what that costs"
+
+[[case]]
+name = "a tab between two fields fills a form out"
+body = "{{field: name}}{{key: tab}}{{field: email}}"
+answers = { name = "Dana Ruiz", email = "dana@acme.example" }
+
+[[case]]
+name = "a return goes back as a key, so backspace cannot take it back"
+body = "Subject{{key: return}}Body"
+
+[[case]]
+name = "enter is another spelling of return"
+body = "One{{key: enter}}Two"
+
+[[case]]
+name = "a key at the start presses before anything is typed"
+body = "{{key: tab}}Dana"
+
+[[case]]
+name = "a key Aralo cannot press stays as written"
+body = "Go {{key: left}} one."
+
+[[case]]
+name = "a key with nothing named says which keys there are"
+body = "Go {{key}} on."
+
+[[case]]
+name = "a cursor stop counts the key it moves back over"
+body = "{{cursor}}Name{{key: tab}}Email"
+
+[[case]]
+name = "the case the abbreviation was typed in reaches across a key"
+abbr = ";case"
+typed = ";CASE "
+body = "name{{key: tab}}email"

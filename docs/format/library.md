@@ -210,13 +210,35 @@ crash it is safe to delete.
 What a rewrite changes inside a snippet file is listed in
 [snippet.md](snippet.md#what-aralo-changes-when-it-rewrites-a-file).
 
+## Sync conflict copies
+
+If two machines change the same snippet before either sees the other's change,
+your sync client keeps both versions. The second one is saved under a name like
+`sig (conflicted copy 2026-09-23).md`, `sig 2.md` or
+`sig.sync-conflict-….md`. Aralo treats a file as one of these copies only when
+it sits in the same folder as the original, has the same `id`, and has a name a
+sync client gives a copy. It then loads the original and leaves the copy out.
+
+Aralo merges the copy into the original against the version this Mac last saw:
+
+- The front matter is merged key by key.
+- The body is merged line by line.
+- A change made on only one side is kept.
+
+If both sides changed the same key or the same lines, nothing is merged.
+Both files stay where they are, and `aralo validate` and the snippet window
+warn about the copy until you delete the version you do not want.
+
 ## Not implemented yet
 
-These parts are planned for milestone M2 and are not in the code today:
+- A window to resolve a conflict copy that did not merge cleanly. Today such a
+  copy is left beside its original with a warning, for you to keep one of the
+  two.
+- Embeddings and semantic search. Planned for M4.
 
-- Watching the folder for changes. Today a caller reloads.
-- The SQLite index, full-text search and embeddings.
-- Conflict-copy detection and three-way merge for synced folders.
+Watching the folder, the SQLite index and full-text search are in, running
+under `aralo_core::Runtime`: edit a file in any editor and the next keystroke
+matches it.
 
 ## What lives outside the folder
 
@@ -230,4 +252,8 @@ library folder, so it cannot sync by accident (PRD P13).
 | Search index, vectors, merge bases | `~/Library/Application Support/Aralo/` | Caches. Safe to delete; rebuilt from the folder |
 | Usage statistics | `~/Library/Application Support/Aralo/` | Local only, never synced, not rebuildable |
 
-These locations are from the plan. None of them is written by the code today.
+The search index, which holds the merge bases, is written there today. So are
+merged conflict copies, under `merged/`, until the Mac app moves them to the
+Trash instead. The Mac shell passes the path as the cache directory, and
+`ARALO_STATE` moves it for a test. The rest of the table is from the plan and
+is not written by the code yet.

@@ -19,8 +19,11 @@ final class LibraryWindowController: NSWindowController, NSWindowDelegate {
         window.title = "Aralo Snippets"
         window.setFrameAutosaveName("AraloLibrary")
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: LibraryView(store: store, root: root))
         super.init(window: window)
+        var view = LibraryView(store: store, root: root)
+        view.chooseImport = { [weak self] in self?.chooseImport() }
+        view.export = { [weak self] format in self?.export(format) }
+        window.contentViewController = NSHostingController(rootView: view)
         window.delegate = self
     }
 
@@ -37,6 +40,44 @@ final class LibraryWindowController: NSWindowController, NSWindowDelegate {
         // An agent app is never active on its own, and the editor needs keys.
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Asks for a file from another expander, over the window, and puts the
+    /// import's dry run on screen. Nothing is written until the sheet says so.
+    func chooseImport() {
+        show()
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Import Snippets"
+        panel.message = "Choose a TextExpander export, or a CSV, JSON or YAML file."
+        panel.prompt = "Continue"
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated { self?.store.beginImport(of: url) }
+        }
+    }
+
+    /// Writes the selected group, or the whole library, where the user says.
+    private func export(_ format: ExportFormat) {
+        guard let window else { return }
+        let data: Data
+        do {
+            data = try store.export(as: format)
+        } catch {
+            store.attempt { _ in throw error }
+            return
+        }
+        let panel = NSSavePanel()
+        panel.title = "Export Snippets"
+        panel.nameFieldStringValue = "\(store.selectedGroup.last ?? "Aralo Snippets").\(format.fileExtension)"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated {
+                self?.store.attempt { _ in try data.write(to: url, options: .atomic) }
+            }
+        }
     }
 
     /// Closing the window is not a way to throw work away: what was typed into

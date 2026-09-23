@@ -12,6 +12,23 @@ public protocol PasteboardAccess: AnyObject {
     func restore(_ contents: PasteboardContents)
 }
 
+public extension PasteboardAccess {
+    /// The plain text on the pasteboard, which is what a `{{clipboard}}`
+    /// placeholder is worth.
+    ///
+    /// Nil when nothing on it is text: a copied image expands to nothing, and
+    /// the placeholder stays empty rather than describing what it found.
+    func text() -> String? {
+        let plain = NSPasteboard.PasteboardType.string.rawValue
+        for item in contents() {
+            if let data = item[plain], let text = String(data: data, encoding: .utf8) {
+                return text
+            }
+        }
+        return nil
+    }
+}
+
 public enum PasteboardMarker {
     /// The nspasteboard.org types that tell clipboard managers to skip an entry.
     public static let all = [

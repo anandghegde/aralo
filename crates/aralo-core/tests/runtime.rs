@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use aralo_core::{Core, Draft, LibraryChange, LibraryListener, Query, Runtime, RuntimeOptions};
+use aralo_core::{
+    Core, Draft, LibraryChange, LibraryListener, Query, Runtime, RuntimeOptions, SetAside,
+};
 
 const DEBOUNCE: Duration = Duration::from_millis(30);
 /// Long enough for a file system event to make its way through FSEvents on a
@@ -86,6 +88,7 @@ fn runtime(folder: &Path) -> (Runtime, Heard) {
         index: Some(folder.join("state/index.sqlite3")),
         watch: true,
         debounce: DEBOUNCE,
+        discard: Some(Arc::new(SetAside::new(folder.join("state/merged")))),
     };
     let runtime = Runtime::with_core(
         core,
@@ -286,6 +289,7 @@ fn a_library_whose_index_will_not_open_still_watches_and_expands() {
         index: Some(folder.path().join("Aralo/aralo.yaml/index.sqlite3")),
         watch: true,
         debounce: DEBOUNCE,
+        discard: Some(Arc::new(SetAside::new(folder.path().join("merged")))),
     };
     let runtime = Runtime::with_core(
         core,

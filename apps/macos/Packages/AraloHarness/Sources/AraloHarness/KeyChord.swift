@@ -31,6 +31,7 @@ public struct KeyChord: Equatable, Sendable, CustomStringConvertible {
     public static let undo = KeyChord(.character("z"), [.cmd])
     public static let killLine = KeyChord(.character("u"), [.ctrl])
     public static let delete = KeyChord(.delete)
+    public static let `return` = KeyChord(.return)
 
     /// Nil for anything that is not modifiers, then one key.
     public init?(_ text: String) {

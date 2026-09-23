@@ -10,13 +10,19 @@ final class MatrixRunnerTests: XCTestCase {
 
     override func setUp() async throws {
         let desktop = FakeDesktop()
-        desktop.snippets = ["mxascii ": "The quick brown fox. ", "mxemoji ": "Café 👩‍💻 ", "mxlong ": long + " "]
+        desktop.snippets = [
+            "mxascii ": "The quick brown fox. ", "mxemoji ": "Café 👩‍💻 ", "mxlong ": long + " ",
+            "mxcursor ": "Dear \(FakeDesktop.caretMarker), thank you. "
+        ]
+        desktop.forms = ["mxform ": "Dear \(FakeDesktop.answerMarker), thank you. "]
         self.desktop = desktop
         let quick = Expectation(typed: "mxascii ", text: "The quick brown fox. ", method: .typed)
         let pasted = Expectation(typed: "mxlong ", text: long + " ", method: .pasted)
         expectations = [
             .ascii: quick, .undo: quick, .long: pasted, .clipboard: pasted,
-            .unicode: Expectation(typed: "mxemoji ", text: "Café 👩‍💻 ", method: .typed)
+            .unicode: Expectation(typed: "mxemoji ", text: "Café 👩‍💻 ", method: .typed),
+            .cursor: Expectation(typed: "mxcursor ", text: "Dear , thank you. ", caretBack: 13, method: .typed),
+            .form: Expectation(typed: "mxform ", text: "Dear dana, thank you. ", method: .typed)
         ]
     }
 
@@ -30,8 +36,10 @@ final class MatrixRunnerTests: XCTestCase {
     func testAWorkingAppPassesEveryCaseAndLeavesTheFieldEmpty() {
         let result = matrix()
         XCTAssertTrue(result.passed)
-        XCTAssertEqual(result.cases.map(\.status), [.pass, .pass, .pass, .pending, .pass, .pass])
-        XCTAssertEqual(result.cases.map(\.method), ["type", "type", "paste", nil, "type", "paste"])
+        XCTAssertEqual(result.cases.map(\.status), Array(repeating: .pass, count: MatrixCase.allCases.count))
+        XCTAssertEqual(
+            result.cases.map(\.method), ["type", "type", "paste", "type", "type", "paste", "type"]
+        )
         XCTAssertEqual(desktop.field, "")
         XCTAssertEqual(desktop.dismissed, ["com.example.Editor"])
     }
@@ -115,19 +123,34 @@ final class MatrixRunnerTests: XCTestCase {
         XCTAssertEqual(desktop.keysSent, 0)
     }
 
-    func testThePendingCaseRunsWhenAskedFor() {
-        desktop.snippets["mxcursor "] = "Dear , thanks "
-        expectations[.cursor] = Expectation(typed: "mxcursor ", text: "Dear , thanks ", caretBack: 9, method: .typed)
-        var options = MatrixRunner.Options()
-        options.includePending = true
-        let runner = MatrixRunner(desktop: desktop, options: options)
-        let result = runner.run(
-            app(), recipe: Recipe(bundleID: "com.example.Editor", open: .document),
-            cases: [.cursor], expectations: expectations
-        )
-        // The fake field has no caret, so "x" lands at the end: a caret in the wrong place.
-        XCTAssertEqual(result.cases[0].status, .fail)
-        XCTAssertEqual(result.cases[0].reason, "the caret was not where the marker is")
-        XCTAssertEqual(expectations[.cursor]?.text(withAtCaret: "x"), "Dear x, thanks ")
+    /// An app whose caret does not follow the expansion fails the cursor case:
+    /// the "x" afterwards lands at the end instead of where the marker was.
+    func testTheCursorCaseFailsWhenTheCaretIsLeftAtTheEnd() {
+        desktop.snippets["mxcursor "] = "Dear , thank you. "
+        let result = matrix([.cursor]).cases[0]
+        XCTAssertEqual(result.status, .fail)
+        XCTAssertEqual(result.reason, "the caret was not where the marker is")
+        XCTAssertEqual(expectations[.cursor]?.text(withAtCaret: "x"), "Dear x, thank you. ")
+    }
+
+    /// The form case: the delimiter puts a panel up instead of inserting
+    /// anything, and the same keyboard answers it. The app under test keeps the
+    /// keyboard's attention, so nothing is typed into the panel by mistake.
+    func testAFormIsAnsweredWithTheKeyboardThatTypedTheAbbreviation() {
+        let result = matrix([.form]).cases[0]
+        XCTAssertEqual(result.status, .pass)
+        XCTAssertEqual(result.method, "type")
+        XCTAssertEqual(result.readBack, .accessibility)
+        XCTAssertEqual(desktop.field, "")
+    }
+
+    /// A panel that is not up yet leaves the answer in the document. That is a
+    /// machine slower than `formPause`, not a broken expansion, so the failure
+    /// says which of the two it was.
+    func testAnAnswerLeftInTheAppSaysThePanelWasNotUpInTime() {
+        desktop.formPanelOpens = false
+        let result = matrix([.form]).cases[0]
+        XCTAssertEqual(result.status, .fail)
+        XCTAssertEqual(result.reason, "the answer was typed into the app: the form panel was not up in time")
     }
 }

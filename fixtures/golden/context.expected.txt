@@ -1,0 +1,156 @@
+# context.toml: what only the shell can fetch, and what Aralo does not fetch at all
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== the clipboard goes in when the shell supplies it
+--- en_US
+field: "Ref PO-8841, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 20 backspaces
+--- de_DE
+field: "Ref PO-8841, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 20 backspaces
+--- ja_JP
+field: "Ref PO-8841, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 20 backspaces
+
+=== a clipboard nobody supplied stays as written
+--- en_US
+field: "Ref {{clipboard}}, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 26 backspaces
+note: "Nothing supplied the clipboard, so this stays as written."
+--- de_DE
+field: "Ref {{clipboard}}, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 26 backspaces
+note: "Nothing supplied the clipboard, so this stays as written."
+--- ja_JP
+field: "Ref {{clipboard}}, thanks.|"
+preview: "Ref {{clipboard}}, thanks."
+undo: 26 backspaces
+note: "Nothing supplied the clipboard, so this stays as written."
+
+=== a clipboard of several lines goes in as it is
+--- en_US
+field: "Quoting:\nfirst line\nsecond line\nend|"
+preview: "Quoting:\n{{clipboard}}\nend"
+undo: 35 backspaces
+--- de_DE
+field: "Quoting:\nfirst line\nsecond line\nend|"
+preview: "Quoting:\n{{clipboard}}\nend"
+undo: 35 backspaces
+--- ja_JP
+field: "Quoting:\nfirst line\nsecond line\nend|"
+preview: "Quoting:\n{{clipboard}}\nend"
+undo: 35 backspaces
+
+=== the selection, the app and the window are for AI blocks for now
+--- en_US
+field: "{{selection}} in {{app}} / {{window}}|"
+preview: "{{selection}} in {{app}} / {{window}}"
+undo: 37 backspaces
+note: "Aralo does not expand selection yet, so it stays as written."
+note: "Aralo does not expand app yet, so it stays as written."
+note: "Aralo does not expand window yet, so it stays as written."
+--- de_DE
+field: "{{selection}} in {{app}} / {{window}}|"
+preview: "{{selection}} in {{app}} / {{window}}"
+undo: 37 backspaces
+note: "Aralo does not expand selection yet, so it stays as written."
+note: "Aralo does not expand app yet, so it stays as written."
+note: "Aralo does not expand window yet, so it stays as written."
+--- ja_JP
+field: "{{selection}} in {{app}} / {{window}}|"
+preview: "{{selection}} in {{app}} / {{window}}"
+undo: 37 backspaces
+note: "Aralo does not expand selection yet, so it stays as written."
+note: "Aralo does not expand app yet, so it stays as written."
+note: "Aralo does not expand window yet, so it stays as written."
+
+=== an AI block inserts its fallback until models arrive
+--- en_US
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
+--- de_DE
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
+--- ja_JP
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
+
+=== an AI block with no fallback stays as written
+--- en_US
+field: "{{ai: Write a polite refusal}}|"
+preview: "{{ai: Write a polite refusal}}"
+undo: 30 backspaces
+note: "Aralo does not expand ai yet, so it stays as written."
+--- de_DE
+field: "{{ai: Write a polite refusal}}|"
+preview: "{{ai: Write a polite refusal}}"
+undo: 30 backspaces
+note: "Aralo does not expand ai yet, so it stays as written."
+--- ja_JP
+field: "{{ai: Write a polite refusal}}|"
+preview: "{{ai: Write a polite refusal}}"
+undo: 30 backspaces
+note: "Aralo does not expand ai yet, so it stays as written."
+
+=== a name the format does not define stays as written
+--- en_US
+field: "{{nonsense}} and {{if: never}}|"
+preview: "{{nonsense}} and {{if: never}}"
+undo: 30 backspaces
+note: "No placeholder is called nonsense. The insert menu lists the ones Aralo knows."
+note: "Aralo does not expand if yet, so it stays as written."
+--- de_DE
+field: "{{nonsense}} and {{if: never}}|"
+preview: "{{nonsense}} and {{if: never}}"
+undo: 30 backspaces
+note: "No placeholder is called nonsense. The insert menu lists the ones Aralo knows."
+note: "Aralo does not expand if yet, so it stays as written."
+--- ja_JP
+field: "{{nonsense}} and {{if: never}}|"
+preview: "{{nonsense}} and {{if: never}}"
+undo: 30 backspaces
+note: "No placeholder is called nonsense. The insert menu lists the ones Aralo knows."
+note: "Aralo does not expand if yet, so it stays as written."
+
+=== a placeholder that was never closed is literal text
+--- en_US
+field: "half a {{placeholder|"
+preview: "half a {{placeholder"
+undo: 20 backspaces
+error: "This {{ has no }} after it, so the rest of the body is literal text."
+--- de_DE
+field: "half a {{placeholder|"
+preview: "half a {{placeholder"
+undo: 20 backspaces
+error: "This {{ has no }} after it, so the rest of the body is literal text."
+--- ja_JP
+field: "half a {{placeholder|"
+preview: "half a {{placeholder"
+undo: 20 backspaces
+error: "This {{ has no }} after it, so the rest of the body is literal text."
+
+=== an escaped placeholder is text, not a placeholder
+--- en_US
+field: "write {{date}} to get the date|"
+preview: "write {{date}} to get the date"
+undo: 30 backspaces
+--- de_DE
+field: "write {{date}} to get the date|"
+preview: "write {{date}} to get the date"
+undo: 30 backspaces
+--- ja_JP
+field: "write {{date}} to get the date|"
+preview: "write {{date}} to get the date"
+undo: 30 backspaces

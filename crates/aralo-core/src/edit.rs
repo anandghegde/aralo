@@ -69,7 +69,7 @@ impl Draft {
 
     /// Writes this draft over `front`, leaving every key it says nothing about
     /// exactly as it was.
-    fn apply(&self, front: &mut FrontMatter) {
+    pub(crate) fn apply(&self, front: &mut FrontMatter) {
         front.label = self.label.clone();
         front.abbr = self.abbr.clone();
         front.tags = self.tags.clone();

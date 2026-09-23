@@ -22,7 +22,7 @@ final class LibraryStoreTests: XCTestCase {
         try "format: 0\n".write(
             to: folder.appendingPathComponent("aralo.yaml"), atomically: true, encoding: .utf8
         )
-        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil)
+        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil, trash: nil)
         store = LibraryStore(core: core)
     }
 

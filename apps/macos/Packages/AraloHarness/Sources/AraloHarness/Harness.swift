@@ -30,7 +30,7 @@ public struct Harness {
     /// text under `compatTable` (the forced-method table, or nil for the shipped one).
     public func targets(compatTable: URL?) throws -> [Target] {
         let book = try RecipeBook.load(URL(fileURLWithPath: arguments.recipes))
-        let core = try Core.openLibrary(path: arguments.library, cache: nil, events: nil)
+        let core = try Core.openLibrary(path: arguments.library, cache: nil, events: nil, trash: nil)
         if let compatTable { try core.loadCompatTable(path: compatTable.path) }
         let engine = core.engine()
 
@@ -115,6 +115,7 @@ public struct Harness {
     private var options: MatrixRunner.Options {
         var options = MatrixRunner.Options()
         options.attempts = arguments.attempts
+        options.formPause = arguments.formPause
         options.includePending = arguments.includePending
         return options
     }

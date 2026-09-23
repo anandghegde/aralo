@@ -408,3 +408,45 @@ fn a_cold_index_does_not_hold_up_an_expansion() {
     assert_eq!(counted.added, 10_000);
     assert_eq!(index.len().unwrap(), 10_000);
 }
+
+#[test]
+fn a_merge_base_is_the_last_settled_version_and_waits_out_a_conflict() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    let library = library(root);
+    let mut index = indexed(&library);
+    let id = "01J8ZK3V5Q8W6T9X2N4R7M0AA1".parse().unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Best regards,\nSam");
+    // A file with no id has nothing for a copy to share, so no base.
+    let no_id = library
+        .snippets()
+        .iter()
+        .find(|s| s.id_is_temporary)
+        .unwrap();
+    assert_eq!(index.base(no_id.id).unwrap(), None);
+
+    // A conflict arrives with the original changed under it: the base stays
+    // where both machines last agreed.
+    write(
+        root,
+        "Work/best-regards.md",
+        "---\nid: 01J8ZK3V5Q8W6T9X2N4R7M0AA1\nlabel: Best regards\nabbr: \";br\"\n---\nBest,\nSam\n",
+    );
+    write(
+        root,
+        "Work/best-regards 2.md",
+        "---\nid: 01J8ZK3V5Q8W6T9X2N4R7M0AA1\nlabel: Kind regards\nabbr: \";br\"\n---\nBest regards,\nSam\n",
+    );
+    index.sync(&library.reload().unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Best regards,\nSam");
+
+    // Once the copy has gone, the file is the settled version again.
+    fs::remove_file(root.join("Work/best-regards 2.md")).unwrap();
+    index.sync(&library.reload().unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Best,\nSam");
+
+    // And a snippet that has gone takes its base with it.
+    fs::remove_file(root.join("Work/best-regards.md")).unwrap();
+    index.sync(&library.reload().unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap(), None);
+}

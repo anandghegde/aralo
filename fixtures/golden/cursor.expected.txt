@@ -1,0 +1,135 @@
+# cursor.toml: where an expansion leaves the cursor, counted in what a user sees as a character
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== the cursor lands where the body asks
+--- en_US
+field: "Dear |,\nthanks "
+preview: "Dear ,\nthanks"
+undo: not by backspace
+--- de_DE
+field: "Dear |,\nthanks "
+preview: "Dear ,\nthanks"
+undo: not by backspace
+--- ja_JP
+field: "Dear |,\nthanks "
+preview: "Dear ,\nthanks"
+undo: not by backspace
+
+=== the same body picked from the palette has no delimiter to count
+--- en_US
+field: "Dear |,\nthanks"
+preview: "Dear ,\nthanks"
+undo: not by backspace
+--- de_DE
+field: "Dear |,\nthanks"
+preview: "Dear ,\nthanks"
+undo: not by backspace
+--- ja_JP
+field: "Dear |,\nthanks"
+preview: "Dear ,\nthanks"
+undo: not by backspace
+
+=== a cursor at the end leaves the caret at the end
+--- en_US
+field: "see you| "
+preview: "see you"
+undo: not by backspace
+--- de_DE
+field: "see you| "
+preview: "see you"
+undo: not by backspace
+--- ja_JP
+field: "see you| "
+preview: "see you"
+undo: not by backspace
+
+=== a pair of stops selects what is between them
+--- en_US
+field: "Hi [there], welcome "
+preview: "Hi there, welcome"
+undo: not by backspace
+--- de_DE
+field: "Hi [there], welcome "
+preview: "Hi there, welcome"
+undo: not by backspace
+--- ja_JP
+field: "Hi [there], welcome "
+preview: "Hi there, welcome"
+undo: not by backspace
+
+=== a second stop is ignored and says so
+--- en_US
+field: "a|bc"
+preview: "abc"
+undo: not by backspace
+note: "An expansion leaves the cursor in one place. This stop is ignored."
+--- de_DE
+field: "a|bc"
+preview: "abc"
+undo: not by backspace
+note: "An expansion leaves the cursor in one place. This stop is ignored."
+--- ja_JP
+field: "a|bc"
+preview: "abc"
+undo: not by backspace
+note: "An expansion leaves the cursor in one place. This stop is ignored."
+
+=== one select stop just leaves the cursor there
+--- en_US
+field: "a|b"
+preview: "ab"
+undo: not by backspace
+note: "Selecting text needs two {{cursor: select}}. This one just leaves the cursor here."
+--- de_DE
+field: "a|b"
+preview: "ab"
+undo: not by backspace
+note: "Selecting text needs two {{cursor: select}}. This one just leaves the cursor here."
+--- ja_JP
+field: "a|b"
+preview: "ab"
+undo: not by backspace
+note: "Selecting text needs two {{cursor: select}}. This one just leaves the cursor here."
+
+=== the cursor counts a family emoji as one character
+--- en_US
+field: "a|b👨‍👩‍👧‍👦c"
+preview: "ab👨‍👩‍👧‍👦c"
+undo: not by backspace
+--- de_DE
+field: "a|b👨‍👩‍👧‍👦c"
+preview: "ab👨‍👩‍👧‍👦c"
+undo: not by backspace
+--- ja_JP
+field: "a|b👨‍👩‍👧‍👦c"
+preview: "ab👨‍👩‍👧‍👦c"
+undo: not by backspace
+
+=== a delimiter that goes back as a key is counted once
+--- en_US
+field: "Dear |,\n"
+preview: "Dear ,"
+undo: not by backspace
+--- de_DE
+field: "Dear |,\n"
+preview: "Dear ,"
+undo: not by backspace
+--- ja_JP
+field: "Dear |,\n"
+preview: "Dear ,"
+undo: not by backspace
+
+=== the cursor stops where an answer ends
+--- en_US
+field: "Dana| — sent "
+preview: "Sam — sent"
+undo: not by backspace
+--- de_DE
+field: "Dana| — sent "
+preview: "Sam — sent"
+undo: not by backspace
+--- ja_JP
+field: "Dana| — sent "
+preview: "Sam — sent"
+undo: not by backspace

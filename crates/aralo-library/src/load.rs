@@ -45,25 +45,69 @@ pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryErr
         ..
     } = loader;
 
-    // The first file in path order keeps a contested ID, whatever the file
-    // system's listing order was.
+    // A contested ID goes to the file every other claimant is a sync client's
+    // copy of, when there is one; otherwise to the first file in path order,
+    // whatever the file system's listing order was.
     snippets.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut by_id: HashMap<SnippetId, usize> = HashMap::new();
-    let mut kept: Vec<LoadedSnippet> = Vec::with_capacity(snippets.len());
+    let mut claims: HashMap<SnippetId, Vec<LoadedSnippet>> = HashMap::new();
+    let mut order: Vec<SnippetId> = Vec::new();
     for snippet in snippets {
-        if let Some(&first) = by_id.get(&snippet.id) {
-            diagnostics.push(Diagnostic {
-                path: snippet.path,
-                issue: Issue::DuplicateId {
-                    first: kept[first].path.clone(),
-                },
-            });
-            continue;
+        let claimants = claims.entry(snippet.id).or_default();
+        if claimants.is_empty() {
+            order.push(snippet.id);
         }
-        by_id.insert(snippet.id, kept.len());
-        kept.push(snippet);
+        claimants.push(snippet);
     }
+    let mut kept: Vec<LoadedSnippet> = Vec::with_capacity(order.len());
+    let mut conflicts = Vec::new();
+    for id in order {
+        let mut claimants = claims.remove(&id).unwrap_or_default();
+        // The claimant with the most copies of itself; the first in path order
+        // when none has any. `max_by_key` keeps the last of equals, so the
+        // count is walked in reverse to keep the first.
+        let owner = (0..claimants.len())
+            .rev()
+            .max_by_key(|&candidate| {
+                claimants
+                    .iter()
+                    .filter(|other| {
+                        crate::is_conflict_copy(&other.path, &claimants[candidate].path)
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        let owner = claimants.remove(owner);
+        for other in claimants {
+            let issue = if crate::is_conflict_copy(&other.path, &owner.path) {
+                conflicts.push(crate::Conflict {
+                    id,
+                    original: owner.path.clone(),
+                    copy: other.path.clone(),
+                });
+                Issue::ConflictCopy {
+                    original: owner.path.clone(),
+                }
+            } else {
+                Issue::DuplicateId {
+                    first: owner.path.clone(),
+                }
+            };
+            diagnostics.push(Diagnostic {
+                path: other.path,
+                issue,
+            });
+        }
+        kept.push(owner);
+    }
+    // An owner can sort after its copy, so the order is settled again.
+    kept.sort_by(|a, b| a.path.cmp(&b.path));
+    let by_id: HashMap<SnippetId, usize> = kept
+        .iter()
+        .enumerate()
+        .map(|(index, snippet)| (snippet.id, index))
+        .collect();
     diagnostics.sort_by(|a, b| a.path.cmp(&b.path));
+    conflicts.sort_by(|a, b| a.copy.cmp(&b.copy));
 
     // The root first, then the rest in tree order, so a list drawn straight
     // from this reads the way the folder does.
@@ -82,6 +126,7 @@ pub(crate) fn load(root: &Path, writes: OwnWrites) -> Result<Library, LibraryErr
         groups,
         by_id,
         diagnostics,
+        conflicts,
         writes,
     })
 }
@@ -251,6 +296,7 @@ impl Loader<'_> {
             path: PathBuf::from(relative),
             group: group.to_vec(),
             settings: group_settings.for_snippet(&file.front),
+            source_hash: blake3::hash(text.as_bytes()),
             file,
         });
     }

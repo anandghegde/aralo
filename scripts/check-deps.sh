@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Structural checks that turn Aralo's architecture rules into build failures.
 #
-#   a. Engine purity      aralo-engine's normal dependency closure stays inside
-#                         a short allow-list (PRD P1, ADR-0005).
+#   a. Pure crates        aralo-engine's and aralo-template's normal dependency
+#                         closures stay inside short allow-lists (PRD P1,
+#                         ADR-0005, ADR-0014).
 #   b. One-way graph      internal crates only depend downwards (plan section 10).
 #   c. No unsafe in ffi   aralo-ffi contains no hand-written `unsafe`.
 #   d. Silent engine      aralo-engine contains no printing or logging call.
+#   e. Timeless template  aralo-template reads no clock (ADR-0014).
 #
 # Needs: bash 3.2 or later, cargo, python3 (standard library only). No jq.
 # Usage: scripts/check-deps.sh        Exit status 0 = every check passed.
@@ -18,11 +20,16 @@ set -euo pipefail
 
 # --- The rules. Edit these tables, not the code below. -----------------------
 
-# Crates allowed in aralo-engine's normal (non-dev, non-build) dependency
+# Crates allowed in a pure crate's normal (non-dev, non-build) dependency
 # closure, direct or transitive. Space separated. Dev-dependencies are exempt:
 # they never reach a shipped binary.
 ENGINE_CRATE="aralo-engine"
 ENGINE_ALLOWED="zeroize"
+# The template crate is the other pure one: no files, no network, no clock, and
+# it compiles to WebAssembly for the browser extension. Everything a
+# placeholder needs arrives as an argument.
+TEMPLATE_CRATE="aralo-template"
+TEMPLATE_ALLOWED="unicode-segmentation"
 
 # Layering. Every workspace member must appear in exactly one layer.
 #   layer 0  pure base: no internal dependencies at all
@@ -36,6 +43,7 @@ LAYER_3="aralo-ffi aralo-cli"
 
 FFI_SRC="crates/aralo-ffi/src"
 ENGINE_SRC="crates/aralo-engine/src"
+TEMPLATE_SRC="crates/aralo-template/src"
 
 # -----------------------------------------------------------------------------
 
@@ -67,6 +75,7 @@ fi
 
 graph_status=0
 ENGINE_CRATE="$ENGINE_CRATE" ENGINE_ALLOWED="$ENGINE_ALLOWED" \
+TEMPLATE_CRATE="$TEMPLATE_CRATE" TEMPLATE_ALLOWED="$TEMPLATE_ALLOWED" \
 LAYER_0="$LAYER_0" LAYER_1="$LAYER_1" LAYER_2="$LAYER_2" LAYER_3="$LAYER_3" \
 python3 - "$METADATA" <<'PYTHON' || graph_status=$?
 import json
@@ -92,18 +101,34 @@ def fail(message):
     sys.stderr.write("FAIL  " + message + "\n")
 
 
-# --- a. Engine purity ---------------------------------------------------------
-engine_name = os.environ["ENGINE_CRATE"]
-allowed = set(os.environ["ENGINE_ALLOWED"].split())
-engine_ids = [pid for pid in members if packages[pid]["name"] == engine_name]
+# --- a. Pure crates -----------------------------------------------------------
+# Each entry: the crate, what it may depend on, and the promise that rests on
+# it. The promise goes in the failure message, because whoever reads it is
+# deciding whether to weaken the rule.
+pure = [
+    (
+        os.environ["ENGINE_CRATE"],
+        set(os.environ["ENGINE_ALLOWED"].split()),
+        "This crate sees keystrokes (PRD P1, ADR-0005)",
+    ),
+    (
+        os.environ["TEMPLATE_CRATE"],
+        set(os.environ["TEMPLATE_ALLOWED"].split()),
+        "This crate has no files, no network and no clock, and it compiles to "
+        "WebAssembly (ADR-0014)",
+    ),
+]
 
-if len(engine_ids) != 1:
-    fail("engine purity: workspace member `%s` not found" % engine_name)
-else:
+for pure_name, allowed, promise in pure:
+    pure_ids = [pid for pid in members if packages[pid]["name"] == pure_name]
+    if len(pure_ids) != 1:
+        fail("crate purity: workspace member `%s` not found" % pure_name)
+        continue
+
     # Walk normal edges only. In `dep_kinds`, kind None is a normal dependency;
     # "dev" and "build" are skipped. The resolve graph covers every target
     # platform and the workspace's unified features, which is the strict reading.
-    start = engine_ids[0]
+    start = pure_ids[0]
     parent = {}
     queue = [start]
     while queue:
@@ -125,22 +150,28 @@ else:
         while step != start:
             chain.append(packages[step]["name"])
             step = parent[step]
-        chain.append(engine_name)
+        chain.append(pure_name)
         offenders.append((name, " -> ".join(reversed(chain))))
 
     if offenders:
         for name, chain in sorted(offenders):
             fail(
-                "engine purity: `%s` is in %s's normal dependency closure (%s). "
-                "Allowed: %s. This crate sees keystrokes (PRD P1, ADR-0005): "
-                "remove the dependency, or make the case for it in a new ADR."
-                % (name, engine_name, chain, ", ".join(sorted(allowed)) or "nothing")
+                "crate purity: `%s` is in %s's normal dependency closure (%s). "
+                "Allowed: %s. %s: remove the dependency, or make the case for "
+                "it in a new ADR."
+                % (
+                    name,
+                    pure_name,
+                    chain,
+                    ", ".join(sorted(allowed)) or "nothing",
+                    promise,
+                )
             )
     else:
         closure = sorted(packages[pid]["name"] for pid in parent)
         ok(
-            "engine purity: %s depends on %s (allowed: %s)"
-            % (engine_name, ", ".join(closure) or "nothing", ", ".join(sorted(allowed)))
+            "crate purity: %s depends on %s (allowed: %s)"
+            % (pure_name, ", ".join(closure) or "nothing", ", ".join(sorted(allowed)))
         )
 
 # --- b. One-way crate graph -----------------------------------------------------
@@ -230,6 +261,21 @@ else
         echo "$hits" | sed 's/^/        /' >&2
     else
         pass "no unsafe in aralo-ffi: $FFI_SRC has no hand-written \`unsafe\`"
+    fi
+fi
+
+if [ ! -d "$TEMPLATE_SRC" ]; then
+    fail "timeless template: directory $TEMPLATE_SRC not found"
+else
+    # The one clock in Aralo is `aralo_core::clock`. This crate formats a
+    # moment it is handed, which is what lets a test fix the time and the
+    # golden files compare byte for byte (ADR-0014).
+    hits="$(scan "$TEMPLATE_SRC" '(SystemTime|Instant|Local|Utc|OffsetDateTime)::now|now_local|std::time|chrono|time::OffsetDateTime')"
+    if [ -n "$hits" ]; then
+        fail "timeless template: a clock is read in aralo-template. Everything a placeholder needs arrives as an argument (ADR-0014):"
+        echo "$hits" | sed 's/^/        /' >&2
+    else
+        pass "timeless template: $TEMPLATE_SRC reads no clock"
     fi
 fi
 

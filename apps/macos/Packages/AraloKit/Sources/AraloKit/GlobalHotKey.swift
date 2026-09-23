@@ -11,15 +11,27 @@ public final class GlobalHotKey {
     public struct Shortcut: Equatable, Sendable {
         public var character: Character
         public var modifiers: NSEvent.ModifierFlags
+        /// Where the key is, for a key that is in the same place on every
+        /// layout. Nil for a key named by the character printed on it, which
+        /// the layout has to be asked about.
+        public var fixedKeyCode: CGKeyCode?
 
-        public init(character: Character, modifiers: NSEvent.ModifierFlags) {
+        public init(character: Character, modifiers: NSEvent.ModifierFlags, fixedKeyCode: CGKeyCode? = nil) {
             self.character = character
             self.modifiers = modifiers
+            self.fixedKeyCode = fixedKeyCode
         }
 
         /// Control+Option+Command+P. Three modifiers keep it clear of the
         /// shortcuts apps define for themselves.
         public static let pause = Shortcut(character: "p", modifiers: [.control, .option, .command])
+
+        /// Control+Option+Command+Space, for the search palette: the same three
+        /// modifiers as pause, on the key every launcher on the Mac is opened
+        /// with.
+        public static let palette = Shortcut(
+            character: " ", modifiers: [.control, .option, .command], fixedKeyCode: CGKeyCode(kVK_Space)
+        )
 
         /// As menus write it: the modifiers in the system's order, then the key.
         public var display: String {
@@ -27,7 +39,10 @@ public final class GlobalHotKey {
                 (.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")
             ]
             let held = symbols.filter { modifiers.contains($0.0) }.map(\.1).joined()
-            return held + String(character).uppercased()
+            // A key with nothing printed on it is written by name, as menus
+            // write it; ⌃⌥⌘ followed by a blank says nothing.
+            let key = character == " " ? "Space" : String(character).uppercased()
+            return held + key
         }
     }
 

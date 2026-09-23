@@ -78,8 +78,8 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | --- | --- | --- |
 | `aralo-engine` | Buffer, matcher, case rules, undo record. No I/O, no logging | Implemented |
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
-| `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser and static plans. The evaluator is M3 |
-| `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search; later merge | Load, write, watch, index and search. Merging is the rest of M2 |
+| `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser, the editor's outline of a body, the evaluator and plans. An AI block inserts its fallback until M4 |
+| `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search, conflict-copy merge | M2: load, write, watch, index, search and merge |
 | `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, and the runtime that watches and indexes |
 | `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange and change events |
 | `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export` | M1 and the M2 import and search slices |
@@ -153,8 +153,10 @@ make run         # build Aralo.app (Debug) and launch it
 
 `make matrix` and `make latency` measure injection in real apps. They take
 over the keyboard, so they are for a Mac set aside for it; see "The injection
-matrix" in [docs/architecture.md](docs/architecture.md). So far they have
-been run against TextEdit only.
+matrix" in [docs/architecture.md](docs/architecture.md). One of the cases is a
+snippet that asks a question: the form panel takes the keyboard without
+activating, so the harness answers it with the same keys it typed the
+abbreviation with. So far they have been run against TextEdit only.
 
 `make help` lists every target.
 
@@ -202,7 +204,7 @@ aralo/
   fixtures/
     matrix/library/     the snippets the injection matrix types
     import/             the import corpus and its golden reports
-    ...                 golden expansions (M3)
+    golden/             golden expansions, three locales on a stopped clock
 ```
 
 ## Roadmap
@@ -218,21 +220,59 @@ Weeks are from the plan and overlap on purpose.
 | **M4** AI | 8–12 | Six endpoints pass conformance. Under 30 ms added to first token. The AI switch and local-only mode verified by tests |
 | **M5** Sync, hardening and beta | 11–13 | Notarised DMG and Homebrew cask live. Every security and privacy test green. Beta opens |
 
-M2's import and search halves are in. The corpus in
-[`fixtures/import/`](fixtures/import/README.md) imports at 92.3% clean, and
-`crates/aralo-import/tests/fidelity.rs` prints the number and fails under 90%
-on every run. That corpus is written from the documented formats rather than
-exported from a real installation, which its README says at more length; spike
-S7 is where a real export settles it.
+M2's import and search halves are in, and M3 has since raised the bar they are
+held to. Import is in the Mac app as well as the CLI: the snippet window, or
+Import Snippets… in the menu bar, opens a file on a dry run, says what it would
+become before anything is written, and after the import opens each snippet that
+needs an edit from the report. Export writes the selected group, or the whole
+library, as JSON, YAML or CSV. The corpus in [`fixtures/import/`](fixtures/import/README.md) imports
+at 95.4% clean, and `crates/aralo-import/tests/fidelity.rs` prints the number
+and fails under the 95% M3 asks for on every run. The last two points came from
+giving the format what the sources already said: a fill-in area lands in a box
+with room to write in, and `%key:tab%` presses a real Tab
+([ADR-0015](docs/adr/0015-format-grows-for-the-importer.md)). That corpus is
+written from the documented formats rather than exported from a real
+installation, which its README says at more length; spike S7 is where a real
+export settles it.
 
 M2's folder store is in too: a debounced `notify` watcher that tells Aralo's
 own saves from everyone else's by content hash, and a SQLite index with FTS5
 that syncs incrementally. `crates/aralo-library/tests/index.rs` asserts that an
 incremental sync lands exactly where a rebuild lands, and that ten thousand
 snippets index on a background thread while an abbreviation expands on the
-main one.
+main one. The conflict copies a sync client leaves are recognised by each
+client's naming and merged three ways against the version this machine last
+saw. A clean merge is written and the copy goes to the Trash. A clash leaves
+both files and waits for the user: the snippet window shows the two side by
+side, says what they changed differently, and keeps the original, the copy or
+a version the user writes
+([docs/architecture.md](docs/architecture.md#conflict-copies)).
 
-Both now run under `aralo_core::Runtime`, which is what a shell holds for the
+M3's evaluator is in, and with it the sessions that ask before anything is
+inserted. A body writes the date and time in 15 locales from the format's own
+tables, takes the clipboard, puts a form in front of the user, inlines other
+snippets eight deep, presses a Tab or a Return the app acts on rather than a
+character that looks like one, asks for a box with room to write in, and leaves
+the caret where it says
+([ADR-0014](docs/adr/0014-clock-and-locale.md),
+[docs/format/placeholders.md](docs/format/placeholders.md)). What the editor
+previews is the expansion, byte for byte. The proof is
+[`fixtures/golden/`](fixtures/golden/README.md): every body expanded in
+`en_US`, `de_DE` and `ja_JP` on a clock stopped at one minute, compared byte
+for byte.
+
+The Mac form panel is in, so a snippet that asks something now asks it: the
+abbreviation is swallowed, nothing is typed, and a non-activating panel puts
+the boxes in front of the user with a live preview of what Enter will insert.
+It is the same panel however the snippet was asked for, typed or picked from
+the palette. The clipboard is read when the body says it wants it and not
+before, cancelling puts the swallowed keystroke back, and what is inserted goes
+in through the same injector and arms the same undo as any other expansion.
+`FormSession` in AraloKit is the panel apart from its window, so a second shell
+writes the window and nothing else. See
+[the form panel](docs/architecture.md#the-form-panel).
+
+Both the store and the index now run under `aralo_core::Runtime`, which is what a shell holds for the
 lifetime of the app: edit a file in any text editor and the next keystroke
 matches it, without the app asking. The editing calls are on the bridge
 alongside them — create, save, move and delete a snippet or a group, with the
@@ -244,7 +284,27 @@ snippet's settings shown against what its groups make of them, plus a live
 preview. Every change it makes lands as a readable file diff. What it shows is
 `LibraryStore` in AraloKit, which is the model a second shell would keep; the
 SwiftUI views above it hold nothing a Windows one would have to write again.
-The highlighting body editor is the next task. See
+The body editor draws the core's own reading of the snippet: every placeholder
+is coloured, anything the parser could not read is underlined at its range with
+the core's sentence under it, and an Insert menu offers the placeholders the
+core knows and pre-selects the part to type over. It is one call,
+`outline_draft(body)`, and it is the same parse an expansion runs, so what the
+editor marks is what would happen. Under the preview is a test field: type
+the abbreviation and the draft on screen expands, through the same matcher and
+expansion path as any app, before anything is saved. A form opens as a sheet,
+Backspace takes an expansion back, and the live tap stands aside while the
+field has the keyboard.
+
+The inline search palette is in: ⌃⌥⌘Space anywhere, a few letters, and Enter
+puts the snippet into the app the user was already in. The window is a panel
+that does not take that app out of the front, so there is no focus to restore;
+it stops Aralo watching the keyboard while it is up, and gives the keyboard
+back before a character is typed. The text goes in through the same injector
+and arms the same undo as an expansion that was typed, because to the user it
+is the same thing arriving by another route. It is refused while Aralo is
+paused and in the apps it stays out of, and the palette is the one place a user
+is told why. See
+[the search palette](docs/architecture.md#the-search-palette),
 [the snippet window](docs/architecture.md#the-snippet-window),
 [the folder store](docs/architecture.md#the-folder-store) and
 [the bridge API](docs/architecture.md#bridge-api).
