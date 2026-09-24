@@ -210,7 +210,9 @@ what happened to the last pick. The ranking is the core's `search(SearchQuery)`
 with `enabled_only`, so the palette and the snippet window agree about what
 matches; an empty query is the `recents(limit)` list, then the rest of the
 library in its own order. A switched-off snippet does not expand when it is
-typed, so it is not offered here either.
+typed, so it is not offered here either. Snippets found by what they mean
+rather than by their words come after the rest, marked
+([Search by meaning](#search-by-meaning)).
 
 - The window is a non-activating `NSPanel`. The app underneath stays the
   frontmost one and keeps its insertion point, so nothing has to be restored
@@ -482,7 +484,7 @@ folder is a corruption waiting to happen.
 | `snippets_fts` | FTS5 over label, abbreviation, tags and body | Yes |
 | `stats` | Expansion counts and last-used time | **No.** Local only, never synced |
 | `bases` | Each snippet's last settled file, the base a conflict copy merges against | **No.** Only this machine saw it |
-| `vectors` | Embedding blobs keyed by content hash and model | **No.** Hours of compute |
+| `vectors` | What each snippet means, as the embedding model saw it, keyed by content hash and model | **No.** Kept across rebuilds; pruned when a snippet goes or the model changes |
 
 `sync` is the usual path: it compares each snippet's content hash, path, group
 and enabled flag against the row already there and writes only what differs, so
@@ -537,6 +539,50 @@ then tells the shell. So the next keystroke matches what the folder says even
 if no window has drawn yet. Where both locks are held, the library is taken
 first and the matcher second, on every thread; the keystroke path takes one at
 a time.
+
+### Search by meaning
+
+PRD A4: "money back" finds the refund reply that never says either word, and
+nothing about the library leaves the machine to do it.
+[ADR-0016](adr/0016-static-embeddings.md) has the choice and its measurements.
+
+**The model** is MinishLab's `potion-base-8M`, a static model: one vector per
+token, distilled from a sentence transformer. `aralo-embed` reads its three
+files, tokenizes with BERT's WordPiece exactly as Hugging Face's `tokenizers`
+does, and averages the rows as the `model2vec` package does; the fixtures in
+`fixtures/embed/` hold it to both, id for id and vector for vector. A snippet
+embeds in about 25 µs and a query in 2, which is what makes the rest of this
+simple. `aralo-embed`'s whole dependency closure is an allow-list in
+`scripts/check-deps.sh`, beside the engine's and the template's, and nothing
+on it can open a socket. The model is fetched at build time
+(`scripts/fetch-model.sh`, checked against recorded checksums) and ships inside
+the app; it is never downloaded at runtime.
+
+**What is embedded** is `meaning_text`: the label, the tags and the body with
+its placeholders taken out, because `{{clipboard}}` says where text goes, not
+what the snippet is about. That is exactly what the content hash covers, so a
+vector keyed by the hash stays right across a rename or a move.
+
+**Where it runs.** `Runtime::use_model(folder)`, or `RuntimeOptions::model`,
+hands the indexer thread a model folder. The thread loads it, then after every
+sync works out which content has no vector (under the library's read lock),
+embeds that (without it), stores the new vectors in `vectors`, prunes those of
+snippets that went and of other models, and gives the core a `Meaning`: the
+model and one vector per snippet. A restart embeds only what changed while
+Aralo was not running. A core with no runtime, as the CLI opens one, embeds in
+memory: `Core::use_model`. A model that will not load, or a runtime with no
+index, leaves search going by words, and `meaning_error()` says why.
+
+**How it ranks.** `Core::search` embeds the query, scans every vector, and
+hands [`Searcher::search_with_meaning`](../crates/aralo-library/src/search.rs)
+the snippets above a cosine similarity of 0.45, most similar first. Each one
+the words did not already find becomes a `Field::Meaning` hit, after every
+literal hit, at most five, through the same filters. So search still ranks in
+an order that can be said in one sentence, a word that is in a snippet finds
+it where it always did, and a query of fewer than three letters or digits is
+left to the words. A hit by meaning carries the body's first line and nothing
+highlighted; the palette marks it with a magnifying glass over text, and the
+snippet list says "Similar meaning".
 
 ### Conflict copies
 
@@ -758,8 +804,9 @@ model list alone does not show that a key and a model work together, because
 some endpoints list models without a key. **The probe** tries each
 capability with the cheapest request that shows it: the models route, one
 chat that shows streaming and whether the system prompt was read, and one
-asking for JSON output. Embeddings are not checked until `aralo-embed`
-exists. The result is kept in the file with the time of the probe, and is
+asking for JSON output. Embeddings are not checked: search by meaning runs on
+a model on this machine ([Search by meaning](#search-by-meaning)), never a
+provider's. The result is kept in the file with the time of the probe, and is
 cleared when the address, model, headers or key change. All of these go
 through the gateway, so each is refused while AI is off, and a remote one in
 local-only mode, before anything is sent.
@@ -950,6 +997,7 @@ the event tap.
 | --- | --- | --- |
 | `Engine` | `on_key(KeyInput) -> KeyAction`, `insert(snippet_id, into_app) -> InsertOutcome`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
 | `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
+| `Core`, search by meaning | `use_model(folder)`: load the embedding model and embed the library on the indexer thread; `meaning_problem()`; `wait_for_index()` for tests. A hit found by meaning has `SearchField.meaning` | Synchronous; the work is on the indexer thread |
 | `Core`, editing | `create_snippet`, `save_snippet`, `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
 | `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `outline_draft(body)`, `try_draft(draft, group, editing?) -> DraftTrial`, `recents(limit)` | Synchronous |
 | `DraftTrial` | `key(KeyInput) -> TrialAction` (`Typed`, `Expanded` or `Session { session }`), `field() -> TrialField`, `move_caret(caret)`, `clear()`, `finish(steps, undo_delete_count?)`, `cancel(session)`, `abbreviations()`. Offsets are UTF-16 | Synchronous |
@@ -1008,8 +1056,8 @@ is the exception: its crates may depend on each other.
 | Layer | Crates | State today |
 | --- | --- | --- |
 | 3 | `aralo-ffi`, `aralo-cli` | The bridge carries the keystroke path, editing, search, interchange and the AI settings. The CLI also imports, exports, searches, expands and manages AI profiles |
-| 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search, editing, the runtime that watches and indexes, and the AI settings with keys in the keychain |
-| 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. `aralo-ai` has the gateway and the network guard. `aralo-providers` has the `openai_compat` adapter and local-server detection. The rest are empty |
+| 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search by words and by meaning, editing, the runtime that watches, indexes and embeds, and the AI settings with keys in the keychain |
+| 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. `aralo-ai` has the gateway and the network guard. `aralo-embed` runs the embedding model and scans vectors, with no network in its dependencies. `aralo-providers` has the `openai_compat` adapter and local-server detection. `aralo-script` is empty |
 | 0 | `aralo-engine`, `aralo-snippet`, `aralo-template` | Implemented, evaluator included: dates and times in 15 locales, the clipboard, forms, nested snippets, cursor stops and AI blocks, whose answers it is handed |
 
 The rule covers every dependency kind, including dev and build dependencies.
@@ -1034,6 +1082,7 @@ breaks. "Planned" means the code it would check does not exist yet.
 | AI sends only declared context (P4) | The gateway asks a `ContextSource` for the declared kinds only, and asks for nothing when the policy refuses | `crates/aralo-ai/tests/gateway.rs`: `only_declared_context_is_asked_for_or_sent`. `local_only.rs`: a refused request reads no context. A command declares only the selection: `crates/aralo-core/tests/ai_command.rs` checks the manifest and that every refusal sends nothing. An AI block sends only what its snippet declared, never the text around it: `crates/aralo-core/tests/ai_blocks.rs`, `only_declared_context_is_asked_for_and_only_it_is_sent`, and `FormSessionAITests` for what the Mac shell reads. An editor action sends the text it works on, and a draft nothing from the editor: `crates/aralo-core/tests/ai_authoring.rs` |
 | Local-only mode means no network (P6) | The network guard is the only HTTP client constructor, and refuses by URL before sending and by address at connect ([the AI gateway](#the-ai-gateway)) | `crates/aralo-ai/tests/local_only.rs`. `deny.toml` confines `reqwest` to `aralo-ai`, `clippy.toml` bans building a client, `scripts/check-deps.sh` keeps `reqwest` inside the guard module |
 | Prompt injection cannot act (P10) | AI output is literal text with no path back into the evaluator. Context is framed as data | `gateway.rs`: `model_output_is_passed_on_as_literal_text`. Framing tests in `aralo-ai`. `crates/aralo-template/tests/ai_blocks.rs`: an answer written as placeholders goes in as those characters and reads nothing, and the text around a block is byte-identical whatever the answer (a property test). `fixtures/golden/ai.toml` pins both |
+| Search by meaning never leaves the machine (A4) | The model ships inside the app and is fetched at build time against recorded checksums, never at runtime. `aralo-embed` reads it from disk and has no networking crate anywhere in its dependencies ([search by meaning](#search-by-meaning)) | `scripts/check-deps.sh`: `aralo-embed`'s whole dependency closure is an allow-list. `crates/aralo-core/tests/meaning.rs` finds the refund reply by meaning with the model loaded from disk |
 | Keys only in the keychain (P13) | `SecretStore` on the login keychain. `profiles.toml` holds a `key_ref`, never a value, and refuses a key-shaped header or address. The CLI takes a key only from the environment or standard input ([profiles and keys](#profiles-and-keys)) | `crates/aralo-core/tests/ai_settings.rs`: `after_every_operation_the_key_is_only_in_the_store_and_the_auth_header`, with a canary key. `scripts/key-leak-scan.sh`: no key in any file a full test run wrote |
 | Licences, advisories, sources | `deny.toml` | `cargo-deny` in CI |
 

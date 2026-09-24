@@ -11,7 +11,9 @@
 //!   not come back around ([`aralo_library::OwnWrites`]).
 //! - **the indexer.** One thread owns the only connection that writes to the
 //!   index, so a rebuild cannot collide with a save. Readers get a second
-//!   connection and never wait for it.
+//!   connection and never wait for it. When the runtime has an embedding
+//!   model, the same thread loads it, embeds what the index has no vector
+//!   for, and hands search the library's meaning ([`crate::meaning`]).
 //!
 //! Every time the folder is read, the conflict copies a sync client left in it
 //! are merged against their bases in the index, and the ones that merge
@@ -19,19 +21,22 @@
 //! they are, reported as [`aralo_library::Issue::ConflictCopy`].
 //!
 //! The index is a cache: a runtime whose index cannot be opened still watches,
-//! still expands and still saves. It loses recents and usage counts until the
-//! next start, which is a worse menu, not lost work.
+//! still expands and still saves. It loses recents, usage counts and search by
+//! meaning until the next start, which is a worse menu, not lost work.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
+use aralo_embed::Model;
 use aralo_engine::Snapshot;
 use aralo_library::{Changes, Index, Indexed, Query, Recent, Stats, Watch, DEFAULT_DEBOUNCE};
 use aralo_snippet::SnippetId;
 
+use crate::meaning::Plan;
 use crate::merge::{ConflictSides, Discard, Resolution, SetAside};
 use crate::{state, Core, CoreError, SearchHit};
 
@@ -91,6 +96,11 @@ pub struct RuntimeOptions {
     /// ([`state::set_aside_path`]); a machine that will not say where that is
     /// leaves conflict copies unmerged.
     pub discard: Option<Arc<dyn Discard>>,
+    /// The folder of the embedding model to search by meaning with, which
+    /// the app ships inside itself. `None` searches by words alone. It is
+    /// loaded on the indexer thread, so opening the library does not wait
+    /// for it.
+    pub model: Option<PathBuf>,
 }
 
 impl Default for RuntimeOptions {
@@ -100,6 +110,7 @@ impl Default for RuntimeOptions {
             watch: true,
             debounce: DEFAULT_DEBOUNCE,
             discard: None,
+            model: None,
         }
     }
 }
@@ -123,6 +134,8 @@ pub struct Runtime {
     listener: Arc<dyn LibraryListener>,
     /// Why there is no index, when there is none and there should have been.
     index_error: Option<String>,
+    /// Why search cannot go by meaning, when it was asked to and cannot.
+    meaning_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Runtime {
@@ -156,8 +169,18 @@ impl Runtime {
         // An index that will not open is a cache that will not open. The
         // library is what matters and it is already loaded, so the runtime
         // carries on without one and says why when asked.
+        let meaning_error = Arc::new(Mutex::new(None));
         let path = options.index.or_else(|| state::index_path(&root));
-        let opened = path.map(|path| open_index(&path, &core, &listener));
+        let model = options.model;
+        let opened = path.map(|path| {
+            open_index(
+                &path,
+                &core,
+                &listener,
+                model.clone(),
+                Arc::clone(&meaning_error),
+            )
+        });
         let (reader, indexer, index_error) = match opened {
             Some(Ok((reader, indexer))) => (Some(reader), Some(indexer), None),
             Some(Err(error)) => (None, None, Some(error.to_string())),
@@ -167,6 +190,10 @@ impl Runtime {
                 Some("this machine will not say where the user's home folder is".to_owned()),
             ),
         };
+        if indexer.is_none() && model.is_some() {
+            *lock(&meaning_error) =
+                Some("search by meaning needs the index, and there is none".to_owned());
+        }
 
         // Copies that arrived while Aralo was not running. The indexer's first
         // sync may already be under way; it leaves the base of a snippet with
@@ -229,6 +256,7 @@ impl Runtime {
             discard,
             listener,
             index_error,
+            meaning_error,
         };
         if !merged.is_empty() {
             runtime.announce(LibraryChange::Merged { copies: merged });
@@ -361,6 +389,28 @@ impl Runtime {
         self.index_error.as_deref()
     }
 
+    /// Searches by meaning with the model in `folder` from now on. It is
+    /// loaded on the indexer thread, and the library embedded there; until
+    /// that is done, search goes by words. [`Runtime::meaning_error`] says
+    /// why when it does not work out.
+    pub fn use_model(&self, folder: PathBuf) {
+        match &self.indexer {
+            Some(indexer) => {
+                let _ = indexer.jobs.send(Job::Model(folder));
+            }
+            None => {
+                *lock(&self.meaning_error) =
+                    Some("search by meaning needs the index, and there is none".to_owned());
+            }
+        }
+    }
+
+    /// Why search is going by words alone although a model was named: the
+    /// model would not load, or there is no index to keep its vectors in.
+    pub fn meaning_error(&self) -> Option<String> {
+        lock(&self.meaning_error).clone()
+    }
+
     /// Waits until the indexer has finished everything queued before this call.
     ///
     /// Tests use it. So does a shell that wants to close knowing the last
@@ -433,10 +483,18 @@ fn open_index(
     path: &Path,
     core: &Arc<RwLock<Core>>,
     listener: &Arc<dyn LibraryListener>,
+    model: Option<PathBuf>,
+    meaning_error: Arc<Mutex<Option<String>>>,
 ) -> Result<(Arc<Mutex<Index>>, Indexer), CoreError> {
     let writer = Index::open(path)?;
     let reader = Index::open(path)?;
-    let indexer = Indexer::start(writer, Arc::clone(core), Arc::clone(listener))?;
+    let indexer = Indexer::start(
+        writer,
+        Arc::clone(core),
+        Arc::clone(listener),
+        model,
+        meaning_error,
+    )?;
     Ok((Arc::new(Mutex::new(reader)), indexer))
 }
 
@@ -454,6 +512,8 @@ enum Job {
         id: SnippetId,
         at: SystemTime,
     },
+    /// Load the embedding model in this folder and search by meaning with it.
+    Model(PathBuf),
     /// Reply on this channel once everything queued before it is done.
     Flush(Sender<()>),
 }
@@ -463,6 +523,8 @@ impl Indexer {
         mut index: Index,
         core: Arc<RwLock<Core>>,
         listener: Arc<dyn LibraryListener>,
+        model: Option<PathBuf>,
+        meaning_error: Arc<Mutex<Option<String>>>,
     ) -> Result<Self, CoreError> {
         let (jobs, queue) = mpsc::channel();
         let thread = std::thread::Builder::new()
@@ -472,7 +534,20 @@ impl Indexer {
                     // The library on disk moved on while Aralo was not running,
                     // so the first thing the index does is catch up with it.
                     sync(&mut index, &core, &listener);
-                    work(&mut index, &core, &queue, &listener);
+                    // Then the model, which is the slow part of starting, and
+                    // a vector for whatever changed since the last run.
+                    let mut embedder = None;
+                    if let Some(folder) = model {
+                        load(&folder, &mut index, &core, &mut embedder, &meaning_error);
+                    }
+                    work(
+                        &mut index,
+                        &core,
+                        &queue,
+                        &listener,
+                        &mut embedder,
+                        &meaning_error,
+                    );
                 }
             })
             .map_err(|source| CoreError::Thread { source })?;
@@ -514,10 +589,18 @@ fn work(
     core: &RwLock<Core>,
     queue: &Receiver<Job>,
     listener: &Arc<dyn LibraryListener>,
+    embedder: &mut Option<Embedder>,
+    meaning_error: &Mutex<Option<String>>,
 ) {
     while let Ok(job) = queue.recv() {
         match job {
-            Job::Sync => sync(index, core, listener),
+            Job::Sync => {
+                sync(index, core, listener);
+                if let Some(embedder) = embedder {
+                    embedder.catch_up(index, core);
+                }
+            }
+            Job::Model(folder) => load(&folder, index, core, embedder, meaning_error),
             Job::Expansion { id, at } => {
                 // A count that does not get written is a count, not a snippet.
                 let _ = index.record_expansion(id, at);
@@ -556,6 +639,92 @@ fn sync(index: &mut Index, core: &RwLock<Core>, listener: &Arc<dyn LibraryListen
     listener.changed(change, &read(core));
 }
 
+/// Loads a model and embeds the library with it, or says why not. A model
+/// that will not load leaves search going by words, and the one before it, if
+/// there was one, is dropped: the shell asked for this one.
+fn load(
+    folder: &Path,
+    index: &mut Index,
+    core: &RwLock<Core>,
+    embedder: &mut Option<Embedder>,
+    meaning_error: &Mutex<Option<String>>,
+) {
+    match Embedder::open(folder, index) {
+        Ok(mut loaded) => {
+            loaded.catch_up(index, core);
+            *embedder = Some(loaded);
+            *lock(meaning_error) = None;
+        }
+        Err(error) => {
+            *embedder = None;
+            read(core).set_meaning(None);
+            *lock(meaning_error) = Some(error);
+        }
+    }
+}
+
+/// The embedding model on the indexer thread, and the vectors it has made.
+struct Embedder {
+    model: Arc<Model>,
+    /// Every vector the index keeps for this model, by content hash, so a
+    /// save does not read them all back.
+    known: HashMap<String, Vec<f32>>,
+    /// What search was last handed, so a sync that changed nothing a vector
+    /// depends on does not hand it the same again.
+    published: Option<Vec<(SnippetId, String)>>,
+}
+
+impl Embedder {
+    fn open(folder: &Path, index: &Index) -> Result<Self, String> {
+        let model = Model::open(folder).map_err(|error| error.to_string())?;
+        let known = index
+            .vectors(model.id())
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter_map(|(hash, bytes)| {
+                let vector = aralo_embed::from_bytes(&bytes)?;
+                (vector.len() == model.dimensions()).then_some((hash, vector))
+            })
+            .collect();
+        Ok(Self {
+            model: Arc::new(model),
+            known,
+            published: None,
+        })
+    }
+
+    /// Embeds what has no vector yet, keeps it, forgets what the library no
+    /// longer holds, and hands search the result. The library's lock is held
+    /// to see what is there, not while embedding.
+    fn catch_up(&mut self, index: &mut Index, core: &RwLock<Core>) {
+        let plan = Plan::of(read(core).library(), |hash| self.known.contains_key(hash));
+        if plan.is_settled() && self.published.as_ref() == Some(plan.snippets()) {
+            return;
+        }
+        let made = plan.embed(&self.model);
+        if !made.is_empty() {
+            let stored: Vec<(String, Vec<u8>)> = made
+                .iter()
+                .map(|(hash, vector)| (hash.clone(), aralo_embed::to_bytes(vector)))
+                .collect();
+            // A vector that is not stored is made again next time: the index
+            // is a cache, and this is the cheap kind of miss.
+            let _ = index.put_vectors(self.model.id(), &stored);
+            self.known.extend(made);
+        }
+        // The first pass after a load also clears out what an earlier model
+        // left; after that, only a snippet going leaves anything to prune.
+        let keep = plan.hashes();
+        if self.published.is_none() || self.known.len() > keep.len() {
+            self.known.retain(|hash, _| keep.contains(hash));
+            let _ = index.keep_vectors(self.model.id(), &keep);
+        }
+        let meaning = plan.assemble(Arc::clone(&self.model), &self.known);
+        read(core).set_meaning(Some(Arc::new(meaning)));
+        self.published = Some(plan.into_snippets());
+    }
+}
+
 /// The three locks, with poisoning treated as what it is: a thread panicked
 /// somewhere else. Refusing to expand for the rest of the session would be a
 /// worse answer than carrying on, and the library is re-read from the folder
@@ -569,8 +738,8 @@ fn write(core: &RwLock<Core>) -> RwLockWriteGuard<'_, Core> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn lock(index: &Mutex<Index>) -> MutexGuard<'_, Index> {
-    index
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

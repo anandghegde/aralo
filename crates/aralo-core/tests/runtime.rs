@@ -89,6 +89,7 @@ fn runtime(folder: &Path) -> (Runtime, Heard) {
         watch: true,
         debounce: DEBOUNCE,
         discard: Some(Arc::new(SetAside::new(folder.join("state/merged")))),
+        model: None,
     };
     let runtime = Runtime::with_core(
         core,
@@ -290,6 +291,7 @@ fn a_library_whose_index_will_not_open_still_watches_and_expands() {
         watch: true,
         debounce: DEBOUNCE,
         discard: Some(Arc::new(SetAside::new(folder.path().join("merged")))),
+        model: None,
     };
     let runtime = Runtime::with_core(
         core,

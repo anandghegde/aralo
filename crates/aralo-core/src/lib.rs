@@ -16,6 +16,7 @@ pub mod compat;
 pub mod diff;
 mod edit;
 mod field;
+mod meaning;
 mod merge;
 mod runtime;
 mod session;
@@ -25,7 +26,7 @@ pub mod state;
 mod trial;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use aralo_engine::{Engine, Snapshot};
 use aralo_library::{Library, LibraryError, Searcher};
@@ -33,6 +34,8 @@ use aralo_template::{Context, Nested, Resolved, Shape, Snippets};
 
 use crate::clock::{Clock, SystemClock};
 
+pub use aralo_embed as embed;
+pub use aralo_embed::{Model, ModelError};
 pub use aralo_engine as engine;
 pub use aralo_import as import;
 pub use aralo_import::{
@@ -52,6 +55,7 @@ pub use aralo_template::{
 pub use clock::{FixedClock, SystemClock as SystemTimeClock};
 pub use compat::{CompatError, CompatTable, InjectionProfile};
 pub use edit::{Draft, DraftIssue, Problem};
+pub use meaning::{Meaning, MIN_SIMILARITY};
 pub use merge::{ConflictSides, Discard, MergeReport, Resolution, SetAside};
 pub use runtime::{LibraryChange, LibraryListener, Runtime, RuntimeOptions};
 pub use session::{Expand, Session, SessionStep};
@@ -152,6 +156,10 @@ pub struct Core {
     /// The fuzzy matcher's scratch buffers, kept between searches because the
     /// editor searches on every keystroke.
     searcher: Mutex<Searcher>,
+    /// The embedding model and the library's vectors, once there are some.
+    /// Behind its own lock, so the indexer can hand in new vectors while
+    /// holding only a read lock on the core.
+    meaning: RwLock<Option<Arc<Meaning>>>,
     /// Where `{{date}}` and `{{time}}` read the moment.
     clock: Arc<dyn Clock>,
     /// The locale tag they are written in, for example `de_DE`.
@@ -201,6 +209,7 @@ impl Core {
             rejected,
             starter_files_written,
             searcher: Mutex::new(Searcher::new()),
+            meaning: RwLock::new(None),
             clock: Arc::new(SystemClock),
             locale: clock::environment_locale(),
         }
@@ -316,7 +325,13 @@ impl Core {
     /// one call.
     ///
     /// What is searched and how it is ranked is in [`aralo_library::search`].
+    /// With a model ([`Core::use_model`], or a runtime's), the snippets that
+    /// mean what the query means come after the ones its words found.
     pub fn search(&self, query: &Query) -> Vec<SearchHit> {
+        let similar = self
+            .meaning()
+            .map(|meaning| meaning.similar(query.text.trim()))
+            .unwrap_or_default();
         // A poisoned lock means a search panicked, which leaves nothing behind
         // but scratch buffers. Taking them back beats failing every search
         // after it, and nothing in the bridge may panic.
@@ -325,7 +340,7 @@ impl Core {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         searcher
-            .search(&self.library, query)
+            .search_with_meaning(&self.library, query, &similar)
             .into_iter()
             .filter_map(|hit| {
                 let snippet = self.library.snippet(hit.id)?;
@@ -342,6 +357,30 @@ impl Core {
                 })
             })
             .collect()
+    }
+
+    /// Searches by meaning from now on, with `model`: every snippet is
+    /// embedded here and now, in memory. A [`Runtime`] does this on its
+    /// indexer thread instead and keeps the vectors, which is what an app
+    /// wants; this is for a core that is opened, searched and closed.
+    pub fn use_model(&self, model: Arc<Model>) {
+        let meaning = meaning::embed_library(model, &self.library);
+        self.set_meaning(Some(Arc::new(meaning)));
+    }
+
+    /// The model and the vectors search uses, when it has them.
+    pub fn meaning(&self) -> Option<Arc<Meaning>> {
+        self.meaning
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn set_meaning(&self, meaning: Option<Arc<Meaning>>) {
+        *self
+            .meaning
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = meaning;
     }
 
     /// What a snippet expands to, for an editor that shows the result beside

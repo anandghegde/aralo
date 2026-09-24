@@ -17,7 +17,8 @@ tool that expands snippets in an imaginary text field. The Mac app is a first
 slice you build yourself: a menu bar agent that expands plain-text snippets
 and walks you through the permissions on first run. AI is under way (M4):
 the gateway, the first adapter, the AI settings, commands on selected text,
-AI blocks inside snippets and AI actions in the snippet editor exist. Expect
+AI blocks inside snippets, AI actions in the snippet editor and search by
+meaning exist. Expect
 everything to change, including the file format, which is at version 0.
 
 ## Privacy, as build properties
@@ -36,6 +37,7 @@ one is a property of the build that CI checks, not a policy.
 | Local-only mode means no network | One network guard constructs every HTTP client and refuses non-loopback addresses | Enforced today |
 | API keys live only in the system keychain | Never in a file, never in the library folder | Enforced today |
 | Model output cannot act | It is inserted as literal text and never parsed for placeholders | Enforced today |
+| Search by meaning runs on your Mac | The embedding model ships inside the app and is never downloaded at runtime. CI holds `aralo-embed` to a dependency allow-list with no networking crate in it | Enforced today |
 
 You can verify "not a keylogger" by reading one crate:
 [`crates/aralo-engine`](crates/aralo-engine). The checks are in
@@ -80,13 +82,13 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-engine` | Buffer, matcher, case rules, undo record. No I/O, no logging | Implemented |
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
 | `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser, the editor's outline of a body, the evaluator and plans, AI blocks included |
-| `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search, conflict-copy merge | M2: load, write, watch, index, search and merge |
-| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, the runtime that watches and indexes, the AI settings, commands, AI blocks and editor actions |
-| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange, change events, the AI settings, commands, AI blocks and editor actions |
-| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export`, `ai` | M1, the M2 import and search slices, AI profiles and commands, `expand --ai` and `ai write` |
+| `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search, conflict-copy merge | M2: load, write, watch, index, search and merge; vectors and hits by meaning |
+| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search by words and by meaning, edit, the runtime that watches, indexes and embeds, the AI settings, commands, AI blocks and editor actions |
+| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange, change events, the AI settings, commands, AI blocks, editor actions and the embedding model |
+| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export`, `ai` | M1, the M2 import and search slices, AI profiles and commands, `expand --ai`, `ai write` and `search --model` |
 | `aralo-ai` | Gateway, network guard, framing, profiles | Gateway, network guard, secret store, Test connection and the capability probe |
 | `aralo-providers` | Provider adapters, SSE parser, local-server detection | `openai_compat` and local-server detection |
-| `aralo-embed` | Embedding runtime, vector scan | Empty, M4 |
+| `aralo-embed` | Embedding runtime, vector scan | A static model's tokenizer and encoder, held to the reference implementation, and the vector scan |
 | `aralo-import` | Importers, the import report, export to JSON, YAML and CSV | TextExpander, CSV, JSON and YAML in; JSON, YAML and CSV out |
 | `aralo-script` | Script sandbox | Empty, v1 |
 
@@ -134,6 +136,16 @@ it was — is one search away:
 cargo run -p aralo-cli -- import fixtures/import/textexpander/work.textexpander \
   /tmp/aralo-imported
 cargo run -p aralo-cli -- search /tmp/aralo-imported '%delay'
+```
+
+With the embedding model, it finds snippets by what they mean as well. The
+model is fetched from Hugging Face once, checked against recorded checksums,
+and never contacted again:
+
+```sh
+make model
+cargo run -p aralo-cli -- search fixtures/search/library "money back" \
+  --model models/potion-base-8M
 ```
 
 **The Mac app** needs macOS 14 or later and:
@@ -195,8 +207,10 @@ aralo/
     compat/matrix.json  how the injection matrix reaches a text field in each
   schemas/              JSON Schemas for the file format and the data tables
   scripts/
-    check-deps.sh       engine purity, crate layering, no unsafe in the bridge
+    check-deps.sh       engine purity, crate layering, no unsafe in the bridge,
+                        no network under the embedding runtime
     build-xcframework.sh
+    fetch-model.sh      the embedding model, checked against its checksums
   docs/
     architecture.md
     format/             the file format specification
@@ -206,6 +220,10 @@ aralo/
     matrix/library/     the snippets the injection matrix types
     import/             the import corpus and its golden reports
     golden/             golden expansions, three locales on a stopped clock
+    embed/              a tiny model and what the reference implementation
+                        makes of it, for the tokenizer and encoder
+    search/library/     a library to find things in by what they mean
+  models/               the embedding model, fetched by `make model`; not in Git
 ```
 
 ## Roadmap
@@ -384,8 +402,18 @@ expand. Replace puts it in as one edit, so one ⌘Z in the editor takes it back.
 `aralo ai write proofread < body.txt` does the same from a terminal. See
 [AI actions in the editor](docs/architecture.md#ai-actions-in-the-editor).
 
-Seven spikes (S1 to S7) are still owed in M0. They are listed in
-[docs/adr/README.md](docs/adr/README.md).
+Search by meaning is in (task 4.8). "money back" finds the refund reply that
+never uses either word. It runs on MinishLab's `potion-base-8M`, a static
+embedding model that ships inside the app: a snippet embeds in about 25 µs,
+the library is embedded in the background and kept in the index, and nothing
+leaves the machine. Snippets found by meaning come after the ones your words
+found, marked as such. `make model` fetches the model, checked against
+recorded checksums; `aralo search --model models/potion-base-8M` uses it from
+the terminal. See [search by meaning](docs/architecture.md#search-by-meaning)
+and [ADR-0016](docs/adr/0016-static-embeddings.md).
+
+Six spikes are still owed in M0; S5, the embedding runtime, is answered by
+ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).
 
 ## Documents
 

@@ -132,6 +132,7 @@ public final class AraloService {
             // the shell says which locale it is in. Without this the core
             // falls back to the environment and then to en_US (ADR-0014).
             core.setLocale(tag: Locale.current.identifier)
+            useBundledModel(core)
             self.core = core
             library = LibraryStore(core: core) { [weak self] in self?.setKeyboard(.testField, $0) }
             library?.models = aiRunner

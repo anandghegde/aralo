@@ -24,9 +24,9 @@ use aralo_engine::{Abbreviation, Rejection, Snapshot, SnapshotBuilder};
 use aralo_snippet::{GroupFile, Manifest, SnippetFile, SnippetId, SnippetKind, GROUP_FILE_NAME};
 
 pub use conflict::{is_conflict_copy, Conflict};
-pub use index::{Index, IndexError, Indexed, Recent, Stats};
+pub use index::{content_hash, Index, IndexError, Indexed, Recent, Stats};
 pub use merge::{merge, Clashes, Merged};
-pub use search::{Field, Hit, Query, Searcher};
+pub use search::{meaning_text, Field, Hit, Query, Searcher};
 pub use settings::Settings;
 pub use watch::{Changes, OwnWrites, Watch, WatchError, DEFAULT_DEBOUNCE};
 pub use write::write_atomic;

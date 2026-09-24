@@ -64,6 +64,10 @@ tokio = { version = "1.53", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
 ulid = { version = "3", default-features = false }
 unicode-segmentation = "1.12"
+# The embedding model's tokenizer: NFD for stripping accents, and the general
+# category of a character for what counts as punctuation or control.
+unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+unicode-properties = { version = "0.1", default-features = false, features = ["general-category"] }
 uniffi = "0.32"
 zeroize = { version = "1.9", default-features = false }
 

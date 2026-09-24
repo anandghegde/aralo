@@ -234,11 +234,12 @@ warn about the copy until you delete the version you do not want.
 - A window to resolve a conflict copy that did not merge cleanly. Today such a
   copy is left beside its original with a warning, for you to keep one of the
   two.
-- Embeddings and semantic search. Planned for M4.
 
-Watching the folder, the SQLite index and full-text search are in, running
-under `aralo_core::Runtime`: edit a file in any editor and the next keystroke
-matches it.
+Watching the folder, the SQLite index, full-text search and search by meaning
+are in, running under `aralo_core::Runtime`: edit a file in any editor and the
+next keystroke matches it, and the next search finds it by what it says.
+Search by meaning reads the label, the tags and the body without its
+placeholders; nothing in the folder has to change for it.
 
 ## What lives outside the folder
 
@@ -252,7 +253,8 @@ library folder, so it cannot sync by accident (PRD P13).
 | Search index, vectors, merge bases | `~/Library/Application Support/Aralo/` | Caches. Safe to delete; rebuilt from the folder |
 | Usage statistics | `~/Library/Application Support/Aralo/` | Local only, never synced, not rebuildable |
 
-The search index, which holds the merge bases, is written there today. So are
+The search index, which holds the merge bases and the vectors search by meaning
+uses, is written there today. So are
 merged conflict copies, under `merged/`, until the Mac app moves them to the
 Trash instead. The Mac shell passes the path as the cache directory, and
 `ARALO_STATE` moves it for a test. The rest of the table is from the plan and

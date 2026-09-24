@@ -12,10 +12,11 @@ mod ai;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use aralo_core::{
     slashed, Core, ExportOptions, Field, Format, ImportOptions, ImportReport, Issue, MacroPolicy,
-    Outcome, Query, SearchHit, Simulator,
+    Model, Outcome, Query, SearchHit, Simulator,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -42,13 +43,19 @@ enum Command {
     Validate { library: PathBuf },
     /// List abbreviations and the snippets they expand
     List { library: PathBuf },
-    /// Find snippets by abbreviation, label, tag, group or body text; exit 1
-    /// if nothing matches. Left without a query it lists the whole library.
+    /// Find snippets by abbreviation, label, tag, group or body text, and by
+    /// meaning when there is a model; exit 1 if nothing matches. Left without
+    /// a query it lists the whole library.
     Search {
         library: PathBuf,
         /// What to look for. Short fields are matched loosely, so `bregs`
         /// finds "Best regards"; a body has to hold the text as it is typed.
         query: Option<String>,
+        /// The embedding model's folder, to find snippets by what they mean
+        /// as well: "money back" finds the refund reply. `ARALO_MODEL` when
+        /// left out. Nothing leaves the machine.
+        #[arg(long)]
+        model: Option<PathBuf>,
         /// Only this group and the groups inside it, `Work/Email` style
         #[arg(long)]
         group: Option<String>,
@@ -289,12 +296,17 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
         Command::Search {
             library,
             query,
+            model,
             group,
             tag,
             enabled,
             limit,
         } => {
             let core = Core::open_read_only(&library)?;
+            let model = model.or_else(|| std::env::var_os("ARALO_MODEL").map(PathBuf::from));
+            if let Some(folder) = model {
+                core.use_model(Arc::new(Model::open(&folder)?));
+            }
             let hits = core.search(&Query {
                 text: query.unwrap_or_default(),
                 group: group.as_deref().map(|group| group_path(Some(group))),
@@ -453,6 +465,7 @@ fn field_name(field: Field) -> &'static str {
         Field::Tag => "tag",
         Field::Group => "group",
         Field::Body => "body",
+        Field::Meaning => "meaning",
     }
 }
 

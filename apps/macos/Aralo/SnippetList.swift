@@ -1,4 +1,5 @@
 import AppKit
+import AraloBridge
 import AraloKit
 import SwiftUI
 
@@ -97,6 +98,13 @@ private struct SnippetRowView: View {
         guard searching else {
             let group = row.group.isEmpty ? "All Snippets" : row.group.joined(separator: " \u{203A} ")
             return AttributedString(group)
+        }
+        // No word of the query is in it, so there is nothing to highlight:
+        // the row says why it is here instead.
+        if row.field == .meaning {
+            var why = AttributedString("Similar meaning \u{00B7} ")
+            why.foregroundColor = .accentColor
+            return why + AttributedString(row.detail)
         }
         var text = AttributedString(row.detail)
         for offset in row.matched where offset >= 0 && offset < row.detail.count {

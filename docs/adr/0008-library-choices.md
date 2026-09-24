@@ -1,6 +1,6 @@
 # ADR-0008: Third-party library choices
 
-- Status: Accepted
+- Status: Accepted. The embeddings row is superseded by [ADR-0016](0016-static-embeddings.md)
 - Date: 2026-09-20
 
 ## Context

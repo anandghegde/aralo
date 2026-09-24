@@ -1674,10 +1674,33 @@ impl Core {
             .collect()
     }
 
-    /// Why there is no search index, when there is none. Recents and usage
-    /// counts are what is lost; everything else works without it.
+    /// Why there is no search index, when there is none. Recents, usage
+    /// counts and search by meaning are what is lost; everything else works
+    /// without it.
     pub fn index_problem(&self) -> Option<String> {
         self.shared.runtime.index_error().map(str::to_owned)
+    }
+
+    /// Searches by meaning as well as by words, with the embedding model in
+    /// `folder`: `tokenizer.json`, `model.safetensors` and `config.json`. The
+    /// app passes the one it ships inside itself. It loads and embeds the
+    /// library in the background; `search` goes by words until then, and
+    /// nothing leaves the machine at any point (PRD A4).
+    pub fn use_model(&self, folder: String) {
+        self.shared.runtime.use_model(PathBuf::from(folder));
+    }
+
+    /// Why search is going by words alone although a model was given: it
+    /// would not load, or there is no index to keep its vectors in.
+    pub fn meaning_problem(&self) -> Option<String> {
+        self.shared.runtime.meaning_error()
+    }
+
+    /// Waits until the background indexer has done everything asked of it so
+    /// far: the index caught up, a model loaded, the library embedded. Tests
+    /// use it; an app has no reason to wait.
+    pub fn wait_for_index(&self) {
+        self.shared.runtime.flush();
     }
 
     /// Reads a file from another expander into the library. A dry run reports
@@ -1912,6 +1935,9 @@ pub enum SearchField {
     Body,
     Tag,
     Group,
+    /// No word of the query, but what it means. `text` is the body's first
+    /// line and nothing in it is highlighted.
+    Meaning,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -2348,6 +2374,7 @@ impl From<aralo_core::SearchHit> for SearchResult {
                 Field::Body => SearchField::Body,
                 Field::Tag => SearchField::Tag,
                 Field::Group => SearchField::Group,
+                Field::Meaning => SearchField::Meaning,
             },
             text: hit.text,
             matched: hit.matched,

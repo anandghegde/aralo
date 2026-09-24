@@ -1,4 +1,5 @@
 import AppKit
+import AraloBridge
 import AraloKit
 import Observation
 import SwiftUI
@@ -253,6 +254,11 @@ private struct PaletteRow: View {
         HStack(spacing: 8) {
             Text(row.label).lineLimit(1)
             Spacer(minLength: 8)
+            if row.field == .meaning {
+                Image(systemName: "text.magnifyingglass")
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .help("Found by what it means: none of the words you typed are in it")
+            }
             if let abbreviation = row.abbreviations.first {
                 Text(abbreviation)
                     .font(.callout.monospaced())

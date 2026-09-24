@@ -21,7 +21,7 @@
 //!
 //! [ADR-0006]: ../../../docs/adr/0006-files-as-source-of-truth.md
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -196,8 +196,9 @@ impl Index {
                  last_used  INTEGER
              ) STRICT;
 
-             -- Reserved for the embedding worker in M4. Keyed by content hash
-             -- and model so it survives a rebuild, a rename and a move.
+             -- What each snippet means, as the embedding model saw it. Keyed by
+             -- content hash and model so it survives a rebuild, a rename and a
+             -- move, and a new model does not read an old one's vectors.
              CREATE TABLE IF NOT EXISTS vectors (
                  hash   TEXT NOT NULL,
                  model  TEXT NOT NULL,
@@ -302,6 +303,60 @@ impl Index {
         let rows =
             statement.query_map(params![query, count(limit)], |row| row.get::<_, String>(0))?;
         rows.map(|row| parse_id(&row?)).collect()
+    }
+
+    /// Every vector stored for `model`, by content hash. What the bytes mean
+    /// is the embedding crate's business; the index keeps them.
+    pub fn vectors(&self, model: &str) -> Result<HashMap<String, Vec<u8>>, IndexError> {
+        let mut statement = self
+            .connection
+            .prepare_cached("SELECT hash, vector FROM vectors WHERE model = ?1")?;
+        let rows = statement.query_map(params![model], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.map(|row| Ok(row?)).collect()
+    }
+
+    /// Stores vectors that `model` made, by content hash, in one transaction.
+    pub fn put_vectors(
+        &mut self,
+        model: &str,
+        vectors: &[(String, Vec<u8>)],
+    ) -> Result<(), IndexError> {
+        let transaction = self.connection.transaction()?;
+        for (hash, vector) in vectors {
+            transaction
+                .prepare_cached(
+                    "INSERT INTO vectors (hash, model, vector) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(hash, model) DO UPDATE SET vector = excluded.vector",
+                )?
+                .execute(params![hash, model, vector])?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Forgets every vector but `model`'s for the content in `keep`: those of
+    /// snippets that are gone, and those an earlier model made. Returns how
+    /// many went.
+    pub fn keep_vectors(
+        &mut self,
+        model: &str,
+        keep: &HashSet<String>,
+    ) -> Result<usize, IndexError> {
+        let transaction = self.connection.transaction()?;
+        let mut removed =
+            transaction.execute("DELETE FROM vectors WHERE model <> ?1", params![model])?;
+        let stored: Vec<String> = {
+            let mut statement = transaction.prepare("SELECT hash FROM vectors WHERE model = ?1")?;
+            let rows = statement.query_map(params![model], |row| row.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for hash in stored.iter().filter(|hash| !keep.contains(*hash)) {
+            removed += transaction
+                .prepare_cached("DELETE FROM vectors WHERE hash = ?1 AND model = ?2")?
+                .execute(params![hash, model])?;
+        }
+        transaction.commit()?;
+        Ok(removed)
     }
 
     /// The version of `id` this machine last saw settled, to merge a conflict
@@ -606,7 +661,7 @@ fn write_bases(transaction: &Transaction<'_>, library: &Library) -> Result<(), I
 /// enabled flag it inherits. Those live in their own columns and are compared
 /// on their own, which leaves this hash stable across a rename or a move — the
 /// property that lets `vectors` key on it.
-fn content_hash(snippet: &LoadedSnippet) -> String {
+pub fn content_hash(snippet: &LoadedSnippet) -> String {
     let mut hasher = blake3::Hasher::new();
     let front = &snippet.file.front;
     field(&mut hasher, kind_name(front.kind).as_bytes());

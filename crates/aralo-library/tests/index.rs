@@ -450,3 +450,48 @@ fn a_merge_base_is_the_last_settled_version_and_waits_out_a_conflict() {
     index.sync(&library.reload().unwrap()).unwrap();
     assert_eq!(index.base(id).unwrap(), None);
 }
+
+#[test]
+fn vectors_are_kept_per_model_and_pruned_to_what_is_asked_for() {
+    let mut index = Index::open_in_memory().unwrap();
+    let a = (String::from("hash-a"), vec![1u8, 2, 3, 4]);
+    let b = (String::from("hash-b"), vec![5u8, 6, 7, 8]);
+    index
+        .put_vectors("model@1", &[a.clone(), b.clone()])
+        .unwrap();
+    index
+        .put_vectors("model@2", std::slice::from_ref(&a))
+        .unwrap();
+    assert_eq!(index.vectors("model@1").unwrap().len(), 2);
+    assert_eq!(index.vectors("model@1").unwrap()["hash-b"], b.1);
+
+    // A vector made again replaces the one there.
+    index
+        .put_vectors("model@1", &[(a.0.clone(), vec![9, 9, 9, 9])])
+        .unwrap();
+    assert_eq!(
+        index.vectors("model@1").unwrap()["hash-a"],
+        vec![9, 9, 9, 9]
+    );
+
+    // Keeping `hash-a` under model@1 drops `hash-b`, and every vector the
+    // other model made.
+    let keep = std::collections::HashSet::from([a.0.clone()]);
+    assert_eq!(index.keep_vectors("model@1", &keep).unwrap(), 2);
+    assert_eq!(index.vectors("model@1").unwrap().len(), 1);
+    assert!(index.vectors("model@2").unwrap().is_empty());
+}
+
+#[test]
+fn a_rebuild_keeps_the_vectors() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = library(folder.path());
+    let mut index = Index::open_in_memory().unwrap();
+    index.rebuild(&library).unwrap();
+    let hash = aralo_library::content_hash(&library.snippets()[0]);
+    index
+        .put_vectors("model@1", &[(hash.clone(), vec![0; 4])])
+        .unwrap();
+    index.rebuild(&library).unwrap();
+    assert!(index.vectors("model@1").unwrap().contains_key(&hash));
+}

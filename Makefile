@@ -16,7 +16,7 @@ APP       := $(DERIVED)/Build/Products/Debug/Aralo.app
 # `make app SIGN_IDENTITY="My Self-Signed Cert"`.
 SIGN_IDENTITY ?= -
 
-.PHONY: help bootstrap xcframework xcframework-debug project app run test test-swift lint lint-swift check \
+.PHONY: help bootstrap xcframework xcframework-debug project model app run test test-swift lint lint-swift check \
 	matrix latency clean
 
 help: ## List the targets
@@ -33,7 +33,11 @@ xcframework-debug: ## The same, unoptimised: much faster to build
 project: ## Generate apps/macos/Aralo.xcodeproj from project.yml
 	cd $(MACOS) && xcodegen generate --quiet
 
-app: $(GENERATED) project ## Build Aralo.app (Debug, signed ad hoc)
+model: ## Fetch the embedding model search by meaning ships with, into models/
+	scripts/fetch-model.sh
+
+# The model comes before the project: xcodegen adds it only if it is there.
+app: $(GENERATED) model project ## Build Aralo.app (Debug, signed ad hoc), with the model inside it
 	xcodebuild -project $(PROJECT) -scheme Aralo -configuration Debug \
 		-derivedDataPath $(DERIVED) -quiet CODE_SIGN_IDENTITY="$(SIGN_IDENTITY)" build
 	@echo "Built $(APP)"

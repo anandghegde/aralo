@@ -230,3 +230,46 @@ fn search_narrows_by_group_limit_and_the_enabled_flag() {
     assert_eq!(capped.lines().count(), 2, "{capped}");
     assert!(capped.contains("raise --limit"), "{capped}");
 }
+
+#[test]
+fn search_with_a_model_finds_a_snippet_by_what_it_means() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = folder.path().join("lib");
+    std::fs::create_dir_all(&library).unwrap();
+    std::fs::write(
+        library.join("greeting.md"),
+        "---\nlabel: Greeting\nabbr: \";gr\"\n---\nhello world\n",
+    )
+    .unwrap();
+    let library = library.to_str().unwrap();
+    // The tiny model's numbers are random, but it averages tokens: "world
+    // hello" is the vector "hello world" is, and no word search finds it.
+    let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/embed/tiny");
+    let model = model.to_str().unwrap();
+
+    let words = aralo(&["search", library, "world hello"]);
+    assert_eq!(words.status.code(), Some(1), "{words:?}");
+
+    let meaning = aralo(&["search", library, "world hello", "--model", model]);
+    assert!(meaning.status.success(), "{meaning:?}");
+    assert!(
+        stdout(&meaning).contains("meaning: hello world"),
+        "{meaning:?}"
+    );
+
+    // ARALO_MODEL does what --model does.
+    let from_environment = Command::new(env!("CARGO_BIN_EXE_aralo"))
+        .args(["search", library, "world hello"])
+        .env("ARALO_MODEL", model)
+        .output()
+        .unwrap();
+    assert!(from_environment.status.success(), "{from_environment:?}");
+
+    // A folder that is not a model is an error that says what is missing.
+    let broken = aralo(&["search", library, "hello", "--model", library]);
+    assert_eq!(broken.status.code(), Some(2), "{broken:?}");
+    assert!(
+        String::from_utf8_lossy(&broken.stderr).contains("tokenizer.json"),
+        "{broken:?}"
+    );
+}

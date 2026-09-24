@@ -254,3 +254,106 @@ fn one_snippet_is_reported_once_however_many_fields_match() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].field, Field::Label);
 }
+
+// Search by meaning. The core decides what is similar; these check what search
+// does with it.
+
+fn id_of(library: &Library, name: &str) -> aralo_snippet::SnippetId {
+    library
+        .snippets()
+        .iter()
+        .find(|snippet| snippet.display_name() == name)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn a_snippet_found_by_meaning_comes_after_every_literal_hit() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = library(folder.path());
+    let similar = [
+        (id_of(&library, "Invoice line"), 0.8),
+        (id_of(&library, "Best regards"), 0.6),
+    ];
+    // "regards" is in a label, so that snippet keeps its literal hit and is
+    // not reported twice.
+    let hits = Searcher::new().search_with_meaning(&library, &Query::new("regards"), &similar);
+    assert_eq!(names(&library, &hits), ["Best regards", "Invoice line"]);
+    assert_eq!(hits[0].field, Field::Label);
+    assert_eq!(hits[1].field, Field::Meaning);
+    assert_eq!(hits[1].score, 8000);
+    // What a list shows for it: the body's first line, nothing highlighted.
+    assert_eq!(hits[1].text, "Invoice %key:tab% due on %d");
+    assert!(hits[1].matched.is_empty());
+}
+
+#[test]
+fn a_snippet_found_by_meaning_goes_through_the_filters() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = library(folder.path());
+    let similar = [
+        (id_of(&library, "Thanks"), 0.9),
+        (id_of(&library, "Invoice line"), 0.7),
+    ];
+    let query = Query {
+        text: "gratitude".to_owned(),
+        enabled_only: true,
+        ..Query::default()
+    };
+    let hits = Searcher::new().search_with_meaning(&library, &query, &similar);
+    // Thanks is switched off.
+    assert_eq!(names(&library, &hits), ["Invoice line"]);
+
+    let query = Query {
+        text: "gratitude".to_owned(),
+        limit: Some(1),
+        ..Query::default()
+    };
+    let hits = Searcher::new().search_with_meaning(&library, &query, &similar);
+    assert_eq!(names(&library, &hits), ["Thanks"]);
+}
+
+#[test]
+fn an_empty_query_means_nothing() {
+    let folder = tempfile::tempdir().unwrap();
+    let library = library(folder.path());
+    let similar = [(id_of(&library, "Thanks"), 0.9)];
+    let hits = Searcher::new().search_with_meaning(&library, &Query::default(), &similar);
+    assert!(hits.iter().all(|hit| hit.field != Field::Meaning));
+    assert_eq!(hits.len(), 4);
+}
+
+#[test]
+fn only_the_first_few_meaning_hits_are_shown() {
+    let folder = tempfile::tempdir().unwrap();
+    for number in 0..8 {
+        write(
+            folder.path(),
+            &format!("note-{number}.md"),
+            &format!("---\nlabel: Note {number}\n---\nText {number}\n"),
+        );
+    }
+    let library = Library::load(folder.path()).unwrap();
+    let similar: Vec<_> = library
+        .snippets()
+        .iter()
+        .map(|snippet| (snippet.id, 0.5))
+        .collect();
+    let hits = Searcher::new().search_with_meaning(&library, &Query::new("zzz"), &similar);
+    assert_eq!(hits.len(), 5);
+}
+
+#[test]
+fn what_a_snippet_means_leaves_its_placeholders_out() {
+    let folder = tempfile::tempdir().unwrap();
+    write(
+        folder.path(),
+        "refund.md",
+        "---\nlabel: Refund issued\ntags: [billing]\n---\nHi {{field: name}}, your refund of {{field: amount}} is on its way.\n",
+    );
+    let library = Library::load(folder.path()).unwrap();
+    assert_eq!(
+        aralo_library::meaning_text(&library.snippets()[0]),
+        "Refund issued.\nbilling.\nHi  , your refund of   is on its way."
+    );
+}

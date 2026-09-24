@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Structural checks that turn Aralo's architecture rules into build failures.
 #
-#   a. Pure crates        aralo-engine's and aralo-template's normal dependency
-#                         closures stay inside short allow-lists (PRD P1,
-#                         ADR-0005, ADR-0014).
+#   a. Pure crates        aralo-engine's, aralo-template's and aralo-embed's
+#                         normal dependency closures stay inside short
+#                         allow-lists (PRD P1, PRD A4, ADR-0005, ADR-0014,
+#                         ADR-0016).
 #   b. One-way graph      internal crates only depend downwards (plan section 10).
 #   c. No unsafe in ffi   aralo-ffi contains no hand-written `unsafe`.
 #   d. Silent engine      aralo-engine contains no printing or logging call.
@@ -32,6 +33,12 @@ ENGINE_ALLOWED="zeroize"
 # placeholder needs arrives as an argument.
 TEMPLATE_CRATE="aralo-template"
 TEMPLATE_ALLOWED="unicode-segmentation"
+# The embedding runtime turns the user's snippets into vectors, and search by
+# meaning promises that happens on this machine. Nothing in this list can open
+# a socket; an HTTP client, a model hub or a telemetry crate arriving here is
+# the promise breaking.
+EMBED_CRATE="aralo-embed"
+EMBED_ALLOWED="arrayvec blake3 cfg-if constant_time_eq cpufeatures itoa libc memchr proc-macro2 quote serde serde_core serde_derive serde_json syn thiserror thiserror-impl tinyvec unicode-ident unicode-normalization unicode-properties zmij"
 
 # Layering. Every workspace member must appear in exactly one layer.
 #   layer 0  pure base: no internal dependencies at all
@@ -80,6 +87,7 @@ fi
 graph_status=0
 ENGINE_CRATE="$ENGINE_CRATE" ENGINE_ALLOWED="$ENGINE_ALLOWED" \
 TEMPLATE_CRATE="$TEMPLATE_CRATE" TEMPLATE_ALLOWED="$TEMPLATE_ALLOWED" \
+EMBED_CRATE="$EMBED_CRATE" EMBED_ALLOWED="$EMBED_ALLOWED" \
 LAYER_0="$LAYER_0" LAYER_1="$LAYER_1" LAYER_2="$LAYER_2" LAYER_3="$LAYER_3" \
 python3 - "$METADATA" <<'PYTHON' || graph_status=$?
 import json
@@ -120,6 +128,12 @@ pure = [
         set(os.environ["TEMPLATE_ALLOWED"].split()),
         "This crate has no files, no network and no clock, and it compiles to "
         "WebAssembly (ADR-0014)",
+    ),
+    (
+        os.environ["EMBED_CRATE"],
+        set(os.environ["EMBED_ALLOWED"].split()),
+        "This crate reads the user's snippets to embed them, and search by "
+        "meaning never leaves the machine (PRD A4, ADR-0016)",
     ),
 ]
 

@@ -13,8 +13,16 @@
 //! before every label hit and body hits come last. That order can be explained
 //! in one sentence, which a blend of two scores that share no scale could not.
 //!
+//! Search by meaning (PRD A4) keeps to that sentence. The core works out which
+//! snippets mean what the query means ([`meaning_text`] is what it embeds) and
+//! hands them in, most similar first; each one the words did not already find
+//! is a [`Field::Meaning`] hit, after every literal one. Typing a word that is
+//! in a snippet finds it where it always did, and "money back" still finds the
+//! refund reply that never says either word.
+//!
 //! [ADR-0013]: ../../../docs/adr/0013-import-and-export.md
 
+use std::collections::HashSet;
 use std::fmt;
 
 use aralo_snippet::{SnippetId, SnippetKind};
@@ -34,6 +42,10 @@ const EXCERPT_LEAD: usize = 24;
 /// A body hit counts down from here by how far into the body it sits: the same
 /// words in the first line of a snippet rank above them in the twentieth.
 const BODY_SCORE: u32 = 100_000;
+
+/// At most this many hits by meaning. They come after every literal hit, and
+/// past the first few a model's idea of "similar" is not worth a row.
+const MEANING_HITS: usize = 5;
 
 /// What to look for.
 ///
@@ -65,6 +77,8 @@ pub enum Field {
     Tag,
     Group,
     Body,
+    /// None of its words, but what it means: the embedding model found it.
+    Meaning,
 }
 
 /// One snippet a query found, and the text that found it.
@@ -73,12 +87,14 @@ pub struct Hit {
     pub id: SnippetId,
     pub field: Field,
     /// The text that matched: one abbreviation, the label, one tag, the group
-    /// path, or the body line the match sits on, cut to a readable length.
+    /// path, or the body line the match sits on, cut to a readable length. A
+    /// hit by meaning carries the body's first line, since no word matched.
     pub text: String,
     /// Character positions in `text` the query matched, in order, for an
     /// editor to highlight. Empty when the query was empty.
     pub matched: Vec<u32>,
-    /// How well it matched. Comparable only with hits in the same field.
+    /// How well it matched. Comparable only with hits in the same field; for
+    /// a hit by meaning, the similarity in ten-thousandths.
     pub score: u32,
 }
 
@@ -117,6 +133,19 @@ impl Searcher {
     /// snippet: a snippet whose abbreviation and body both match is reported
     /// against its abbreviation, the field that ranks highest.
     pub fn search(&mut self, library: &Library, query: &Query) -> Vec<Hit> {
+        self.search_with_meaning(library, query, &[])
+    }
+
+    /// The same, with the snippets that mean what the query means, most
+    /// similar first, each with its similarity from 0 to 1. Those the words
+    /// found keep their literal hit; the rest come after every literal hit, in
+    /// the order given, through the same filters.
+    pub fn search_with_meaning(
+        &mut self,
+        library: &Library,
+        query: &Query,
+        similar: &[(SnippetId, f32)],
+    ) -> Vec<Hit> {
         let text = query.text.trim();
         // `Pattern::new` and not `Pattern::parse`: parse reads `^`, `$`, `'`
         // and `!` as operators, and an abbreviation is exactly the kind of
@@ -156,6 +185,33 @@ impl Searcher {
         // A stable sort, so hits that rank the same keep the library's own
         // order, which is by path.
         hits.sort_by(|a, b| a.field.cmp(&b.field).then(b.score.cmp(&a.score)));
+
+        if !text.is_empty() {
+            let found: HashSet<SnippetId> = hits.iter().map(|hit| hit.id).collect();
+            let mut seen = HashSet::new();
+            for &(id, similarity) in similar {
+                if seen.len() == MEANING_HITS {
+                    break;
+                }
+                if found.contains(&id) || seen.contains(&id) {
+                    continue;
+                }
+                let Some(snippet) = library.snippet(id) else {
+                    continue;
+                };
+                if !query.allows(snippet) {
+                    continue;
+                }
+                seen.insert(id);
+                hits.push(Hit {
+                    id,
+                    field: Field::Meaning,
+                    text: first_line(&snippet.file.body),
+                    matched: Vec::new(),
+                    score: (similarity.clamp(0.0, 1.0) * 10_000.0).round() as u32,
+                });
+            }
+        }
         if let Some(limit) = query.limit {
             hits.truncate(limit);
         }
@@ -292,6 +348,48 @@ impl Query {
         }
         true
     }
+}
+
+/// What a snippet means, as the embedding model is given it: the label, the
+/// tags and the body, without the placeholders. `{{clipboard}}` says where
+/// text goes, not what the snippet is about, and a date format is noise.
+///
+/// Only what the content hash covers goes in, so a snippet's vector is still
+/// its own after a rename or a move, exactly as its hash is.
+pub fn meaning_text(snippet: &LoadedSnippet) -> String {
+    let front = &snippet.file.front;
+    let mut text = String::new();
+    for part in std::iter::once(front.label.as_str()).chain(front.tags.iter().map(String::as_str)) {
+        if !part.is_empty() {
+            text.push_str(part);
+            text.push_str(".\n");
+        }
+    }
+    let mut body = snippet.file.body.as_str();
+    while let Some(open) = body.find("{{") {
+        text.push_str(&body[..open]);
+        match body[open..].find("}}") {
+            Some(close) => {
+                text.push(' ');
+                body = &body[open + close + 2..];
+            }
+            None => {
+                body = "";
+            }
+        }
+    }
+    text.push_str(body);
+    text
+}
+
+/// The first line of a body with anything on it, cut to what a list can draw.
+fn first_line(body: &str) -> String {
+    let line = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    line.chars().take(MAX_EXCERPT).collect()
 }
 
 fn equal_ignore_case(left: &str, right: &str) -> bool {

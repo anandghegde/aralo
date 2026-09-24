@@ -30,6 +30,14 @@ targets:
     platform: macOS
     sources:
       - path: Aralo
+      # The embedding model search by meaning runs on (ADR-0016), fetched by
+      # `make model`. A folder reference, so it lands in Resources as it is;
+      # optional, so a project generated without it still builds and searches
+      # by words alone.
+      - path: ../../models/potion-base-8M
+        type: folder
+        buildPhase: resources
+        optional: true
     dependencies:
       - package: AraloKit
     settings:
