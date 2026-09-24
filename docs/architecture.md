@@ -575,7 +575,7 @@ index, leaves search going by words, and `meaning_error()` says why.
 
 **How it ranks.** `Core::search` embeds the query, scans every vector, and
 hands [`Searcher::search_with_meaning`](../crates/aralo-library/src/search.rs)
-the snippets above a cosine similarity of 0.45, most similar first. Each one
+the snippets above a cosine similarity of 0.25, most similar first. Each one
 the words did not already find becomes a `Field::Meaning` hit, after every
 literal hit, at most five, through the same filters. So search still ranks in
 an order that can be said in one sentence, a word that is in a snippet finds

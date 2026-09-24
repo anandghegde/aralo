@@ -20,9 +20,11 @@ use aralo_library::{content_hash, meaning_text, Library};
 use aralo_snippet::SnippetId;
 
 /// A snippet this much like the query or more is offered by meaning. Cosine
-/// similarity: 1 is the same meaning, 0 unrelated. A static model scores
-/// unrelated short texts well above 0, so the bar is not low.
-pub const MIN_SIMILARITY: f32 = 0.45;
+/// similarity: 1 is the same meaning, 0 unrelated. A static model averages
+/// every token of a snippet into one vector, so a two-word query and the
+/// paragraph that answers it rarely score high; the ranking matters more
+/// than the number, and this only keeps the unrelated out.
+pub const MIN_SIMILARITY: f32 = 0.25;
 
 /// How many candidates search is handed before its filters run. It shows
 /// fewer ([`aralo_library::Searcher::search_with_meaning`]); these are enough

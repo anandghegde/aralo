@@ -87,7 +87,7 @@ transformer spends on a few dozen.
 - **Hits by meaning rank after every literal hit.** Search keeps the order it
   can explain in one sentence ([library search](../architecture.md)), and
   meaning comes last, most similar first, at most five, above a similarity
-  bar of 0.45.
+  bar of 0.25.
 
 ## Consequences
 
@@ -105,8 +105,9 @@ transformer spends on a few dozen.
   and `make.py` regenerates them if a model with another vocabulary is
   adopted. Only BERT's WordPiece is read; any other tokenizer is refused, not
   approximated.
-- The first CI run downloads the model unpinned and prints its checksums,
-  which are then recorded; from then on a download that does not match fails.
+- The checksums were recorded from the first download, on CI, of
+  `minishlab/potion-base-8M` at commit `bf8b056`. A download that does not
+  match them fails.
 
 ## Alternatives rejected
 

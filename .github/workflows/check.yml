@@ -54,15 +54,19 @@ jobs:
       - name: Fetch the embedding model
         if: matrix.os == 'ubuntu-latest'
         run: scripts/fetch-model.sh
-        env:
-          # The first download pins the checksums; see scripts/fetch-model.sh.
-          ARALO_MODEL_UNPINNED: "1"
       # Includes the privacy invariants (crates/aralo-engine/tests/privacy.rs): a privacy regression blocks merge.
       - name: Test
         run: cargo test --workspace
         env:
           # With the model fetched, the tests that need it must not skip.
           ARALO_REQUIRE_MODEL: ${{ matrix.os == 'ubuntu-latest' && '1' || '' }}
+      # What the model made of each query, every snippet's similarity printed, passing or not: a change
+      # of model or of the bar is read here.
+      - name: Search by meaning, with the scores
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test -p aralo-core --test meaning -- --nocapture --test-threads 1
+        env:
+          ARALO_REQUIRE_MODEL: "1"
 
   # Why: engine purity and the one-way crate graph are build properties, not promises (ADR-0005); cargo-deny covers licences, advisories and sources.
   graph:

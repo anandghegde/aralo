@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use aralo_core::{
     Core, Field, LibraryChange, LibraryListener, Model, Query, Runtime, RuntimeOptions, SearchHit,
+    MIN_SIMILARITY,
 };
 
 fn repo() -> PathBuf {
@@ -190,20 +191,41 @@ fn search_library() -> Core {
     Core::open_read_only(&repo().join("fixtures/search/library")).unwrap()
 }
 
-/// What each query found by meaning, printed so a change of model or of the
-/// bar shows in the log as well as in a failure.
-fn by_meaning(core: &Core, text: &str) -> Vec<String> {
-    let similar = core.meaning().unwrap().similar(text);
-    let hits = core.search(&Query::new(text));
-    eprintln!("{text:?}");
-    for (id, similarity) in &similar {
-        let snippet = core.library().snippet(*id).unwrap();
-        eprintln!("  {similarity:.3}  {}", snippet.display_name());
+/// What each query found by meaning, and every snippet's similarity to it,
+/// best first. The table is printed, and goes into every failure, so a change
+/// of model or of the bar shows what the model thought.
+fn by_meaning(core: &Core, text: &str) -> (Vec<String>, String) {
+    let meaning = core.meaning().unwrap();
+    let model = meaning.model();
+    let query = model.embed(text);
+    let mut scores: Vec<(f32, &str)> = core
+        .library()
+        .snippets()
+        .iter()
+        .map(|snippet| {
+            let vector = model.embed(&aralo_library::meaning_text(snippet));
+            (cosine(&query, &vector), snippet.display_name())
+        })
+        .collect();
+    scores.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut table = format!("{text:?} (offered from {MIN_SIMILARITY})\n");
+    for (similarity, name) in &scores {
+        table.push_str(&format!("  {similarity:.3}  {name}\n"));
     }
-    hits.into_iter()
+    eprint!("{table}");
+    let found = core
+        .search(&Query::new(text))
+        .into_iter()
         .filter(|hit| hit.field == Field::Meaning)
         .map(|hit| hit.name)
-        .collect()
+        .collect();
+    (found, table)
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let norm = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    dot / (norm(a) * norm(b)).max(f32::MIN_POSITIVE)
 }
 
 #[test]
@@ -214,11 +236,11 @@ fn money_back_finds_the_refund_reply_with_nothing_leaving_the_machine() {
     assert!(core.search(&Query::new("money back")).is_empty());
 
     core.use_model(model);
-    let found = by_meaning(&core, "money back");
+    let (found, table) = by_meaning(&core, "money back");
     assert_eq!(
         found.first().map(String::as_str),
         Some("Refund issued"),
-        "{found:?}"
+        "{found:?}\n{table}"
     );
 }
 
@@ -234,11 +256,11 @@ fn other_things_are_found_by_what_they_mean_too() {
         ("notes from our call", "Meeting follow-up"),
         ("on holiday", "Out of office"),
     ] {
-        let found = by_meaning(&core, query);
+        let (found, table) = by_meaning(&core, query);
         assert_eq!(
             found.first().map(String::as_str),
             Some(wanted),
-            "{query:?}: {found:?}"
+            "{found:?}\n{table}"
         );
     }
 }
