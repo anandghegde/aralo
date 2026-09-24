@@ -86,20 +86,22 @@ impl Tensor<'_> {
         let data = self.data;
         Ok(match self.dtype.as_str() {
             "F32" => data
-                .chunks_exact(4)
-                .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| f32::from_le_bytes(*bytes))
                 .collect(),
             "F64" => data
-                .chunks_exact(8)
-                .map(|bytes| {
-                    let mut eight = [0; 8];
-                    eight.copy_from_slice(bytes);
-                    f64::from_le_bytes(eight) as f32
-                })
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|bytes| f64::from_le_bytes(*bytes) as f32)
                 .collect(),
             "F16" => data
-                .chunks_exact(2)
-                .map(|bytes| half(u16::from_le_bytes([bytes[0], bytes[1]])))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|bytes| half(u16::from_le_bytes(*bytes)))
                 .collect(),
             "I8" => data.iter().map(|&byte| f32::from(byte as i8)).collect(),
             other => return Err(bad(&format!("{other} values cannot be read as numbers"))),
@@ -112,20 +114,16 @@ impl Tensor<'_> {
         let wide = |value: i64| u32::try_from(value).map_err(|_| bad("an index is out of range"));
         match self.dtype.as_str() {
             "I32" => data
-                .chunks_exact(4)
-                .map(|bytes| {
-                    wide(i64::from(i32::from_le_bytes([
-                        bytes[0], bytes[1], bytes[2], bytes[3],
-                    ])))
-                })
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| wide(i64::from(i32::from_le_bytes(*bytes))))
                 .collect(),
             "I64" => data
-                .chunks_exact(8)
-                .map(|bytes| {
-                    let mut eight = [0; 8];
-                    eight.copy_from_slice(bytes);
-                    wide(i64::from_le_bytes(eight))
-                })
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|bytes| wide(i64::from_le_bytes(*bytes)))
                 .collect(),
             other => Err(bad(&format!("{other} values cannot be read as indices"))),
         }

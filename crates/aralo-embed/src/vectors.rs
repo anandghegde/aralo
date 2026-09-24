@@ -108,8 +108,10 @@ pub fn from_bytes(bytes: &[u8]) -> Option<Vec<f32>> {
     }
     Some(
         bytes
-            .chunks_exact(4)
-            .map(|four| f32::from_le_bytes([four[0], four[1], four[2], four[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|four| f32::from_le_bytes(*four))
             .collect(),
     )
 }
