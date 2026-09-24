@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 const HASH_CHARS: usize = 16;
 
 /// The folder Aralo keeps its caches in, or `None` when the machine will not
-/// say where the user's home is.
+/// say where the user's home is: `~/Library/Application Support/Aralo`, and on
+/// Windows, which has no `HOME`, `%LOCALAPPDATA%\Aralo`.
 ///
 /// `ARALO_STATE` overrides it, which is how the test harness keeps a run from
 /// touching the real one.
@@ -31,9 +32,12 @@ pub fn state_folder() -> Option<PathBuf> {
             return Some(PathBuf::from(from_environment));
         }
     }
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+    let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    if cfg!(windows) {
+        return Some(PathBuf::from(set("LOCALAPPDATA")?).join("Aralo"));
+    }
     Some(
-        PathBuf::from(home)
+        PathBuf::from(set("HOME")?)
             .join("Library")
             .join("Application Support")
             .join("Aralo"),

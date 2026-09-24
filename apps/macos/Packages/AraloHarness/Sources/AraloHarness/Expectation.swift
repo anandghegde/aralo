@@ -33,6 +33,9 @@ public struct Expectation: Equatable, Sendable {
     public enum Problem: Error, Equatable, CustomStringConvertible {
         case noExpansion(String)
         case needsContext(String)
+        /// The body has an AI block: what goes in is a model's to write, and
+        /// there is no expectation to hold the app to.
+        case needsModel(String)
 
         public var description: String {
             switch self {
@@ -40,6 +43,8 @@ public struct Expectation: Equatable, Sendable {
                 "the library does not expand \"\(abbreviation)\"; is it fixtures/matrix/library?"
             case .needsContext(let abbreviation):
                 "\"\(abbreviation)\" wants something from outside the core that the harness cannot supply"
+            case .needsModel(let abbreviation):
+                "\"\(abbreviation)\" asks a model for part of its text, which the harness cannot predict"
             }
         }
     }
@@ -93,6 +98,8 @@ public struct Expectation: Equatable, Sendable {
                 // harness is not the shell. A matrix body that wants them would
                 // be compared against a guess, so say so instead.
                 throw Problem.needsContext(abbreviation)
+            case .ai:
+                throw Problem.needsModel(abbreviation)
             case .expand(_, let steps, let undoDeleteCount, let profile):
                 return read(steps, profile: profile, typed: typed, undoable: undoDeleteCount != nil)
             case .done:
