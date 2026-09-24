@@ -154,7 +154,7 @@ struct FormView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if session.step == .ai {
+                    if session.step == .blocks {
                         ForEach(session.blocks) { block in
                             blockRow(block)
                         }
@@ -169,7 +169,7 @@ struct FormView: View {
             Divider()
             preview
             Divider()
-            if session.step == .ai {
+            if session.step == .blocks {
                 blockButtons
             } else {
                 buttons

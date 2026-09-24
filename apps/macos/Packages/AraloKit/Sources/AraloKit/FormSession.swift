@@ -22,7 +22,7 @@ public final class FormSession {
         case form
         /// The AI blocks: models writing, or what they wrote, to read before
         /// it goes in.
-        case ai
+        case blocks
     }
 
     public private(set) var step: Step = .form
@@ -78,14 +78,14 @@ public final class FormSession {
     /// Whether `submit` can do anything now: not once the session is over,
     /// and not while a model is still writing.
     public var canSubmit: Bool {
-        !isFinished && !(step == .ai && isWriting)
+        !isFinished && !(step == .blocks && isWriting)
     }
 
     /// Whether `submit` puts the text in, rather than moving on to the AI
     /// blocks. A panel gets out of the way first when it does: synthetic keys
     /// follow the keyboard.
     public var insertsOnSubmit: Bool {
-        step == .ai || !hasBlocks
+        step == .blocks || !hasBlocks
     }
 
     @ObservationIgnored private let session: ExpansionSession
@@ -147,7 +147,7 @@ public final class FormSession {
         switch step {
         case .form:
             advance(session.submitForm(answers: answers))
-        case .ai:
+        case .blocks:
             settle()
         }
     }
@@ -166,7 +166,7 @@ public final class FormSession {
 
     /// Asks the models again, for every block or for one.
     public func regenerate(_ index: UInt32? = nil) {
-        guard step == .ai, !isFinished, !isWriting else { return }
+        guard step == .blocks, !isFinished, !isWriting else { return }
         editing = nil
         ask(index.map { [$0] } ?? blocks.map(\.index))
     }
@@ -174,7 +174,7 @@ public final class FormSession {
     /// Stops the models that are writing. What arrived stays, to be read and
     /// edited; a block that got nothing puts in its fallback.
     public func stop() {
-        guard step == .ai, isWriting else { return }
+        guard step == .blocks, isWriting else { return }
         stopRuns()
         for block in blocks where block.status == .waiting || block.status == .writing {
             update(block.index) { block in
@@ -191,14 +191,14 @@ public final class FormSession {
     /// Lets the user change a block's text before it goes in: the first
     /// block, when none is named.
     public func edit(_ index: UInt32? = nil) {
-        guard step == .ai, !isFinished, !isWriting else { return }
+        guard step == .blocks, !isFinished, !isWriting else { return }
         editing = index ?? blocks.first?.index
     }
 
     /// The user's own text for a block. It goes in as written, in place of
     /// the model's answer or the fallback.
     public func setText(_ text: String, for index: UInt32) {
-        guard step == .ai, !isFinished else { return }
+        guard step == .blocks, !isFinished else { return }
         update(index) { block in
             block.text = text
             block.status = .written
@@ -207,7 +207,7 @@ public final class FormSession {
 
     /// Puts in a block's fallback instead of what the model wrote.
     public func useFallback(_ index: UInt32) {
-        guard step == .ai, !isFinished, !isWriting else { return }
+        guard step == .blocks, !isFinished, !isWriting else { return }
         if editing == index { editing = nil }
         update(index) { $0.status = .failed("you chose the fallback") }
     }
@@ -229,7 +229,7 @@ public final class FormSession {
         case .context(let kinds):
             advance(session.provideContext(values: supply(for: kinds)))
         case .ai(let asked):
-            step = .ai
+            step = .blocks
             blocks = asked.map(AIBlock.init)
             ask(blocks.map(\.index))
         case .expand:

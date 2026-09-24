@@ -68,7 +68,7 @@ final class FormSessionAITests: XCTestCase {
 
         form.answers["who"] = "Dana"
         form.submit()
-        XCTAssertEqual(form.step, .ai)
+        XCTAssertEqual(form.step, .blocks)
         XCTAssertFalse(form.isFinished)
         XCTAssertEqual(form.blocks.map(\.prompt), ["Thank them"])
         try await until { !form.isWriting }
@@ -93,7 +93,7 @@ final class FormSessionAITests: XCTestCase {
     func testWithNoOneToAskTheFallbackGoesInAndThePanelSaysWhy() async throws {
         let form = try picked("{{ai: Thank them | fallback: Thanks.}}")
         // No form, so the panel opens on the block.
-        XCTAssertEqual(form.step, .ai)
+        XCTAssertEqual(form.step, .blocks)
         XCTAssertFalse(form.isFinished)
         try await until { !form.isWriting }
         XCTAssertEqual(form.blocks.first?.status, .failed("AI is not set up here"))
