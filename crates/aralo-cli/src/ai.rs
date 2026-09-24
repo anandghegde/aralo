@@ -11,7 +11,8 @@ use std::process::ExitCode;
 
 use aralo_core::ai::{
     builtin_commands, profiles_path, provider_preset, AdapterKind, AiSettings, AiSwitches,
-    Capabilities, Check, Command, KeyChange, ProfileDraft, SavedProfile, Secret, PROVIDER_PRESETS,
+    BlockRequest, Capabilities, Check, Command, KeyChange, ProfileDraft, SavedProfile, Secret,
+    PROVIDER_PRESETS,
 };
 use aralo_core::diff::Change;
 use aralo_core::Core;
@@ -436,6 +437,33 @@ fn chosen(settings: &AiSettings, name: Option<&str>) -> Result<SavedProfile, Fai
             .default_profile()?
             .ok_or_else(|| "there are no profiles yet; add one with `aralo ai add`".into()),
     }
+}
+
+/// Who answers an `{{ai}}` block for `aralo expand --ai` and `aralo type --ai`:
+/// the AI settings, one block at a time, with the answer read to the end. A
+/// refusal or a failure is the reason the block falls back.
+pub fn block_answers() -> Result<impl FnMut(&BlockRequest) -> Result<String, String>, Failure> {
+    let path =
+        profiles_path().ok_or("cannot find Aralo's state folder: set HOME or ARALO_STATE")?;
+    let settings = AiSettings::open(path)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    Ok(move |request: &BlockRequest| {
+        runtime.block_on(async {
+            let run = settings
+                .run_block(request)
+                .await
+                .map_err(|error| error.to_string())?;
+            eprintln!(
+                "aralo: {} with {} for \u{201c}{}\u{201d}",
+                run.profile(),
+                run.model(),
+                request.block.prompt
+            );
+            run.finish().await
+        })
+    })
 }
 
 /// Runs one request. The command line does one thing at a time, so a

@@ -70,40 +70,6 @@ note: "Aralo does not expand selection yet, so it stays as written."
 note: "Aralo does not expand app yet, so it stays as written."
 note: "Aralo does not expand window yet, so it stays as written."
 
-=== an AI block inserts its fallback until models arrive
---- en_US
-field: "Thanks, but not this time.|"
-preview: "Thanks, but not this time."
-undo: 26 backspaces
-note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
---- de_DE
-field: "Thanks, but not this time.|"
-preview: "Thanks, but not this time."
-undo: 26 backspaces
-note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
---- ja_JP
-field: "Thanks, but not this time.|"
-preview: "Thanks, but not this time."
-undo: 26 backspaces
-note: "Models arrive in a later release. Until then an AI block inserts its fallback text."
-
-=== an AI block with no fallback stays as written
---- en_US
-field: "{{ai: Write a polite refusal}}|"
-preview: "{{ai: Write a polite refusal}}"
-undo: 30 backspaces
-note: "Aralo does not expand ai yet, so it stays as written."
---- de_DE
-field: "{{ai: Write a polite refusal}}|"
-preview: "{{ai: Write a polite refusal}}"
-undo: 30 backspaces
-note: "Aralo does not expand ai yet, so it stays as written."
---- ja_JP
-field: "{{ai: Write a polite refusal}}|"
-preview: "{{ai: Write a polite refusal}}"
-undo: 30 backspaces
-note: "Aralo does not expand ai yet, so it stays as written."
-
 === a name the format does not define stays as written
 --- en_US
 field: "{{nonsense}} and {{if: never}}|"

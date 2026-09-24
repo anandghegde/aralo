@@ -9,10 +9,12 @@
 //!    keystroke and report everything that is wrong with a body before
 //!    anything is typed.
 //! 2. [`render`] turns that into text, with a [`Context`] holding the clock,
-//!    the answers and whatever context the shell went and fetched.
+//!    the answers, whatever context the shell went and fetched, and what the
+//!    model wrote for each `{{ai}}` block.
 //!
-//! Nothing here reads a clock, a clipboard or a file: a golden file pins an
-//! expansion to the minute (ADR-0014).
+//! Nothing here reads a clock, a clipboard or a file, or asks a model: a
+//! golden file pins an expansion to the minute (ADR-0014), and a model's
+//! answer arrives as an argument like everything else.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -34,6 +36,23 @@ pub const MAX_FIELD_LINES: u32 = 20;
 /// What the user filled in, by field name.
 pub type Answers = BTreeMap<String, String>;
 
+/// What each `{{ai}}` block came to, by [`AiBlock::index`].
+pub type AiAnswers = BTreeMap<usize, AiAnswer>;
+
+/// What one `{{ai}}` block puts in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AiAnswer {
+    /// Text a model wrote, as the user accepted it. It goes in as literal
+    /// text: it is never read for placeholders, so a model that writes
+    /// `{{clipboard}}` puts in those eleven characters and reads nothing
+    /// (PRD P10).
+    Text(String),
+    /// No model answered: AI is off, the network failed, the user chose the
+    /// fallback. The block puts in its `fallback:` text, and the expansion
+    /// says why.
+    Fallback { reason: String },
+}
+
 static NOTHING: ContextValues = ContextValues {
     clipboard: None,
     selection: None,
@@ -41,6 +60,7 @@ static NOTHING: ContextValues = ContextValues {
     window: None,
 };
 static NO_ANSWERS: Answers = BTreeMap::new();
+static NO_AI: AiAnswers = BTreeMap::new();
 
 /// Where `{{snippet: name-or-id}}` looks. The core implements it over the open
 /// library; this crate keeps no library of its own.
@@ -116,6 +136,9 @@ pub struct Context<'a> {
     pub locale: &'a str,
     pub values: &'a ContextValues,
     pub answers: &'a Answers,
+    /// What the `{{ai}}` blocks came to. A block with nothing here has not
+    /// been run, which is what an editor's preview is: it shows the fallback.
+    pub ai: &'a AiAnswers,
 }
 
 impl Context<'static> {
@@ -127,6 +150,7 @@ impl Context<'static> {
             locale: "",
             values: &NOTHING,
             answers: &NO_ANSWERS,
+            ai: &NO_AI,
         }
     }
 }
@@ -147,6 +171,12 @@ impl<'a> Context<'a> {
     #[must_use]
     pub fn with_answers(mut self, answers: &'a Answers) -> Self {
         self.answers = answers;
+        self
+    }
+
+    #[must_use]
+    pub fn with_ai(mut self, ai: &'a AiAnswers) -> Self {
+        self.ai = ai;
         self
     }
 }
@@ -275,6 +305,25 @@ pub enum FieldKind {
     Choice { options: Vec<String> },
 }
 
+/// One `{{ai: prompt | fallback: … | model: …}}` block, as a session runs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiBlock {
+    /// Which block this is, counting every `{{ai}}` in the expansion from
+    /// zero in the order they appear, nested snippets' included. It is what
+    /// an [`AiAnswer`] is filed under.
+    pub index: usize,
+    /// What the model is asked to write. The body's own words, so trusted.
+    pub prompt: String,
+    /// The `fallback:` option: what goes in when no model answers. `None`
+    /// when the body gave none, which puts in nothing; `Some("")` is the
+    /// same, said on purpose.
+    pub fallback: Option<String>,
+    /// The `model:` option, which wins over the snippet's and the profile's.
+    pub model: Option<String>,
+    /// Byte range in the outermost body, as for every other placeholder.
+    pub span: Range<usize>,
+}
+
 impl Resolved {
     /// The form to put in front of the user, empty when there is none.
     pub fn form(&self) -> &Form {
@@ -305,6 +354,33 @@ impl Resolved {
             Piece::Placeholder { placeholder, .. } => Some(placeholder),
             Piece::Text(_) => None,
         })
+    }
+
+    /// The `{{ai}}` blocks there are a model to ask for, in the order they
+    /// appear. A block with nothing to ask is left out: it is never run, and
+    /// puts in its fallback (the editor says why).
+    pub fn ai_blocks(&self) -> Vec<AiBlock> {
+        self.placeholders()
+            .filter(|placeholder| placeholder.name == "ai")
+            .enumerate()
+            .filter_map(|(index, placeholder)| {
+                let prompt = placeholder.argument.as_deref().map(str::trim)?;
+                if prompt.is_empty() {
+                    return None;
+                }
+                Some(AiBlock {
+                    index,
+                    prompt: prompt.to_owned(),
+                    fallback: placeholder.option("fallback").map(str::to_owned),
+                    model: placeholder
+                        .option("model")
+                        .map(str::trim)
+                        .filter(|model| !model.is_empty())
+                        .map(str::to_owned),
+                    span: placeholder.span.clone(),
+                })
+            })
+            .collect()
     }
 
     /// True when the body is literal text: nothing to ask for, nothing to
@@ -492,11 +568,16 @@ fn lint(placeholder: &Placeholder) -> Vec<Diagnostic> {
         return vec![about(DiagnosticKind::UnknownName, name)];
     };
     if name == "ai" {
-        return match placeholder.option("fallback") {
-            Some(fallback) if !fallback.is_empty() => {
-                vec![Diagnostic::new(DiagnosticKind::AiFallback, span)]
-            }
-            _ => vec![about(DiagnosticKind::NotImplemented, name)],
+        let asks = placeholder
+            .argument
+            .as_deref()
+            .is_some_and(|prompt| !prompt.trim().is_empty());
+        return if !asks {
+            vec![Diagnostic::new(DiagnosticKind::MissingPrompt, span)]
+        } else if placeholder.option("fallback").is_none() {
+            vec![Diagnostic::new(DiagnosticKind::AiNoFallback, span)]
+        } else {
+            Vec::new()
         };
     }
     if !entry.evaluated {
@@ -640,6 +721,18 @@ pub struct Rendered {
     segments: Vec<Vec<Part>>,
     cursor: Cursor,
     diagnostics: Vec<Diagnostic>,
+    ai_spans: Vec<AiSpan>,
+}
+
+/// Where one `{{ai}}` block's text sits in [`Rendered::text`]: what a panel
+/// marks as the model's, with everything outside it the body's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiSpan {
+    /// The block's [`AiBlock::index`].
+    pub block: usize,
+    /// A byte range of [`Rendered::text`]. Empty for a block that put in
+    /// nothing, which still has a place.
+    pub range: Range<usize>,
 }
 
 /// A piece of what an expansion inserts: text, or a key the app is to act on.
@@ -710,9 +803,15 @@ impl Rendered {
     }
 
     /// What the expansion itself found: a value nobody supplied, a format it
-    /// could not write. [`Resolved::diagnostics`] holds the rest.
+    /// could not write, a block no model answered. [`Resolved::diagnostics`]
+    /// holds the rest.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    /// Where each `{{ai}}` block's text went, in the order they appear.
+    pub fn ai_spans(&self) -> &[AiSpan] {
+        &self.ai_spans
     }
 
     /// The segments, to re-case and turn into steps.
@@ -727,7 +826,11 @@ pub fn render(resolved: &Resolved, context: Context<'_>) -> Rendered {
         segments: vec![Vec::new()],
         cursor: resolved.cursor.kind(),
         diagnostics: Vec::new(),
+        ai_spans: Vec::new(),
     };
+    // Bytes of `text()` so far, for the spans an AI block is given.
+    let mut written = 0;
+    let mut blocks = 0;
     for (index, piece) in resolved.pieces.iter().enumerate() {
         if resolved.cursor.stops_at(index) {
             out.segments.push(Vec::new());
@@ -741,20 +844,65 @@ pub fn render(resolved: &Resolved, context: Context<'_>) -> Rendered {
         // or a line break.
         if let Piece::Placeholder { placeholder, .. } = piece {
             if let Some(key) = key_named(placeholder).filter(|_| placeholder.name == "key") {
-                parts.push(Part::Key(key));
+                let part = Part::Key(key);
+                written += part.as_text().len();
+                parts.push(part);
                 continue;
             }
         }
         let text = match piece {
             Piece::Text(text) => text.clone(),
+            Piece::Placeholder { placeholder, .. } if placeholder.name == "ai" => {
+                let block = blocks;
+                blocks += 1;
+                let text = ai_value(placeholder, context.ai.get(&block), &mut out.diagnostics);
+                out.ai_spans.push(AiSpan {
+                    block,
+                    range: written..written + text.len(),
+                });
+                text
+            }
             Piece::Placeholder {
                 placeholder,
                 source,
             } => value(placeholder, source, context, &mut out.diagnostics),
         };
+        written += text.len();
         push_text(parts, &text);
     }
     out
+}
+
+/// What an `{{ai}}` block puts in: what the model wrote, as it was written,
+/// or the fallback.
+///
+/// The answer is pushed as text and goes nowhere near the parser, which is the
+/// whole of what keeps a model from writing a placeholder into an expansion
+/// (PRD P10). A block that has not been run is a preview, and shows its
+/// fallback without saying anything; one that no model answered says why.
+fn ai_value(
+    placeholder: &Placeholder,
+    answer: Option<&AiAnswer>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> String {
+    let fallback = placeholder.option("fallback").unwrap_or_default();
+    match answer {
+        Some(AiAnswer::Text(text)) => text.clone(),
+        Some(AiAnswer::Fallback { reason }) => {
+            let kind = if fallback.is_empty() {
+                DiagnosticKind::AiNothing
+            } else {
+                DiagnosticKind::AiFallback
+            };
+            diagnostics.push(Diagnostic::about(
+                kind,
+                placeholder.span.clone(),
+                reason.as_str(),
+            ));
+            fallback.to_owned()
+        }
+        None => fallback.to_owned(),
+    }
 }
 
 /// What one placeholder puts in. A placeholder Aralo cannot expand puts in the
@@ -830,11 +978,6 @@ fn value(
         // A key Aralo can press never reaches here; one it cannot stays as
         // written, and `lint` said which keys it can press.
         "key" => source.to_owned(),
-        "ai" => placeholder
-            .option("fallback")
-            .filter(|fallback| !fallback.is_empty())
-            .unwrap_or(source)
-            .to_owned(),
         // An unknown name, a `{{snippet}}` that could not be inlined, an
         // `{{if}}`: all of them stay as written, and `lint` said why.
         _ => source.to_owned(),

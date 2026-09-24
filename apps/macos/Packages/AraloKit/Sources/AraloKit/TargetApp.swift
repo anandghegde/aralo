@@ -31,6 +31,10 @@ public struct RunningTargetApp: TargetApp {
     /// The process, for asking Accessibility what is selected in it.
     public var processIdentifier: pid_t { app.processIdentifier }
 
+    /// What the app calls itself, such as "Mail": what a snippet whose AI
+    /// block declared `app` sends.
+    public var name: String? { app.localizedName }
+
     /// How long the app gets to come forward after a click has made Aralo the
     /// active one. Longer than a switch takes, short enough that a user who is
     /// waiting for text sees no lag before the message that none is coming.

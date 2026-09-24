@@ -1,9 +1,10 @@
 import AraloBridge
 import Foundation
 
-// The panels that open over another app: the search palette and the command
-// panel. Both note the app in front, take the keyboard while they are up, and
-// give it back before anything is typed into that app.
+// The panels that open over another app: the search palette, the command
+// panel, and what the form panel needs for a snippet's AI blocks. They note
+// the app in front, take the keyboard while they are up, and give it back
+// before anything is typed into that app.
 extension AraloService {
     // MARK: - The palette
 
@@ -100,6 +101,36 @@ extension AraloService {
         commands?.close()
         commands = nil
         setKeyboard(.command, false)
+    }
+
+    // MARK: - AI blocks in snippets
+
+    /// What a session may read from the app the text is for: the clipboard
+    /// for its body, and for its AI blocks whatever their snippet declared.
+    /// Each is read only when the session asks for it, and the selection not
+    /// at all while secure input is on or from a password field.
+    func sessionContext(for target: RunningTargetApp?) -> SessionContext {
+        SessionContext(
+            clipboard: { [pasteboard] in pasteboard.text() },
+            selection: { [weak self] in
+                guard let target, self?.secureInput?.isSecureInputOn != true,
+                      case .text(let text) = AccessibilitySelection.read(pid: target.processIdentifier)
+                else { return nil }
+                return text
+            },
+            app: { target?.name },
+            window: { target.flatMap { AccessibilitySelection.windowTitle(pid: $0.processIdentifier) } }
+        )
+    }
+
+    /// Answers AI blocks with the AI settings, opened the first time a block
+    /// asks: a snippet with no AI block reads neither profiles.toml nor the
+    /// keychain.
+    var blockRunner: BlockRunner {
+        DeferredBlockRunner { [weak self] in
+            guard let self else { throw AiBridgeError.Failed(message: "Aralo is closing.") }
+            return try aiSettings()
+        }
     }
 }
 

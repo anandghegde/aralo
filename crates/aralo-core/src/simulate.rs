@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 use aralo_engine::{Engine, ExpansionRecord, InsertMethod, KeyEvent, KeyVerdict};
 use aralo_template::{Answers, ContextValues};
 
+use crate::ai::BlockRequest;
 use crate::field::Field;
 use crate::{Core, Expand, Expansion, MatchInfo, Session, SessionStep};
 
@@ -11,10 +14,17 @@ pub enum Reply {
     /// whatever context the simulator was given.
     #[default]
     Fill,
-    /// Press Escape. The session is cancelled and the plan it gives back runs
-    /// instead.
+    /// Press Escape at the first panel: the form, or the AI preview. The
+    /// session is cancelled and the plan it gives back runs instead.
     Cancel,
 }
+
+/// Why a block the simulator was given no answer for puts in its fallback.
+pub const NO_MODEL: &str = "nothing here asks a model";
+
+/// Asks a model for a block: the request in, the answer as it goes in or why
+/// there is none out. `aralo expand --ai` blocks on the gateway in one.
+pub type AskModel<'a> = Box<dyn FnMut(&BlockRequest) -> Result<String, String> + 'a>;
 
 /// A text field that exists only in memory, with a caret.
 ///
@@ -27,6 +37,12 @@ pub struct Simulator<'a> {
     field: Field,
     answers: Answers,
     values: ContextValues,
+    /// What "the model" wrote for each block, by its number.
+    ai: BTreeMap<usize, String>,
+    /// Who answers a block with nothing in `ai`, if anyone.
+    model: Option<AskModel<'a>>,
+    /// Why a block nobody answers falls back.
+    no_model: String,
     reply: Reply,
     expansions: usize,
     cancellations: usize,
@@ -57,6 +73,9 @@ impl<'a> Simulator<'a> {
             field: Field::default(),
             answers: Answers::new(),
             values: ContextValues::default(),
+            ai: BTreeMap::new(),
+            model: None,
+            no_model: NO_MODEL.to_owned(),
             reply: Reply::default(),
             expansions: 0,
             cancellations: 0,
@@ -83,6 +102,32 @@ impl<'a> Simulator<'a> {
     #[must_use]
     pub fn with_clipboard(mut self, text: &str) -> Self {
         self.values.clipboard = Some(text.to_owned());
+        self
+    }
+
+    /// What a model writes for the `{{ai}}` block numbered `index`, as the
+    /// user accepts it. A block with no answer puts in its fallback.
+    #[must_use]
+    pub fn with_ai_answer(mut self, index: usize, text: &str) -> Self {
+        self.ai.insert(index, text.to_owned());
+        self
+    }
+
+    /// Asks `model` for every block the simulator was given no answer for.
+    #[must_use]
+    pub fn asking(
+        mut self,
+        model: impl FnMut(&BlockRequest) -> Result<String, String> + 'a,
+    ) -> Self {
+        self.model = Some(Box::new(model));
+        self
+    }
+
+    /// What a block nobody answers says about falling back, in place of
+    /// [`NO_MODEL`].
+    #[must_use]
+    pub fn without_a_model(mut self, reason: &str) -> Self {
+        self.no_model = reason.to_owned();
         self
     }
 
@@ -221,7 +266,7 @@ impl<'a> Simulator<'a> {
     fn drive(&mut self, mut session: Session, snippet_id: aralo_engine::SnippetId) {
         loop {
             match session.step() {
-                SessionStep::Form(_) if self.reply == Reply::Cancel => {
+                SessionStep::Form(_) | SessionStep::Ai(_) if self.reply == Reply::Cancel => {
                     let plan = session.cancel();
                     for step in &plan.steps {
                         self.field.apply(step);
@@ -234,6 +279,23 @@ impl<'a> Simulator<'a> {
                 }
                 SessionStep::Context(_) => {
                     session.provide_context(self.values.clone());
+                }
+                SessionStep::Ai(waiting) => {
+                    for block in waiting {
+                        let index = block.index;
+                        let answer = match (self.ai.get(&index), self.model.as_mut()) {
+                            (Some(text), _) => Ok(text.clone()),
+                            (None, Some(model)) => match session.block_request(index) {
+                                Some(request) => model(&request),
+                                None => Err(self.no_model.clone()),
+                            },
+                            (None, None) => Err(self.no_model.clone()),
+                        };
+                        match answer {
+                            Ok(text) => session.answer_block(index, text),
+                            Err(reason) => session.fall_back(index, reason),
+                        };
+                    }
                 }
                 SessionStep::Ready(expansion) => {
                     self.run(expansion, snippet_id);

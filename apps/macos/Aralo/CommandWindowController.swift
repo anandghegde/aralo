@@ -289,20 +289,7 @@ private struct CommandView: View {
     /// What went where, the privacy promise in one line: which context the
     /// request carried, and which profile and model it went to.
     private var sentChip: String {
-        let parts = store.sent.map { sent -> String in
-            let name = switch sent.kind {
-            case .selection: "the selection"
-            case .clipboard: "the clipboard"
-            case .fillins: "the answers you gave"
-            case .app: "the app's name"
-            case .window: "the window title"
-            }
-            guard let bytes = sent.bytes else { return name }
-            return "\(name) (\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)))"
-        }
-        guard let profile = store.profile else { return "" }
-        let what = parts.isEmpty ? "the instruction only" : parts.joined(separator: ", ")
-        return "Sent \(what) to \(profile) · \(store.model ?? "")"
+        sentSummary(store.sent, profile: store.profile, model: store.model, alone: "the instruction only")
     }
 
     private func message(_ text: String, detail: String) -> some View {

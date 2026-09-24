@@ -27,6 +27,7 @@ abbr = ";x"                           # optional; only a `typed` case needs anot
 typed = ";x "                         # optional: type it instead of picking it
 answers = { who = "Dana" }            # optional: what the user filled in
 clipboard = "PO-8841"                 # optional: what the shell fetched
+ai = ["Thanks!"]                      # optional: what a model wrote, block by block
 cancel = true                         # optional: the user presses Escape
 nested = [{ label = "Greeting", body = "Hi there" }]   # optional: other snippets
 ```
@@ -36,7 +37,9 @@ The snippet under test is labelled `Case`, so a body that writes
 way the palette inserts it: nothing typed, so nothing to delete and no
 delimiter to put back. With `typed`, the keys go through the engine, which is
 how a case about deleting the abbreviation, re-casing the expansion or putting
-a delimiter back is written.
+a delimiter back is written. An `{{ai}}` block with nothing in `ai` is one no
+model answered: it puts in its fallback, and the transcript says so. The
+preview runs no model either, so it shows each block's fallback.
 
 ## A transcript
 

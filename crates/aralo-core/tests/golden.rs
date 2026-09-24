@@ -78,6 +78,11 @@ struct Case {
     /// What the shell fetched, for a body that asks for it.
     #[serde(default)]
     clipboard: Option<String>,
+    /// What a model wrote for each `{{ai}}` block, in the order they appear.
+    /// A block with nothing here is one no model answered, and puts in its
+    /// fallback.
+    #[serde(default)]
+    ai: Vec<String>,
     /// Other snippets in the library, for a body that nests them.
     #[serde(default)]
     nested: Vec<Nested>,
@@ -188,6 +193,9 @@ fn run(case: &Case, locale: &str) -> String {
     if let Some(clipboard) = &case.clipboard {
         field = field.with_clipboard(clipboard);
     }
+    for (index, answer) in case.ai.iter().enumerate() {
+        field = field.with_ai_answer(index, answer);
+    }
     if case.cancel {
         field = field.cancelling();
     }
@@ -245,6 +253,13 @@ fn defaults_only(core: &Core, id: SnippetId) -> Expansion {
         match session.step() {
             SessionStep::Form(_) => session.submit_form(Answers::new()),
             SessionStep::Context(_) => session.provide_context(ContextValues::default()),
+            // A preview runs no model: every block shows its fallback.
+            SessionStep::Ai(waiting) => {
+                for block in waiting {
+                    session.fall_back(block.index, "a preview".to_owned());
+                }
+                session.step()
+            }
             SessionStep::Ready(expansion) => return expansion,
         };
     }

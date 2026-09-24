@@ -67,9 +67,10 @@ where the waiting is:
 2. **Render** turns that into text, with the clock, the answers and whatever
    context the shell fetched.
 
-A shell asks in a fixed order: the form first, then the context, then the
-expansion (`crates/aralo-core/src/session.rs`). **A kind the body does not ask
-for is never requested from the shell** — not merely never sent (PRD P4).
+A shell asks in a fixed order: the form first, then the context, then the AI
+blocks, then the expansion (`crates/aralo-core/src/session.rs`). **A kind the
+body does not ask for, or the snippet does not declare, is never requested
+from the shell** — not merely never sent (PRD P4).
 
 A preview is a real expansion: it renders the body with the form's defaults
 and no context, which is why what the editor shows is what goes in (PRD L10).
@@ -86,7 +87,7 @@ and no context, which is why what the editor shows is what goes in (PRD L10).
 | `{{snippet: name-or-id}}` | Another snippet, inlined | Implemented | D7 |
 | `{{cursor}}`, `{{cursor: select}}` | Where the caret is left | Implemented | E5 |
 | `{{key: tab}}`, `{{key: return}}` | A key the app acts on, not a character | Implemented | — |
-| `{{ai: prompt \| fallback: text \| model: x}}` | An AI block | Inserts `fallback` (M4) | D15, A2 |
+| `{{ai: prompt \| fallback: text \| model: x}}` | Text a model writes. See [AI blocks](#ai-blocks) | Implemented (M4) | D15, A2 |
 | `{{selection}}`, `{{app}}`, `{{window}}` | The selection, the front app, its window title | Stays as written | P4, D12 |
 
 In this table `\|` is only how a pipe is written inside a Markdown table cell.
@@ -240,16 +241,56 @@ they came from ([import.md](import.md#the-macro-mapping)).
 
 ## AI blocks
 
-- **Declared context only.** An AI block sees only the context kinds listed in
-  the snippet's `ai.context`. Undeclared context is never requested from the
-  shell, not merely never sent (PRD P4).
+```text
+{{ai: Thank them for the order in one sentence | fallback: Thanks for your order. | model: gpt-4o-mini}}
+```
+
+The argument is the prompt: what the model is to write, in the snippet's own
+words. `fallback:` is what goes in when no model answers. `model:` asks for a
+model by name. It wins over the snippet's `ai.model`, which wins over the
+profile's own model. The profile is the snippet's `ai.profile`, or the default
+one ([snippet.md](snippet.md#ai)).
+
+A snippet with an AI block always opens a session. The block is asked for
+after the form is filled in and the context is fetched, so the model can be
+given the answers. The shell shows the answer as it streams, marked in the
+preview; the user inserts it, edits it, asks again, takes the fallback or
+cancels. On the command line, `aralo expand --ai` and `aralo type --ai` ask the
+configured profile, and without `--ai` a block puts in its fallback.
+
+- **Declared context only.** A block sends its prompt and the context kinds
+  its snippet lists in `ai.context`, and nothing else (PRD P4). `fillins` is
+  the form's answers, one `label: answer` per line. `selection`, `clipboard`,
+  `app` and `window` are fetched from the shell with the rest of the context,
+  and only when the body has a block to send them with. A name Aralo does not
+  know grants nothing. **The body's own text around the block is not sent**:
+  it holds the form's answers and the clipboard, which the snippet may not
+  have declared.
+- **Nested snippets.** A block inside a nested snippet runs under the
+  expanding snippet's `ai` settings: that is the snippet the user asked for,
+  and the one whose declarations they read.
 - **AI output is literal text.** Model output enters the expansion as literal
   text and is never parsed for placeholders (PRD P10). A model cannot cause a
-  clipboard read or a nested snippet by writing `{{…}}`.
-- **Static text around an AI block is untouched.**
-- **`fallback`** is the text used when the policy check or the network fails,
-  and it is what an AI block inserts today. The expansion carries a note
-  saying the fallback was used, which the preview panel shows.
+  clipboard read or a nested snippet by writing `{{…}}`: it puts in those
+  characters.
+- **Static text around a block is untouched.** Whatever the model writes,
+  every byte outside the block is what the body says.
+  `crates/aralo-template/tests/ai_blocks.rs` holds the evaluator to that for
+  any answer, and `fixtures/golden/ai.toml` pins it.
+- **The answer is fitted to its place.** White space at either end is
+  removed, and so is a Markdown code fence around the whole answer. Nothing
+  inside is changed. An empty answer puts in the fallback.
+- **The fallback.** A block puts in its `fallback:` text when AI is off,
+  local-only mode refuses the profile's host, there is no profile, the network
+  or the endpoint fails, or the user chooses it. The expansion carries a note
+  saying why (`AiFallback`). A block with no `fallback:` puts in nothing
+  (`AiNothing`), and the editor says so beforehand (`AiNoFallback`).
+  `| fallback: ` with nothing after it is the same, said on purpose, and needs
+  no note.
+- **The preview** in an editor shows each block's fallback: a preview runs no
+  model.
+- **The case of the abbreviation** applies to the answer as to the rest of the
+  expansion.
 
 ## Diagnostics
 
@@ -266,13 +307,16 @@ written; a **note** is advice.
 | `MalformedOption` | Error | An option without `key:` | That option is dropped; the placeholder stays |
 | `MissingName` | Error | `{{field}}`, `{{choice}}` or `{{snippet}}` with nothing after the colon | Stays as written |
 | `MissingOptions` | Error | `{{choice}}` with nothing to choose from | Stays as written |
+| `MissingPrompt` | Error | `{{ai}}` with nothing to ask | Never run; the fallback |
 | `BadFormat` | Error | A date or time directive Aralo cannot write | Stays as written |
 | `SnippetMissing` | Error | `{{snippet}}` naming nothing in the library | Stays as written |
 | `SnippetCycle` | Error | A snippet that reaches itself | That reference stays as written |
 | `SnippetTooDeep` | Error | Nesting past 8 | That reference stays as written |
 | `UnknownName` | Note | A well-formed name the format does not define | Stays as written |
 | `NotImplemented` | Note | A name Aralo will expand in a later release | Stays as written |
-| `AiFallback` | Note | An AI block inserted its `fallback:` | The fallback text |
+| `AiFallback` | Note | No model answered an AI block, and why | The fallback text |
+| `AiNothing` | Note | No model answered an AI block that has no fallback, and why | Nothing |
+| `AiNoFallback` | Note | An AI block with no `fallback:` | Nothing, if no model answers |
 | `UnknownLocale` | Note | A locale Aralo does not carry | The date is written in `en_US` |
 | `NothingSupplied` | Note | Nothing supplied a value the body asks for, such as the clipboard | Stays as written |
 | `ExtraCursor` | Note | A second cursor stop | Ignored |

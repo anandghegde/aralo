@@ -228,3 +228,116 @@ fn commands_list_the_built_in_ones_and_a_librarys_and_run_only_with_ai_on() {
         stderr(&unknown)
     );
 }
+
+/// A library with one snippet that asks a model for part of its text.
+fn library_with_a_block(folder: &Path) -> std::path::PathBuf {
+    let library = folder.join("Aralo");
+    std::fs::create_dir_all(&library).unwrap();
+    std::fs::write(
+        library.join("thanks.md"),
+        "---\nabbr: [\";ty\"]\ntrigger: immediate\n---\n\
+         Hi,\n{{ai: Thank them for the order | fallback: Thanks for your order.}}\nSam\n",
+    )
+    .unwrap();
+    library
+}
+
+/// A model server on this machine that answers one chat with `answer`.
+fn serve_once(answer: &'static str) -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/v1", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" || line.is_empty() {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':') {
+                if name.eq_ignore_ascii_case("content-length") {
+                    length = value.trim().parse().unwrap();
+                }
+            }
+        }
+        reader.read_exact(&mut vec![0; length]).unwrap();
+        let chunk = format!(
+            "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{}}}}}]}}\n\n",
+            serde_json::to_string(answer).unwrap()
+        );
+        let mut stream = stream;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n\
+             {chunk}data: {{\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n\
+             data: [DONE]\n\n"
+        )
+        .unwrap();
+    });
+    address
+}
+
+#[test]
+fn an_ai_block_puts_in_its_fallback_and_says_so_until_a_model_is_asked() {
+    let state = tempfile::tempdir().unwrap();
+    let library = library_with_a_block(state.path());
+    let library = library.to_str().unwrap();
+
+    // Without --ai no model is asked, and standard error says how to ask.
+    let plain = aralo(state.path(), &["expand", library, ";ty"]);
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    assert_eq!(stdout(&plain), "Hi,\nThanks for your order.\nSam\n");
+    assert!(
+        stderr(&plain).contains("add --ai to ask one"),
+        "{}",
+        stderr(&plain)
+    );
+
+    // With --ai and AI off, the fallback goes in and the reason is given.
+    let off = aralo(state.path(), &["expand", library, ";ty", "--ai"]);
+    assert!(off.status.success(), "{}", stderr(&off));
+    assert_eq!(stdout(&off), "Hi,\nThanks for your order.\nSam\n");
+    assert!(
+        stderr(&off).contains("AI is switched off"),
+        "{}",
+        stderr(&off)
+    );
+}
+
+#[test]
+fn with_ai_on_a_block_is_answered_by_a_model_on_this_machine() {
+    let state = tempfile::tempdir().unwrap();
+    let library = library_with_a_block(state.path());
+    let address = serve_once("\nThank you, it is on its way!\n");
+    for args in [
+        vec![
+            "ai",
+            "add",
+            "Local",
+            "--base-url",
+            &address,
+            "--model",
+            "small",
+        ],
+        vec!["ai", "on"],
+        vec!["ai", "local-only", "on"],
+    ] {
+        let done = aralo(state.path(), &args);
+        assert!(done.status.success(), "{args:?}: {}", stderr(&done));
+    }
+    let answered = aralo(
+        state.path(),
+        &["expand", library.to_str().unwrap(), ";ty", "--ai"],
+    );
+    assert!(answered.status.success(), "{}", stderr(&answered));
+    assert_eq!(
+        stdout(&answered),
+        "Hi,\nThank you, it is on its way!\nSam\n"
+    );
+    let said = stderr(&answered);
+    assert!(said.contains("Local with small"), "{said}");
+    assert!(!said.contains("fallback"), "{said}");
+}

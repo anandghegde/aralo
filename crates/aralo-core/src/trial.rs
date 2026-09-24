@@ -42,6 +42,9 @@ pub struct Trial {
     field: Field,
     id: SnippetId,
     body: String,
+    /// The `ai` front matter of the snippet being edited, which the draft on
+    /// screen does not carry: its AI blocks run as the saved file's would.
+    ai: Option<aralo_snippet::AiSettings>,
     /// Abbreviations the engine took. Zero means nothing typed here can
     /// expand, which the editor says rather than leaving the user typing.
     abbreviations: usize,
@@ -97,11 +100,15 @@ impl Core {
         let abbreviations = snapshot.len();
         let mut engine = Engine::new();
         engine.set_snapshot(std::sync::Arc::new(snapshot));
+        let ai = editing
+            .and_then(|id| self.library.snippet(id))
+            .and_then(|snippet| snippet.file.front.ai.clone());
         Trial {
             engine,
             field: Field::default(),
             id,
             body: draft.body.clone(),
+            ai,
             abbreviations,
         }
     }
@@ -176,7 +183,7 @@ impl Trial {
                     trailing,
                     swallowed,
                 });
-                match core.begin_body(self.id, &self.body, shape, swallowed) {
+                match core.begin_body(self.id, &self.body, self.ai.as_ref(), shape, swallowed) {
                     Expand::Ready(expansion) => {
                         self.finish(&expansion);
                         TrialKey::Expanded

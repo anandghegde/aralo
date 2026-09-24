@@ -138,7 +138,7 @@ fn the_insert_menu_is_offered_the_placeholders_the_core_knows() {
     let (_folder, core) = open();
     for choice in &choices {
         let outline = core.outline_draft(choice.insert.clone());
-        // A note is allowed: `{{ai}}`, `{{selection}}` and the rest are known
+        // A note is allowed: `{{selection}}` and the rest are known
         // placeholders Aralo does not expand yet, and the outline says so
         // rather than pretending. An error would mean the menu offered a body
         // the editor calls wrong. The sample for `{{snippet: …}}` is the one

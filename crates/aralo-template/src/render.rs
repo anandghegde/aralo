@@ -3,7 +3,7 @@
 use crate::eval::{
     push_text, render, resolve, Context, Cursor, Part, Rendered, Resolved, Snippets,
 };
-use crate::{CaseTransform, Diagnostic, ExpansionPlan, Key, Step};
+use crate::{CaseTransform, Diagnostic, DiagnosticKind, ExpansionPlan, Key, Step};
 
 /// What the engine reported about the match, which is everything a plan needs
 /// besides the text itself.
@@ -39,7 +39,22 @@ pub fn finish(
     shape: Shape,
 ) -> (ExpansionPlan, Vec<Diagnostic>) {
     let rendered = render(resolved, context);
-    let mut diagnostics = resolved.diagnostics().to_vec();
+    // A block that did put in nothing says so; the advice that it would, if
+    // no model answered, is then the same thing said twice.
+    let happened: Vec<_> = rendered
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| diagnostic.kind == DiagnosticKind::AiNothing)
+        .map(|diagnostic| diagnostic.span.clone())
+        .collect();
+    let mut diagnostics: Vec<Diagnostic> = resolved
+        .diagnostics()
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.kind != DiagnosticKind::AiNoFallback || !happened.contains(&diagnostic.span)
+        })
+        .cloned()
+        .collect();
     diagnostics.extend_from_slice(rendered.diagnostics());
     diagnostics.sort_by_key(|diagnostic| (diagnostic.span.start, diagnostic.span.end));
     // A date whose format Aralo cannot write is found twice: once when the
@@ -152,7 +167,7 @@ fn recase(case: CaseTransform, mut segments: Vec<Vec<Part>>) -> Vec<Vec<Part>> {
 mod tests {
     use super::*;
     use crate::eval::{Answers, ContextValues, FieldKind, MAX_FIELD_LINES};
-    use crate::{CivilTime, DiagnosticKind};
+    use crate::CivilTime;
 
     fn at(hour: u8) -> CivilTime {
         CivilTime::new(2026, 3, 9, hour, 5, 7)

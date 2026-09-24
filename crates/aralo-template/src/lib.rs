@@ -8,10 +8,12 @@
 //!
 //! State of the implementation: the parser covers the v0 grammar without
 //! `{{if}}` blocks. The evaluator expands dates, times, the clipboard, form
-//! fields, nested snippets and cursor stops; an AI block inserts its fallback
-//! text until models arrive. A placeholder Aralo cannot expand stays as
-//! written, with a diagnostic. [`outline`] turns a body into what an editor
-//! draws over it, from the same reading the expansion does.
+//! fields, nested snippets, cursor stops and AI blocks. It asks no model
+//! itself: a session collects what the model wrote and hands it in as an
+//! [`AiAnswer`], which goes into the text as it is. A placeholder Aralo
+//! cannot expand stays as written, with a diagnostic. [`outline`] turns a body
+//! into what an editor draws over it, from the same reading the expansion
+//! does.
 
 mod case;
 mod datetime;
@@ -24,8 +26,9 @@ mod render;
 pub use case::CaseTransform;
 pub use datetime::{default_locale, format_time, locale, locales, BadDirective, CivilTime, Locale};
 pub use eval::{
-    render, resolve, Answers, Context, ContextKind, ContextValues, Cursor, FieldKind, Form,
-    FormField, Nested, Rendered, Resolved, Snippets, MAX_FIELD_LINES, MAX_SNIPPET_DEPTH,
+    render, resolve, AiAnswer, AiAnswers, AiBlock, AiSpan, Answers, Context, ContextKind,
+    ContextValues, Cursor, FieldKind, Form, FormField, Nested, Rendered, Resolved, Snippets,
+    MAX_FIELD_LINES, MAX_SNIPPET_DEPTH,
 };
 pub use highlight::{
     catalogue, known, outline, outline_with, BodyOutline, BodyPlaceholder, BodyProblem, BodyRange,

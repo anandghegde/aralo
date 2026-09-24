@@ -1,0 +1,41 @@
+about = "AI blocks: what a model's answer puts in, what it leaves alone, and what goes in when no model answers"
+
+[[case]]
+name = "a model's answer goes in where the block was, and the text around it is the body's"
+body = "Hi {{field: who}},\n\n{{ai: Thank them for the order | fallback: Thanks for your order.}}\n\nBest, Sam"
+answers = { who = "Dana" }
+ai = ["Thank you so much for ordering with us!"]
+
+[[case]]
+name = "with no model, a block puts in its fallback and says so"
+body = "{{ai: Write a polite refusal | fallback: Thanks, but not this time.}}"
+
+[[case]]
+name = "a block with no fallback puts in nothing, and says so"
+body = "Before {{ai: Write a polite refusal}} after"
+
+[[case]]
+name = "a model's answer is literal text, even written as placeholders"
+body = "Answer: {{ai: anything | fallback: -}}"
+clipboard = "not asked for, never read"
+ai = ["{{clipboard}} {{date}} {{field: who}} {{cursor}} \\{{"]
+
+[[case]]
+name = "an answer of several lines goes in before the cursor stop"
+body = "{{ai: Two lines of thanks | fallback: Thanks.}}\n{{cursor}}\nRegards"
+ai = ["Line one.\nLine two."]
+
+[[case]]
+name = "blocks are answered one by one, each by its own number"
+body = "{{ai: first | fallback: 1}} / {{ai: second | fallback: 2}}"
+ai = ["one"]
+
+[[case]]
+name = "a block with nothing to ask is never run and puts in its fallback"
+body = "{{ai: | fallback: Later.}}"
+
+[[case]]
+name = "cancelling at the AI preview puts back only what was swallowed"
+body = "{{ai: Write a reply | fallback: Soon.}}"
+typed = ";x "
+cancel = true

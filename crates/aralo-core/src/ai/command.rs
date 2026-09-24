@@ -322,7 +322,7 @@ pub fn fit_to_selection(selection: &str, answer: &str) -> String {
 }
 
 /// The inside of a Markdown code fence that is the whole of `text`.
-fn unfence(text: &str) -> &str {
+pub(crate) fn unfence(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("```") else {
         return text;
     };

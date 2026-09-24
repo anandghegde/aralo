@@ -183,7 +183,10 @@ mod commands {
 
     /// Starts the server and returns its address, and a channel that gets
     /// each request body.
-    fn serve(pieces: &'static [&'static str], hold_open: bool) -> (String, mpsc::Receiver<String>) {
+    pub(super) fn serve(
+        pieces: &'static [&'static str],
+        hold_open: bool,
+    ) -> (String, mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}/v1", listener.local_addr().unwrap());
         let (sender, bodies) = mpsc::channel();
@@ -254,7 +257,7 @@ mod commands {
             .unwrap()
     }
 
-    fn switch_on(profiles: &aralo_ffi::AiProfiles, address: &str) {
+    pub(super) fn switch_on(profiles: &aralo_ffi::AiProfiles, address: &str) {
         profiles
             .save(draft("Local", address), AiKeyChange::Remove)
             .unwrap();
@@ -387,5 +390,178 @@ mod commands {
                 DiffChange::Same
             ]
         );
+    }
+}
+
+// AI blocks in snippets (task 4.6): a session on its AI step, answered by the
+// same model server on this Mac.
+
+mod blocks {
+    use std::sync::Arc;
+
+    use aralo_ffi::{
+        AiBridgeError, AiContextKind, AiKeyChange, BlockSpan, ContextNeed, ContextSupply, Core,
+        ExpansionSession, InsertOutcome, PlanStep, SessionAction,
+    };
+
+    use super::commands::{serve, switch_on};
+    use super::{draft, open};
+
+    const REPLY: &str = "---\nlabel: Reply\nai:\n  context: [clipboard]\n---\n\
+        Dear {{field: who}},\n{{ai: Thank them | fallback: Thanks.}}\nSam\n";
+
+    /// A library holding one snippet, the file `text`, and a session for it
+    /// picked from the palette.
+    fn session(text: &str) -> (tempfile::TempDir, Arc<Core>, Arc<ExpansionSession>) {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path().join("Aralo");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("reply.md"), text).unwrap();
+        let core = Core::open_library(
+            root.to_string_lossy().into_owned(),
+            Some(folder.path().join("cache").to_string_lossy().into_owned()),
+            None,
+            None,
+        )
+        .unwrap();
+        let id = core.snippets()[0].id.clone();
+        let InsertOutcome::StartSession { session, .. } =
+            core.engine().insert(id, "com.apple.TextEdit".into())
+        else {
+            panic!("a snippet with an AI block asks first");
+        };
+        (folder, core, session)
+    }
+
+    #[tokio::test]
+    async fn a_block_streams_into_the_preview_and_goes_in_between_the_snippets_own_text() {
+        let (address, bodies) = serve(
+            &["```\n", "Thank you ", "— it's on its way!", "\n```"],
+            false,
+        );
+        let (_settings_folder, profiles) = open();
+        switch_on(&profiles, &address);
+        let (_folder, _core, session) = session(REPLY);
+
+        assert!(matches!(session.next(), SessionAction::Form { .. }));
+        let SessionAction::Context { kinds } =
+            session.submit_form([("who".to_owned(), "Dana".to_owned())].into())
+        else {
+            panic!("the declared clipboard is next");
+        };
+        assert_eq!(kinds, [ContextNeed::Clipboard]);
+        let SessionAction::Ai { blocks } = session.provide_context(ContextSupply {
+            clipboard: Some("PO-8841".into()),
+            ..ContextSupply::default()
+        }) else {
+            panic!("the block is next");
+        };
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].prompt, "Thank them");
+        assert_eq!(blocks[0].fallback.as_deref(), Some("Thanks."));
+        assert_eq!(session.ai_blocks(), blocks);
+
+        let run = profiles
+            .run_block(session.clone(), blocks[0].index)
+            .await
+            .unwrap();
+        assert_eq!(run.block(), 0);
+        assert_eq!(
+            (run.profile(), run.model()),
+            ("Local".into(), "model-a".into())
+        );
+        let sent = run.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].kind, AiContextKind::Clipboard);
+        assert_eq!(sent[0].bytes, Some(7));
+
+        // Before a word has come, the preview shows the fallback where the
+        // block is; as the words come, they take its place.
+        let preview = session.preview_blocks([].into(), [].into());
+        assert_eq!(preview.text, "Dear Dana,\nThanks.\nSam");
+        while run.next().await.unwrap().is_some() {
+            let drafts = [(run.block(), run.text())].into();
+            let preview = session.preview_blocks([].into(), drafts);
+            assert!(preview.text.starts_with("Dear Dana,\n"), "{}", preview.text);
+            assert!(preview.text.ends_with("\nSam"), "{}", preview.text);
+        }
+        let answer = run.answer().unwrap();
+        assert_eq!(answer, "Thank you — it's on its way!");
+
+        // The span is in UTF-16 code units, which is what a text view counts.
+        let preview = session.preview_blocks([].into(), [(0, answer.clone())].into());
+        assert_eq!(
+            preview.blocks,
+            [BlockSpan {
+                block: 0,
+                start: 11,
+                length: 28
+            }]
+        );
+
+        let SessionAction::Expand { steps, .. } = session.answer_block(0, answer) else {
+            panic!("that was the last question");
+        };
+        assert_eq!(
+            steps,
+            [PlanStep::InsertText {
+                text: "Dear Dana,\nThank you — it's on its way!\nSam".into()
+            }]
+        );
+        let body = bodies.recv().unwrap();
+        assert!(
+            body.contains("PO-8841") && body.contains("Thank them"),
+            "{body}"
+        );
+        assert!(
+            !body.contains("Dear Dana"),
+            "the text around the block is not sent: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_ai_off_the_block_falls_back_with_the_reason_the_run_gave() {
+        let (_settings_folder, profiles) = open();
+        profiles
+            .save(
+                draft("Remote", "https://api.example.com/v1"),
+                AiKeyChange::Remove,
+            )
+            .unwrap();
+        let (_folder, _core, session) =
+            session("---\n---\n<{{ai: Anything | fallback: offline}}>\n");
+        let SessionAction::Ai { blocks } = session.next() else {
+            panic!("nothing else to ask");
+        };
+        let error = profiles
+            .run_block(session.clone(), blocks[0].index)
+            .await
+            .unwrap_err();
+        let AiBridgeError::Refused { message } = error else {
+            panic!("{error:?}");
+        };
+        assert_eq!(message, "AI is switched off");
+        let SessionAction::Expand { steps, .. } = session.fall_back(blocks[0].index, message)
+        else {
+            panic!("that was the last question");
+        };
+        assert_eq!(
+            steps,
+            [PlanStep::InsertText {
+                text: "<offline>".into()
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_session_has_no_block_to_run() {
+        let (_settings_folder, profiles) = open();
+        let (_folder, _core, session) = session("---\n---\n{{ai: Anything}}\n");
+        assert_eq!(session.cancel(), []);
+        let error = profiles.run_block(session.clone(), 0).await.unwrap_err();
+        assert!(matches!(error, AiBridgeError::NotFound { .. }), "{error:?}");
+        assert_eq!(session.answer_block(0, "late".into()), SessionAction::Done);
+        assert_eq!(session.ai_blocks(), []);
+        assert_eq!(session.preview_blocks([].into(), [].into()).text, "");
     }
 }

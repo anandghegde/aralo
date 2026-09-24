@@ -44,6 +44,21 @@ public enum AccessibilitySelection: Equatable, Sendable {
         return role.map(textRoles.contains) == true ? .nothing : .unavailable
     }
 
+    /// The title of the window with the keyboard in the process `pid`: what a
+    /// snippet whose AI block declared `window` sends. Nil when the app does
+    /// not say.
+    public static func windowTitle(pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, timeout)
+        var value: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value)
+        guard status == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        let window = value as! AXUIElement // swiftlint:disable:this force_cast
+        AXUIElementSetMessagingTimeout(window, timeout)
+        let title: String? = attribute(kAXTitleAttribute, of: window)
+        return title?.isEmpty == false ? title : nil
+    }
+
     private static func focusedElement(of app: AXUIElement) -> AXUIElement? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value)

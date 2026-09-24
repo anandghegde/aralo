@@ -100,9 +100,13 @@ comment and unquoted `yes` is a boolean.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `context` | list of strings | The context kinds this snippet declares. Nothing else may be requested from the shell or sent to a model. The plan names `fillins`, `selection`, `clipboard`, `app` and `window`. This version stores the strings without checking them |
-| `profile` | string | Name of the provider profile to use. Absent: the profile chosen in settings. Profiles live outside the library folder and never hold a key in a file |
-| `model` | string | The model to ask. Absent: the profile's default model |
+| `context` | list of strings | The context kinds this snippet's AI blocks may send: `fillins` (the form's answers), `selection`, `clipboard`, `app` and `window`. Nothing else is requested from the shell or sent to a model. A name Aralo does not know is kept in the file and grants nothing |
+| `profile` | string | Name of the provider profile that answers. Absent: the default profile. Profiles live outside the library folder and never hold a key in a file |
+| `model` | string | The model to ask. Absent: the profile's default model. A block's own `model:` wins over it |
+
+These settings cover every `{{ai}}` block the snippet expands to, including
+those in the snippets it nests. What a block does with them is in
+[placeholders.md](placeholders.md#ai-blocks).
 
 Unknown keys inside `ai` are preserved.
 

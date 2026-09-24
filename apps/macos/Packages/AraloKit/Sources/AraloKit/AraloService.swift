@@ -67,7 +67,7 @@ public final class AraloService {
     private let keyboardLayout = KeyboardLayoutMonitor()
     /// One pasteboard for the whole app: the injector pastes with it, and a
     /// `{{clipboard}}` placeholder reads it.
-    private let pasteboard = SystemPasteboard()
+    let pasteboard = SystemPasteboard()
     private var pauseHotKey: GlobalHotKey?
     private var paletteHotKey: GlobalHotKey?
     private var commandHotKey: GlobalHotKey?
@@ -134,6 +134,7 @@ public final class AraloService {
             core.setLocale(tag: Locale.current.identifier)
             self.core = core
             library = LibraryStore(core: core) { [weak self] in self?.setKeyboard(.testField, $0) }
+            library?.models = blockRunner
         } catch {
             state = .failed(error.reason)
             return
@@ -246,7 +247,8 @@ public final class AraloService {
             session: session,
             runner: controller,
             label: core?.snippet(id: session.snippetId())?.draft.label ?? "",
-            clipboard: { [pasteboard] in pasteboard.text() }
+            context: sessionContext(for: RunningTargetApp.frontmost()),
+            models: blockRunner
         )
         guard !form.isFinished else { return }
         self.form = form

@@ -1,0 +1,127 @@
+# ai.toml: AI blocks: what a model's answer puts in, what it leaves alone, and what goes in when no model answers
+# Written by cargo test -p aralo-core --test golden. Do not edit; bless it.
+# Expanded at 2026-03-09 14:05:07 +01:00. | is the caret, [] a selection.
+
+=== a model's answer goes in where the block was, and the text around it is the body's
+--- en_US
+field: "Hi Dana,\n\nThank you so much for ordering with us!\n\nBest, Sam|"
+preview: "Hi ,\n\nThanks for your order.\n\nBest, Sam"
+undo: 60 backspaces
+--- de_DE
+field: "Hi Dana,\n\nThank you so much for ordering with us!\n\nBest, Sam|"
+preview: "Hi ,\n\nThanks for your order.\n\nBest, Sam"
+undo: 60 backspaces
+--- ja_JP
+field: "Hi Dana,\n\nThank you so much for ordering with us!\n\nBest, Sam|"
+preview: "Hi ,\n\nThanks for your order.\n\nBest, Sam"
+undo: 60 backspaces
+
+=== with no model, a block puts in its fallback and says so
+--- en_US
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+--- de_DE
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+--- ja_JP
+field: "Thanks, but not this time.|"
+preview: "Thanks, but not this time."
+undo: 26 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+
+=== a block with no fallback puts in nothing, and says so
+--- en_US
+field: "Before  after|"
+preview: "Before  after"
+undo: 13 backspaces
+note: "No model answered this block (nothing here asks a model), and it has no fallback text, so nothing went in."
+--- de_DE
+field: "Before  after|"
+preview: "Before  after"
+undo: 13 backspaces
+note: "No model answered this block (nothing here asks a model), and it has no fallback text, so nothing went in."
+--- ja_JP
+field: "Before  after|"
+preview: "Before  after"
+undo: 13 backspaces
+note: "No model answered this block (nothing here asks a model), and it has no fallback text, so nothing went in."
+
+=== a model's answer is literal text, even written as placeholders
+--- en_US
+field: "Answer: {{clipboard}} {{date}} {{field: who}} {{cursor}} \\{{|"
+preview: "Answer: -"
+undo: 60 backspaces
+--- de_DE
+field: "Answer: {{clipboard}} {{date}} {{field: who}} {{cursor}} \\{{|"
+preview: "Answer: -"
+undo: 60 backspaces
+--- ja_JP
+field: "Answer: {{clipboard}} {{date}} {{field: who}} {{cursor}} \\{{|"
+preview: "Answer: -"
+undo: 60 backspaces
+
+=== an answer of several lines goes in before the cursor stop
+--- en_US
+field: "Line one.\nLine two.\n|\nRegards"
+preview: "Thanks.\n\nRegards"
+undo: not by backspace
+--- de_DE
+field: "Line one.\nLine two.\n|\nRegards"
+preview: "Thanks.\n\nRegards"
+undo: not by backspace
+--- ja_JP
+field: "Line one.\nLine two.\n|\nRegards"
+preview: "Thanks.\n\nRegards"
+undo: not by backspace
+
+=== blocks are answered one by one, each by its own number
+--- en_US
+field: "one / 2|"
+preview: "1 / 2"
+undo: 7 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+--- de_DE
+field: "one / 2|"
+preview: "1 / 2"
+undo: 7 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+--- ja_JP
+field: "one / 2|"
+preview: "1 / 2"
+undo: 7 backspaces
+note: "No model answered this block (nothing here asks a model), so its fallback went in."
+
+=== a block with nothing to ask is never run and puts in its fallback
+--- en_US
+field: "Later.|"
+preview: "Later."
+undo: 6 backspaces
+error: "Write what the model is to write: {{ai: a short thank-you}}. Until then this block puts in its fallback."
+--- de_DE
+field: "Later.|"
+preview: "Later."
+undo: 6 backspaces
+error: "Write what the model is to write: {{ai: a short thank-you}}. Until then this block puts in its fallback."
+--- ja_JP
+field: "Later.|"
+preview: "Later."
+undo: 6 backspaces
+error: "Write what the model is to write: {{ai: a short thank-you}}. Until then this block puts in its fallback."
+
+=== cancelling at the AI preview puts back only what was swallowed
+--- en_US
+field: ";x |"
+preview: "Soon."
+undo: nothing was inserted
+--- de_DE
+field: ";x |"
+preview: "Soon."
+undo: nothing was inserted
+--- ja_JP
+field: ";x |"
+preview: "Soon."
+undo: nothing was inserted

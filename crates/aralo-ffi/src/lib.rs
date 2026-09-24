@@ -286,6 +286,10 @@ pub enum SessionAction {
     /// asked for; nothing else is wanted, and anything else is dropped (PRD
     /// P4).
     Context { kinds: Vec<ContextNeed> },
+    /// Ask a model for each of these blocks with `AiProfiles.run_block`, show
+    /// the answers, and settle each block with `answer_block` or
+    /// `fall_back`. The list is the blocks not yet settled.
+    Ai { blocks: Vec<AiBlockInfo> },
     /// Run the steps the way `profile` says, then report `expansion_done` when
     /// `undo_delete_count` is present, exactly as for a typed expansion.
     Expand {
@@ -324,6 +328,45 @@ pub enum ContextNeed {
     Window,
 }
 
+/// One `{{ai}}` block of a snippet, as the AI preview panel lists it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AiBlockInfo {
+    /// What `answer_block`, `fall_back` and `run_block` know it by.
+    pub index: u32,
+    /// What the model is asked to write.
+    pub prompt: String,
+    /// What goes in when no model answers. Nothing when the body gave none,
+    /// which puts in nothing.
+    pub fallback: Option<String>,
+}
+
+impl From<&aralo_core::template::AiBlock> for AiBlockInfo {
+    fn from(block: &aralo_core::template::AiBlock) -> Self {
+        Self {
+            index: u32::try_from(block.index).unwrap_or(u32::MAX),
+            prompt: block.prompt.clone(),
+            fallback: block.fallback.clone(),
+        }
+    }
+}
+
+/// What the expansion would insert, with where each block's text is: the
+/// panel marks those stretches as the model's. Everything outside them is the
+/// snippet's own text.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BlockPreview {
+    pub text: String,
+    pub blocks: Vec<BlockSpan>,
+}
+
+/// Where one block's text sits in a `BlockPreview`, in UTF-16 code units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct BlockSpan {
+    pub block: u32,
+    pub start: u32,
+    pub length: u32,
+}
+
 /// What the shell fetched. A kind the snippet did not ask for is dropped by
 /// the core rather than trusted to be absent.
 #[derive(Debug, Clone, PartialEq, Eq, Default, uniffi::Record)]
@@ -358,6 +401,9 @@ impl ExpansionSession {
             },
             aralo_core::SessionStep::Context(kinds) => SessionAction::Context {
                 kinds: kinds.into_iter().map(ContextNeed::from).collect(),
+            },
+            aralo_core::SessionStep::Ai(blocks) => SessionAction::Ai {
+                blocks: blocks.iter().map(AiBlockInfo::from).collect(),
             },
             aralo_core::SessionStep::Ready(expansion) => SessionAction::Expand {
                 snippet_id: self.snippet_id.clone(),
@@ -412,6 +458,73 @@ impl ExpansionSession {
             Some(session) => self.act(session.provide_context(values)),
             None => SessionAction::Done,
         }
+    }
+
+    /// Every `{{ai}}` block there is a model to ask for, settled or not.
+    pub fn ai_blocks(&self) -> Vec<AiBlockInfo> {
+        match self.held().as_ref() {
+            Some(session) => session.ai_blocks().iter().map(AiBlockInfo::from).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// What the user accepted for a block: the model's answer, edited or as
+    /// it came. It goes in as literal text and is never read for
+    /// placeholders. A block can be settled again until the session ends.
+    pub fn answer_block(&self, index: u32, text: String) -> SessionAction {
+        match self.held().as_mut() {
+            Some(session) => self.act(session.answer_block(index as usize, text)),
+            None => SessionAction::Done,
+        }
+    }
+
+    /// No model answered a block, or the user chose its fallback: it puts in
+    /// its fallback text, and the expansion says `reason`.
+    pub fn fall_back(&self, index: u32, reason: String) -> SessionAction {
+        match self.held().as_mut() {
+            Some(session) => self.act(session.fall_back(index as usize, reason)),
+            None => SessionAction::Done,
+        }
+    }
+
+    /// The expansion as it would go in with the form as it stands and the
+    /// blocks' text so far: `drafts` are what the models have written, or
+    /// what the user edited them to, by block. A block in neither shows its
+    /// fallback. It changes nothing.
+    pub fn preview_blocks(
+        &self,
+        answers: std::collections::HashMap<String, String>,
+        drafts: std::collections::HashMap<u32, String>,
+    ) -> BlockPreview {
+        let answers: aralo_core::Answers = answers.into_iter().collect();
+        let drafts = drafts
+            .into_iter()
+            .map(|(index, text)| (index as usize, text))
+            .collect();
+        let Some(rendered) = self
+            .held()
+            .as_ref()
+            .map(|session| session.preview_blocks(&answers, &drafts))
+        else {
+            return BlockPreview {
+                text: String::new(),
+                blocks: Vec::new(),
+            };
+        };
+        let text = rendered.text();
+        let blocks = rendered
+            .ai_spans()
+            .iter()
+            .map(|span| {
+                let start = utf16_len(&text[..span.range.start]);
+                BlockSpan {
+                    block: u32::try_from(span.block).unwrap_or(u32::MAX),
+                    start,
+                    length: utf16_len(&text[span.range.clone()]),
+                }
+            })
+            .collect();
+        BlockPreview { text, blocks }
     }
 
     /// What the expansion would insert as it stands, for a panel that shows

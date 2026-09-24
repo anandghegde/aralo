@@ -31,6 +31,7 @@ public final class TestField {
     @ObservationIgnored private let trial: DraftTrial
     @ObservationIgnored private let label: String
     @ObservationIgnored private let clipboard: @MainActor () -> String?
+    @ObservationIgnored private let models: BlockRunner?
     @ObservationIgnored private let claimKeyboard: @MainActor (Bool) -> Void
     @ObservationIgnored private var viewHasKeyboard = false
     @ObservationIgnored private var formHasKeyboard = false
@@ -40,11 +41,13 @@ public final class TestField {
         trial: DraftTrial,
         label: String,
         clipboard: @escaping @MainActor () -> String?,
+        models: BlockRunner? = nil,
         claimKeyboard: @escaping @MainActor (Bool) -> Void
     ) {
         self.trial = trial
         self.label = label
         self.clipboard = clipboard
+        self.models = models
         self.claimKeyboard = claimKeyboard
         abbreviations = trial.abbreviations()
     }
@@ -61,7 +64,8 @@ public final class TestField {
                 session: session,
                 runner: TrialRunner(trial: trial),
                 label: label,
-                clipboard: clipboard
+                clipboard: clipboard,
+                models: models
             )
             // A body that only wanted the clipboard has expanded by now.
             if !form.isFinished {
@@ -91,10 +95,15 @@ public final class TestField {
         redraw()
     }
 
-    /// The form is filled in: what it comes to goes into the field.
+    /// The form is filled in, or the AI blocks are read: what it comes to
+    /// goes into the field. A form whose snippet has AI blocks stays up for
+    /// them.
     public func submitForm() {
-        form?.submit()
-        endForm()
+        guard let form else { return }
+        form.submit()
+        if form.isFinished {
+            endForm()
+        }
     }
 
     /// Never mind: the key that opened the form goes back into the field.

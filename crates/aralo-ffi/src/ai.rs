@@ -1,6 +1,7 @@
 //! AI settings across the bridge: the switch, the profiles and their keys,
 //! Test connection, the capability probe and local-server detection, for the
-//! settings pane (plan 7.2, task 4.4).
+//! settings pane (plan 7.2, task 4.4); commands on selected text (task 4.5);
+//! and the runs that answer a snippet's `{{ai}}` blocks (task 4.6).
 //!
 //! The calls that talk to an endpoint are `async`. UniFFI runs them on tokio,
 //! so Swift awaits them like any other async call and the main thread never
@@ -10,18 +11,19 @@
 //! secure field into `save`, `test_connection` or `list_models`. Nothing here
 //! returns one.
 
-use std::sync::Arc;
-
-use std::sync::{Mutex, PoisonError};
+use std::future::Future;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use aralo_core::ai::{
-    self as settings, AiSettings, AiSettingsError, Capabilities, Check, Command, CommandRun,
-    ContextKind, KeyChange, LocalServer, ProfileDraft, ProfileField, SavedProfile, Secret,
-    StopReason,
+    self as settings, AiError, AiSettings, AiSettingsError, BlockRun, Capabilities, Check, Command,
+    CommandRun, ContextKind, KeyChange, LocalServer, ManifestEntry, ProfileDraft, ProfileField,
+    SavedProfile, Secret, StopReason,
 };
 use aralo_core::diff::{self, Change};
 use aralo_core::snippet::SnippetId;
 use tokio::sync::watch;
+
+use crate::ExpansionSession;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum AiBridgeError {
@@ -321,6 +323,30 @@ impl AiProfiles {
         let run = self.settings.run_command(&command, &selection).await?;
         Ok(Arc::new(AiCommandRun::new(run)))
     }
+
+    /// Asks a model for one `{{ai}}` block of a session that is on its AI
+    /// step. The answer streams from the run this returns; nothing goes in
+    /// until the shell settles the block with `answer_block`.
+    ///
+    /// Only the context the snippet declared is sent, from what the session
+    /// already holds. An error — AI off, local-only mode, no profile, the
+    /// network — comes back before anything is sent where it can, and is
+    /// the shell's cue to call `fall_back` with its message.
+    pub async fn run_block(
+        &self,
+        session: Arc<ExpansionSession>,
+        index: u32,
+    ) -> Result<Arc<AiBlockRun>, AiBridgeError> {
+        let request = session
+            .held()
+            .as_ref()
+            .and_then(|session| session.block_request(index as usize))
+            .ok_or_else(|| AiBridgeError::NotFound {
+                message: "that expansion has no such AI block, or it has ended".into(),
+            })?;
+        let run = self.settings.run_block(&request).await?;
+        Ok(Arc::new(AiBlockRun::new(run)))
+    }
 }
 
 /// The providers the editor offers by name, with where to make a key.
@@ -545,43 +571,45 @@ pub fn diff_words(before: String, after: String) -> Vec<DiffSpan> {
         .collect()
 }
 
-/// A command's answer, arriving. `next` gives each piece as it comes;
-/// `cancel` stops it from anywhere, including while `next` waits, and closes
-/// the connection.
-#[derive(uniffi::Object)]
-pub struct AiCommandRun {
-    run: tokio::sync::Mutex<Option<CommandRun>>,
+/// An answer arriving in pieces: a command's or a block's. `next` gives each
+/// piece as it comes; `cancel` stops it from anywhere, including while `next`
+/// waits, and closes the connection.
+struct Streamed<R> {
+    run: tokio::sync::Mutex<Option<R>>,
     cancel: watch::Sender<bool>,
-    profile: String,
-    model: String,
-    sent: Vec<AiContextSent>,
-    selection: String,
     text: Mutex<String>,
     cut_short: Mutex<bool>,
 }
 
-impl std::fmt::Debug for AiCommandRun {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AiCommandRun")
-            .field("model", &self.model)
-            .finish_non_exhaustive()
+/// What a command run and a block run have in common.
+trait Answering: Send + 'static {
+    fn next_piece(&mut self) -> impl Future<Output = Option<Result<String, AiError>>> + Send;
+    fn stop_reason(&self) -> Option<&StopReason>;
+}
+
+impl Answering for CommandRun {
+    fn next_piece(&mut self) -> impl Future<Output = Option<Result<String, AiError>>> + Send {
+        self.next()
+    }
+
+    fn stop_reason(&self) -> Option<&StopReason> {
+        CommandRun::stop_reason(self)
     }
 }
 
-impl AiCommandRun {
-    fn new(run: CommandRun) -> Self {
+impl Answering for BlockRun {
+    fn next_piece(&mut self) -> impl Future<Output = Option<Result<String, AiError>>> + Send {
+        self.next()
+    }
+
+    fn stop_reason(&self) -> Option<&StopReason> {
+        BlockRun::stop_reason(self)
+    }
+}
+
+impl<R: Answering> Streamed<R> {
+    fn new(run: R) -> Self {
         Self {
-            profile: run.profile().to_owned(),
-            model: run.model().to_owned(),
-            sent: run
-                .manifest()
-                .iter()
-                .map(|entry| AiContextSent {
-                    kind: entry.kind.into(),
-                    bytes: entry.bytes.map(|bytes| bytes as u64),
-                })
-                .collect(),
-            selection: run.selection().to_owned(),
             run: tokio::sync::Mutex::new(Some(run)),
             cancel: watch::channel(false).0,
             text: Mutex::default(),
@@ -589,19 +617,7 @@ impl AiCommandRun {
         }
     }
 
-    fn text_so_far(&self) -> String {
-        self.text
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-impl AiCommandRun {
-    /// The next piece of the answer, or nothing once it has finished or been
-    /// cancelled. An error ends it; what came before stays in `text`.
-    pub async fn next(&self) -> Result<Option<String>, AiBridgeError> {
+    async fn next(&self) -> Result<Option<String>, AiBridgeError> {
         let mut cancelled = self.cancel.subscribe();
         if *cancelled.borrow() {
             return Ok(None);
@@ -611,7 +627,7 @@ impl AiCommandRun {
             return Ok(None);
         };
         let piece = tokio::select! {
-            piece = run.next() => piece,
+            piece = run.next_piece() => piece,
             _ = cancelled.wait_for(|stop| *stop) => {
                 *slot = None;
                 return Ok(None);
@@ -641,12 +657,81 @@ impl AiCommandRun {
         }
     }
 
-    /// Stops the answer and closes the connection. What arrived is kept.
-    pub fn cancel(&self) {
+    fn cancel(&self) {
         self.cancel.send_replace(true);
         if let Ok(mut slot) = self.run.try_lock() {
             *slot = None;
         }
+    }
+
+    fn text(&self) -> String {
+        self.text
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn cut_short(&self) -> bool {
+        *self
+            .cut_short
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+fn sent(manifest: &[ManifestEntry]) -> Vec<AiContextSent> {
+    manifest
+        .iter()
+        .map(|entry| AiContextSent {
+            kind: entry.kind.into(),
+            bytes: entry.bytes.map(|bytes| bytes as u64),
+        })
+        .collect()
+}
+
+/// A command's answer, arriving. `next` gives each piece as it comes;
+/// `cancel` stops it from anywhere, including while `next` waits, and closes
+/// the connection.
+#[derive(uniffi::Object)]
+pub struct AiCommandRun {
+    stream: Streamed<CommandRun>,
+    profile: String,
+    model: String,
+    sent: Vec<AiContextSent>,
+    selection: String,
+}
+
+impl std::fmt::Debug for AiCommandRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiCommandRun")
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AiCommandRun {
+    fn new(run: CommandRun) -> Self {
+        Self {
+            profile: run.profile().to_owned(),
+            model: run.model().to_owned(),
+            sent: sent(run.manifest()),
+            selection: run.selection().to_owned(),
+            stream: Streamed::new(run),
+        }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl AiCommandRun {
+    /// The next piece of the answer, or nothing once it has finished or been
+    /// cancelled. An error ends it; what came before stays in `text`.
+    pub async fn next(&self) -> Result<Option<String>, AiBridgeError> {
+        self.stream.next().await
+    }
+
+    /// Stops the answer and closes the connection. What arrived is kept.
+    pub fn cancel(&self) {
+        self.stream.cancel();
     }
 
     pub fn profile(&self) -> String {
@@ -664,25 +749,105 @@ impl AiCommandRun {
 
     /// The answer so far, as the model wrote it.
     pub fn text(&self) -> String {
-        self.text_so_far()
+        self.stream.text()
     }
 
     /// Whether the model stopped at its length limit rather than at the end.
     pub fn cut_short(&self) -> bool {
-        *self
-            .cut_short
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        self.stream.cut_short()
     }
 
     /// The text that would replace the selection: the answer without a fence
     /// the selection did not have, with the selection's edges.
     pub fn replacement(&self) -> String {
-        settings::fit_to_selection(&self.selection, &self.text_so_far())
+        settings::fit_to_selection(&self.selection, &self.stream.text())
     }
 
     /// The replacement against the selection.
     pub fn diff(&self) -> Vec<DiffSpan> {
         diff_words(self.selection.clone(), self.replacement())
+    }
+}
+
+// MARK: AI blocks in snippets (task 4.6)
+
+/// A block's answer, arriving, on the same terms as a command's. Nothing goes
+/// in until the shell hands the answer to `ExpansionSession.answer_block`.
+#[derive(uniffi::Object)]
+pub struct AiBlockRun {
+    stream: Streamed<BlockRun>,
+    block: u32,
+    profile: String,
+    model: String,
+    sent: Vec<AiContextSent>,
+}
+
+impl std::fmt::Debug for AiBlockRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiBlockRun")
+            .field("block", &self.block)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AiBlockRun {
+    fn new(run: BlockRun) -> Self {
+        Self {
+            block: u32::try_from(run.block()).unwrap_or(u32::MAX),
+            profile: run.profile().to_owned(),
+            model: run.model().to_owned(),
+            sent: sent(run.manifest()),
+            stream: Streamed::new(run),
+        }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl AiBlockRun {
+    /// The next piece of the answer, or nothing once it has finished or been
+    /// cancelled. An error ends it; what came before stays in `text`.
+    pub async fn next(&self) -> Result<Option<String>, AiBridgeError> {
+        self.stream.next().await
+    }
+
+    /// Stops the answer and closes the connection. What arrived is kept.
+    pub fn cancel(&self) {
+        self.stream.cancel();
+    }
+
+    /// Which block this answers.
+    pub fn block(&self) -> u32 {
+        self.block
+    }
+
+    pub fn profile(&self) -> String {
+        self.profile.clone()
+    }
+
+    pub fn model(&self) -> String {
+        self.model.clone()
+    }
+
+    /// What was sent with the prompt: the declared context, kind and size.
+    pub fn sent(&self) -> Vec<AiContextSent> {
+        self.sent.clone()
+    }
+
+    /// The answer so far, as the model wrote it.
+    pub fn text(&self) -> String {
+        self.stream.text()
+    }
+
+    /// The answer as it would go in: without white space at its ends or a
+    /// code fence around the whole. Nothing while there is nothing to put in.
+    pub fn answer(&self) -> Option<String> {
+        let answer = settings::fit_block(&self.stream.text());
+        (!answer.is_empty()).then_some(answer)
+    }
+
+    /// Whether the model stopped at its length limit rather than at the end.
+    pub fn cut_short(&self) -> bool {
+        self.stream.cut_short()
     }
 }

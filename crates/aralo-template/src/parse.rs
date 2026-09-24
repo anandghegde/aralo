@@ -109,9 +109,18 @@ pub enum DiagnosticKind {
     UnknownName,
     /// A name Aralo will expand in a later release. Detail: the name.
     NotImplemented,
-    /// An AI block with a `fallback:`, which is what it inserts until models
-    /// arrive.
+    /// No model answered an AI block, so it put in its `fallback:` text.
+    /// Detail: why, such as "AI is switched off".
     AiFallback,
+    /// No model answered an AI block, and it has no fallback text, so it put
+    /// in nothing. Detail: why.
+    AiNothing,
+    /// An AI block with no `fallback:`, which puts in nothing when no model
+    /// answers.
+    AiNoFallback,
+    /// An AI block with nothing to ask. It is never run, and puts in its
+    /// fallback.
+    MissingPrompt,
     /// A placeholder that needs a name after the colon has none. Detail: the
     /// placeholder's name.
     MissingName,
@@ -151,6 +160,7 @@ impl DiagnosticKind {
             | Self::MalformedOption
             | Self::MissingName
             | Self::MissingOptions
+            | Self::MissingPrompt
             | Self::BadFormat
             | Self::SnippetMissing
             | Self::SnippetCycle
@@ -158,6 +168,8 @@ impl DiagnosticKind {
             Self::UnknownName
             | Self::NotImplemented
             | Self::AiFallback
+            | Self::AiNothing
+            | Self::AiNoFallback
             | Self::BadOption
             | Self::UnknownKey
             | Self::UnknownLocale
@@ -193,11 +205,27 @@ impl DiagnosticKind {
             Self::NotImplemented => {
                 format!("Aralo does not expand {it} yet, so it stays as written.")
             }
-            Self::AiFallback => {
-                "Models arrive in a later release. Until then an AI block inserts its fallback \
-                 text."
-                    .to_owned()
-            }
+            Self::AiFallback => match detail {
+                Some(reason) => {
+                    format!("No model answered this block ({reason}), so its fallback went in.")
+                }
+                None => "No model answered this block, so its fallback went in.".to_owned(),
+            },
+            Self::AiNothing => match detail {
+                Some(reason) => format!(
+                    "No model answered this block ({reason}), and it has no fallback text, so \
+                     nothing went in."
+                ),
+                None => "No model answered this block, and it has no fallback text, so nothing \
+                     went in."
+                    .to_owned(),
+            },
+            Self::AiNoFallback => "With AI off, or no network, this block puts in nothing. \
+                 Write | fallback: text to say what goes in instead."
+                .to_owned(),
+            Self::MissingPrompt => "Write what the model is to write: {{ai: a short thank-you}}. \
+                 Until then this block puts in its fallback."
+                .to_owned(),
             Self::MissingName => {
                 format!("Write {{{{{it}: a-name}}}}: without a name there is no answer to put in.")
             }

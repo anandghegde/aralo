@@ -5,6 +5,7 @@
 //! [`Gateway`], so Test connection, the capability probe and the model list
 //! go through the same policy check and network guard as any feature.
 
+mod block;
 mod command;
 mod file;
 mod keychain;
@@ -24,6 +25,7 @@ pub use aralo_ai::{
 };
 pub use aralo_providers::{LocalServer, LocalServerKind};
 
+pub use block::{fit_block, BlockRequest, BlockRun, BlockSettings};
 pub use command::{
     builtin_commands, fit_to_selection, Command, CommandProblem, CommandRun, MAX_SELECTION,
 };

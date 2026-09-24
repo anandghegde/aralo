@@ -51,6 +51,10 @@ public final class LibraryStore {
     /// back, so the live tap can stand aside.
     @ObservationIgnored public var onTestFieldKeyboard: (@MainActor (Bool) -> Void)?
 
+    /// What answers the AI blocks of a draft tried in the test field. Nil
+    /// puts in their fallbacks.
+    @ObservationIgnored public var models: BlockRunner?
+
     @ObservationIgnored private let core: Core
 
     public init(core: Core, onTestFieldKeyboard: (@MainActor (Bool) -> Void)? = nil) {
@@ -156,6 +160,7 @@ public final class LibraryStore {
             trial: trial,
             label: editing.draft.label,
             clipboard: clipboard,
+            models: models,
             claimKeyboard: { [weak self] in self?.onTestFieldKeyboard?($0) }
         )
     }

@@ -48,8 +48,8 @@ pub struct BodyPlaceholder {
     /// True when [`catalogue`] lists this name. A name it does not list still
     /// parses, so this marks a placeholder to point at, not a broken one.
     pub known: bool,
-    /// False for a name Aralo does not expand yet, such as an AI block: it
-    /// inserts as the text it is written as.
+    /// False for a name Aralo does not expand yet, such as `{{selection}}`:
+    /// it inserts as the text it is written as.
     pub evaluated: bool,
     pub range: BodyRange,
 }
@@ -186,7 +186,7 @@ const CATALOGUE: &[PlaceholderInfo] = &[
         "{{key: tab}}",
         range(7, 10),
     ),
-    pending(
+    entry(
         "ai",
         "Text a model writes from a prompt",
         "{{ai: Write a reply | fallback: }}",

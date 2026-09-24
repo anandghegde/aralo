@@ -19,14 +19,6 @@ name = "the selection, the app and the window are for AI blocks for now"
 body = "{{selection}} in {{app}} / {{window}}"
 
 [[case]]
-name = "an AI block inserts its fallback until models arrive"
-body = "{{ai: Write a polite refusal | fallback: Thanks, but not this time.}}"
-
-[[case]]
-name = "an AI block with no fallback stays as written"
-body = "{{ai: Write a polite refusal}}"
-
-[[case]]
 name = "a name the format does not define stays as written"
 body = "{{nonsense}} and {{if: never}}"
 

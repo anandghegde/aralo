@@ -2,9 +2,9 @@
 //!
 //! Open a library folder, hand the engine its snapshot, and turn a match into
 //! an [`ExpansionPlan`]. A body that needs nothing but the clock expands on
-//! the keystroke; one that needs a form filled in or the clipboard read opens
-//! a [`Session`] the shell drives. AI blocks, scripts, settings and events
-//! arrive with the milestones that need them.
+//! the keystroke; one that needs a form filled in, the clipboard read or a
+//! model asked opens a [`Session`] the shell drives. Scripts arrive with the
+//! milestone that needs them.
 //!
 //! This is also where the clock is. `aralo-template` formats a moment it is
 //! handed, so every expansion takes the time from the [`Clock`] on the core,
@@ -426,8 +426,9 @@ impl Core {
 
     /// Reads the body, and either finishes it or opens a session.
     ///
-    /// The decision is the body's: a form field or a context placeholder
-    /// means someone has to be asked, and everything else is already here.
+    /// The decision is the body's: a form field, a context placeholder or an
+    /// AI block means someone has to be asked, and everything else is already
+    /// here.
     fn begin(
         &self,
         id: aralo_snippet::SnippetId,
@@ -435,25 +436,40 @@ impl Core {
         swallowed: Option<char>,
     ) -> Option<Expand> {
         let snippet = self.library.snippet(id)?;
-        Some(self.begin_body(id, &snippet.file.body, shape, swallowed))
+        Some(self.begin_body(
+            id,
+            &snippet.file.body,
+            snippet.file.front.ai.as_ref(),
+            shape,
+            swallowed,
+        ))
     }
 
     /// The same for a body that need not be in the library: a draft in the
     /// editor expands through here exactly as its saved file would.
+    ///
+    /// `ai` is the snippet's `ai` front matter. Every `{{ai}}` block in the
+    /// expansion runs under it, a nested snippet's included: it is the
+    /// snippet the user asked for, and the one whose declarations they read.
     fn begin_body(
         &self,
         id: aralo_snippet::SnippetId,
         body: &str,
+        ai: Option<&aralo_snippet::AiSettings>,
         shape: Shape,
         swallowed: Option<char>,
     ) -> Expand {
         let resolved = self.resolve(body);
-        if resolved.form().fields.is_empty() && resolved.needs().is_empty() {
+        if resolved.form().fields.is_empty()
+            && resolved.needs().is_empty()
+            && resolved.ai_blocks().is_empty()
+        {
             return Expand::Ready(self.settle(&resolved, shape));
         }
         Expand::Session(Box::new(Session::new(
             id,
             resolved,
+            ai::BlockSettings::of(ai),
             shape,
             self.clock.now(),
             self.locale.clone(),

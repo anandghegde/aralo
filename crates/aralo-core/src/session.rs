@@ -6,17 +6,28 @@
 //! first. That snippet opens a [`Session`], which the shell drives one
 //! question at a time until a plan comes out.
 //!
-//! The order is fixed — form, then context, then the plan — and a session only
-//! ever asks for what the body named. Nothing else is fetched, so an
-//! undeclared context kind is never so much as requested (PRD P4).
+//! The order is fixed — form, then context, then the AI blocks, then the plan —
+//! and a session only ever asks for what the body named or the snippet
+//! declared. Nothing else is fetched, so an undeclared context kind is never so
+//! much as requested (PRD P4).
+//!
+//! An `{{ai}}` block is the one question a session cannot answer by asking the
+//! shell for a value. The shell asks a model for it through
+//! [`AiSettings::run_block`](crate::ai::AiSettings::run_block), shows the
+//! answer as it streams, and settles the block with
+//! [`Session::answer_block`] or [`Session::fall_back`]. The session keeps the
+//! answer as literal text; it is never read for placeholders (PRD P10).
 //!
 //! [`Core::expand`]: crate::Core::expand
 
+use std::collections::BTreeMap;
+
 use aralo_template::{
-    Answers, Context, ContextKind, ContextValues, Diagnostic, ExpansionPlan, Form, Resolved, Shape,
-    Step,
+    AiAnswer, AiAnswers, AiBlock, Answers, Context, ContextKind, ContextValues, Diagnostic,
+    ExpansionPlan, Form, Rendered, Resolved, Shape, Step,
 };
 
+use crate::ai::{BlockRequest, BlockSettings};
 use crate::{Expansion, MatchInfo};
 
 /// What the shell must do next to finish an expansion.
@@ -26,8 +37,13 @@ pub enum SessionStep {
     /// [`Session::submit_form`]. Cancelling calls [`Session::cancel`].
     Form(Form),
     /// Fetch these, then call [`Session::provide_context`]. The list is what
-    /// the body asked for, and never longer.
+    /// the body asked for and what the snippet declared for its AI blocks,
+    /// and never longer.
     Context(Vec<ContextKind>),
+    /// Ask a model for each of these blocks, then settle each one with
+    /// [`Session::answer_block`] or [`Session::fall_back`]. The list is the
+    /// blocks not yet settled.
+    Ai(Vec<AiBlock>),
     /// Nothing left to ask. Run this.
     Ready(Expansion),
 }
@@ -37,6 +53,7 @@ pub enum SessionStep {
 enum Phase {
     Form,
     Context,
+    Ai,
     Ready,
 }
 
@@ -55,7 +72,22 @@ pub struct Session {
     /// changes their mind.
     swallowed: Option<char>,
     answers: Answers,
+    /// What the shell fetched for the body's own placeholders.
     values: ContextValues,
+    /// The `{{ai}}` blocks there is a model to ask for.
+    blocks: Vec<AiBlock>,
+    /// What the snippet's `ai` front matter says: who answers the blocks and
+    /// what they may see.
+    ai: BlockSettings,
+    /// What the blocks have come to so far.
+    ai_answers: AiAnswers,
+    /// What the shell fetched for the AI blocks. It is kept apart from
+    /// `values`, so a kind declared for a model is not also written into the
+    /// text by a placeholder that does not expand it yet.
+    ai_values: ContextValues,
+    /// Every kind the shell is asked for: the body's placeholders' first, then
+    /// the kinds declared for its AI blocks.
+    needs: Vec<ContextKind>,
     phase: Phase,
 }
 
@@ -63,12 +95,25 @@ impl Session {
     pub(crate) fn new(
         snippet_id: aralo_snippet::SnippetId,
         resolved: Resolved,
+        ai: BlockSettings,
         shape: Shape,
         now: aralo_template::CivilTime,
         locale: String,
         swallowed: Option<char>,
     ) -> Self {
         let answers = resolved.form().defaults();
+        let blocks = resolved.ai_blocks();
+        let mut needs = resolved.needs().to_vec();
+        // The declared kinds are asked for only when there is a block to send
+        // them with: a snippet whose AI block was deleted reads nothing more
+        // because its front matter still declares a selection.
+        if !blocks.is_empty() {
+            for kind in ai.shell_kinds() {
+                if !needs.contains(&kind) {
+                    needs.push(kind);
+                }
+            }
+        }
         Self {
             snippet_id,
             resolved,
@@ -78,6 +123,11 @@ impl Session {
             swallowed,
             answers,
             values: ContextValues::default(),
+            blocks,
+            ai,
+            ai_answers: AiAnswers::new(),
+            ai_values: ContextValues::default(),
+            needs,
             phase: Phase::Form,
         }
     }
@@ -94,9 +144,21 @@ impl Session {
         self.resolved.form()
     }
 
-    /// The context kinds the body asks for, in a stable order.
+    /// The context kinds the shell is asked for, in a stable order: what the
+    /// body's placeholders read, then what the snippet declared for its AI
+    /// blocks.
     pub fn needs(&self) -> &[ContextKind] {
-        self.resolved.needs()
+        &self.needs
+    }
+
+    /// The `{{ai}}` blocks there is a model to ask for, settled or not.
+    pub fn ai_blocks(&self) -> &[AiBlock] {
+        &self.blocks
+    }
+
+    /// What the blocks have come to so far.
+    pub fn ai_answers(&self) -> &AiAnswers {
+        &self.ai_answers
     }
 
     /// What is wrong with the body, from resolving it. The expansion still
@@ -120,8 +182,16 @@ impl Session {
             match self.phase {
                 Phase::Form if self.form().fields.is_empty() => self.phase = Phase::Context,
                 Phase::Form => return SessionStep::Form(self.form().clone()),
-                Phase::Context if self.needs().is_empty() => self.phase = Phase::Ready,
-                Phase::Context => return SessionStep::Context(self.needs().to_vec()),
+                Phase::Context if self.needs.is_empty() => self.phase = Phase::Ai,
+                Phase::Context => return SessionStep::Context(self.needs.clone()),
+                Phase::Ai => {
+                    let waiting = self.waiting();
+                    if waiting.is_empty() {
+                        self.phase = Phase::Ready;
+                    } else {
+                        return SessionStep::Ai(waiting);
+                    }
+                }
                 Phase::Ready => return SessionStep::Ready(self.finish()),
             }
         }
@@ -138,19 +208,74 @@ impl Session {
         self.step()
     }
 
-    /// What the shell fetched. Anything the body did not ask for is dropped
+    /// What the shell fetched. Anything that was not asked for is dropped
     /// here rather than trusted: the rule is a property of the core, not of
     /// the shell that calls it (PRD P4).
+    ///
+    /// The body's placeholders see what they asked for; the AI blocks see
+    /// what the snippet declared for them, and only when a request is made.
     pub fn provide_context(&mut self, values: ContextValues) -> SessionStep {
-        let allowed = |kind: ContextKind| self.needs().contains(&kind);
-        self.values = ContextValues {
-            clipboard: values.clipboard.filter(|_| allowed(ContextKind::Clipboard)),
-            selection: values.selection.filter(|_| allowed(ContextKind::Selection)),
-            app: values.app.filter(|_| allowed(ContextKind::App)),
-            window: values.window.filter(|_| allowed(ContextKind::Window)),
+        let body = self.resolved.needs();
+        let declared: Vec<ContextKind> = if self.blocks.is_empty() {
+            Vec::new()
+        } else {
+            self.ai.shell_kinds().collect()
         };
-        self.phase = Phase::Ready;
+        self.values = keep(&values, body);
+        self.ai_values = keep(&values, &declared);
+        self.phase = Phase::Ai;
         self.step()
+    }
+
+    /// Everything a request for one block needs: the prompt, who answers it,
+    /// and the declared context with the text the session holds for it.
+    /// `None` for a number that is not one of [`ai_blocks`](Self::ai_blocks).
+    ///
+    /// The form's answers go only to a snippet that declared `fillins`, and
+    /// the text around the block goes to none: it holds the answers and the
+    /// clipboard, which a snippet may not have declared.
+    pub fn block_request(&self, index: usize) -> Option<BlockRequest> {
+        let block = self.blocks.iter().find(|block| block.index == index)?;
+        Some(BlockRequest::new(
+            block.clone(),
+            &self.ai,
+            self.resolved.form(),
+            &self.answers,
+            &self.ai_values,
+        ))
+    }
+
+    /// What a model wrote for a block, as the user accepted it: edited, or
+    /// as it came. It goes into the text as it is, and is never read for
+    /// placeholders (PRD P10). A block can be settled again, to regenerate,
+    /// until the session is finished.
+    ///
+    /// A number that is not a block is ignored.
+    pub fn answer_block(&mut self, index: usize, text: String) -> SessionStep {
+        self.settle(index, AiAnswer::Text(text))
+    }
+
+    /// No model answered a block: AI is off, the network failed, or the user
+    /// chose the fallback. The block puts in its `fallback:` text, and the
+    /// expansion carries a note saying `reason`.
+    pub fn fall_back(&mut self, index: usize, reason: String) -> SessionStep {
+        self.settle(index, AiAnswer::Fallback { reason })
+    }
+
+    fn settle(&mut self, index: usize, answer: AiAnswer) -> SessionStep {
+        if self.blocks.iter().any(|block| block.index == index) {
+            self.ai_answers.insert(index, answer);
+        }
+        self.step()
+    }
+
+    /// The blocks not yet settled.
+    fn waiting(&self) -> Vec<AiBlock> {
+        self.blocks
+            .iter()
+            .filter(|block| !self.ai_answers.contains_key(&block.index))
+            .cloned()
+            .collect()
     }
 
     /// The text this session would insert as it stands, for a panel that
@@ -170,17 +295,36 @@ impl Session {
     /// every keystroke and still let the user change their mind. A name the
     /// form does not have is ignored, as it is on submitting.
     pub fn preview_with(&self, answers: &Answers) -> String {
+        self.preview_blocks(answers, &BTreeMap::new()).text()
+    }
+
+    /// The same, with the text of blocks still being written: `drafts` are
+    /// what the models have written so far, or what the user edited them to,
+    /// over the blocks already settled. A block in neither shows its
+    /// fallback.
+    ///
+    /// It is a rendering rather than a string so the panel can mark each
+    /// block's text: [`Rendered::ai_spans`] says where each one is, and
+    /// everything outside them is the body's own, byte for byte.
+    pub fn preview_blocks(&self, answers: &Answers, drafts: &BTreeMap<usize, String>) -> Rendered {
         let mut merged = self.answers.clone();
         for (name, value) in answers {
             if self.form().field(name).is_some() {
                 merged.insert(name.clone(), value.clone());
             }
         }
+        let mut ai = self.ai_answers.clone();
+        for (&index, text) in drafts {
+            if self.blocks.iter().any(|block| block.index == index) {
+                ai.insert(index, AiAnswer::Text(text.clone()));
+            }
+        }
         let context = Context::at(self.now)
             .in_locale(&self.locale)
             .with_values(&self.values)
-            .with_answers(&merged);
-        aralo_template::render(&self.resolved, context).text()
+            .with_answers(&merged)
+            .with_ai(&ai);
+        aralo_template::render(&self.resolved, context)
     }
 
     /// The user changed their mind.
@@ -205,7 +349,8 @@ impl Session {
         let context = Context::at(self.now)
             .in_locale(&self.locale)
             .with_values(&self.values)
-            .with_answers(&self.answers);
+            .with_answers(&self.answers)
+            .with_ai(&self.ai_answers);
         let (plan, template_diagnostics) =
             aralo_template::finish(&self.resolved, context, self.shape);
         Expansion {
@@ -213,6 +358,26 @@ impl Session {
             plan,
             template_diagnostics,
         }
+    }
+}
+
+/// The values of `kinds`, and nothing else.
+fn keep(values: &ContextValues, kinds: &[ContextKind]) -> ContextValues {
+    let allowed = |kind: ContextKind| kinds.contains(&kind);
+    ContextValues {
+        clipboard: values
+            .clipboard
+            .clone()
+            .filter(|_| allowed(ContextKind::Clipboard)),
+        selection: values
+            .selection
+            .clone()
+            .filter(|_| allowed(ContextKind::Selection)),
+        app: values.app.clone().filter(|_| allowed(ContextKind::App)),
+        window: values
+            .window
+            .clone()
+            .filter(|_| allowed(ContextKind::Window)),
     }
 }
 
@@ -225,7 +390,7 @@ impl Session {
 pub enum Expand {
     /// The body needed nothing but the clock.
     Ready(Expansion),
-    /// The body needs a form filled in, or context fetched, or both.
+    /// The body needs a form filled in, context fetched, or a model asked.
     Session(Box<Session>),
 }
 

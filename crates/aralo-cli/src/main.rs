@@ -70,6 +70,10 @@ enum Command {
         /// Bundle ID of the app that has focus, for scoped groups
         #[arg(long, default_value = "com.apple.TextEdit")]
         app: String,
+        /// Ask the AI profile for each `{{ai}}` block instead of putting in
+        /// its fallback
+        #[arg(long)]
+        ai: bool,
     },
     /// Type one abbreviation and print what it expands to; exit 1 if nothing
     /// expands it. A snippet that waits for a delimiter gets a space, so the
@@ -81,6 +85,10 @@ enum Command {
         /// Bundle ID of the app that has focus, for scoped groups
         #[arg(long, default_value = "com.apple.TextEdit")]
         app: String,
+        /// Ask the AI profile for each `{{ai}}` block instead of putting in
+        /// its fallback
+        #[arg(long)]
+        ai: bool,
     },
     /// Read snippets from another expander into a library; exit 1 if any of
     /// them needs an edit or was skipped
@@ -190,6 +198,32 @@ impl Macros {
     }
 }
 
+/// The imaginary text field. With `ai`, an `{{ai}}` block asks the default
+/// profile, or the snippet's, through the same gateway as the app; without,
+/// it puts in its fallback and says how to ask.
+fn field<'a>(core: &'a Core, app: &str, ai: bool) -> Result<Simulator<'a>, Failure> {
+    let field = Simulator::new(core, app);
+    Ok(if ai {
+        field.asking(ai::block_answers()?)
+    } else {
+        field.without_a_model("no model was asked; add --ai to ask one")
+    })
+}
+
+/// An expansion that put in a fallback says so on standard error, so what
+/// standard output holds is still exactly what was typed.
+fn say_fallbacks(field: &Simulator<'_>) {
+    for diagnostic in field.diagnostics() {
+        if matches!(
+            diagnostic.kind,
+            aralo_core::template::DiagnosticKind::AiFallback
+                | aralo_core::template::DiagnosticKind::AiNothing
+        ) {
+            eprintln!("aralo: {}", diagnostic.message());
+        }
+    }
+}
+
 fn main() -> ExitCode {
     match run(Cli::parse().command) {
         Ok(code) => code,
@@ -283,17 +317,28 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
                 ExitCode::SUCCESS
             })
         }
-        Command::Type { library, text, app } => {
+        Command::Type {
+            library,
+            text,
+            app,
+            ai,
+        } => {
             let core = Core::open_read_only(&library)?;
             let typed = text.replace("\\n", "\n").replace("\\t", "\t");
-            let mut field = Simulator::new(&core, &app);
+            let mut field = field(&core, &app, ai)?;
             field.type_str(&typed);
             println!("{}", field.text());
+            say_fallbacks(&field);
             Ok(ExitCode::SUCCESS)
         }
-        Command::Expand { library, abbr, app } => {
+        Command::Expand {
+            library,
+            abbr,
+            app,
+            ai,
+        } => {
             let core = Core::open_read_only(&library)?;
-            let mut field = Simulator::new(&core, &app);
+            let mut field = field(&core, &app, ai)?;
             field.type_str(&abbr);
             // A snippet that waits for a delimiter has not fired yet. The
             // space is kept only if the snippet keeps it, so what is printed
@@ -309,6 +354,7 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
                 return Ok(ExitCode::FAILURE);
             }
             println!("{}", field.text());
+            say_fallbacks(&field);
             Ok(ExitCode::SUCCESS)
         }
         Command::Import {
