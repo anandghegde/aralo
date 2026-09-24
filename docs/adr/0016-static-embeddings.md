@@ -66,6 +66,7 @@ How the real model ranks the twelve snippets of `fixtures/search/library`
 
 | Query | The snippet it should find | The next one |
 | --- | --- | --- |
+| money back | Refund issued, 0.266 | Subscription cancelled, 0.246 |
 | give the customer their money back | Refund issued, 0.389 | Email signature, 0.331 |
 | my package is late | Shipping delay, 0.435 | Birthday wishes, 0.222 |
 | forgot my login | Password reset, 0.491 | Subscription cancelled, 0.232 |
@@ -74,7 +75,11 @@ How the real model ranks the twelve snippets of `fixtures/search/library`
 The right snippet comes first every time, but the scores are low and close:
 a static model averages every token of a snippet, so a short query never
 scores near 1, and unrelated snippets reach 0.3. Hence a bar of 0.25, hits by
-meaning after every literal hit, and at most five of them.
+meaning after every literal hit, and at most five of them. The margin is thin
+where it matters most: "money back", the plan's own test, finds the refund
+reply at 0.266, just over the bar, and the cancellation just under it. A bar
+of 0.3 would find nothing. The bar is a trade to revisit with real libraries,
+and the scores CI prints on every run are what to revisit it with.
 
 `candle` with MiniLM was not measured. The weights could not be fetched into
 the environment the spike ran in, and the numbers above leave no problem for
