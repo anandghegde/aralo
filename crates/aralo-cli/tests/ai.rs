@@ -341,3 +341,62 @@ fn with_ai_on_a_block_is_answered_by_a_model_on_this_machine() {
     assert!(said.contains("Local with small"), "{said}");
     assert!(!said.contains("fallback"), "{said}");
 }
+
+#[test]
+fn an_editor_action_rewrites_standard_input_and_names_the_placeholders_it_changed() {
+    use std::io::Write as _;
+
+    let state = tempfile::tempdir().unwrap();
+    let address = serve_once("```\nHello {{clipboard}}, see you soon!\n```");
+    for args in [
+        vec![
+            "ai",
+            "add",
+            "Local",
+            "--base-url",
+            &address,
+            "--model",
+            "small",
+        ],
+        vec!["ai", "on"],
+    ] {
+        let done = aralo(state.path(), &args);
+        assert!(done.status.success(), "{args:?}: {}", stderr(&done));
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aralo"))
+        .env("ARALO_STATE", state.path())
+        .args(["ai", "write", "friendlier"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"Hi {{field: who}}, bye.")
+        .unwrap();
+    let written = child.wait_with_output().unwrap();
+    assert!(written.status.success(), "{}", stderr(&written));
+    assert_eq!(stdout(&written), "Hello {{clipboard}}, see you soon!");
+    let said = stderr(&written);
+    assert!(
+        said.contains("Make it friendlier: Local with small"),
+        "{said}"
+    );
+    assert!(said.contains("the answer dropped {{field: who}}"), "{said}");
+    assert!(said.contains("the answer added {{clipboard}}"), "{said}");
+}
+
+#[test]
+fn an_editor_action_does_not_run_while_ai_is_off() {
+    let state = tempfile::tempdir().unwrap();
+    let off = aralo(state.path(), &["ai", "write", "draft", "--label", "Thanks"]);
+    assert_eq!(off.status.code(), Some(2), "{}", stdout(&off));
+    assert!(
+        stderr(&off).contains("AI is switched off"),
+        "{}",
+        stderr(&off)
+    );
+}

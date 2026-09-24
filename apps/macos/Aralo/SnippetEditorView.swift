@@ -121,7 +121,7 @@ struct SnippetEditorView: View {
     }
 
     private var bodyEditor: some View {
-        BodyEditor(store: store, text: $editing.draft.body)
+        BodyEditor(store: store, text: $editing.draft.body, label: editing.draft.label)
     }
 
     // MARK: - Advice

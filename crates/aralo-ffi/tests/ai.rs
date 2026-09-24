@@ -565,3 +565,77 @@ mod blocks {
         assert_eq!(session.preview_blocks([].into(), [].into()).text, "");
     }
 }
+
+// The editor's actions (task 4.7), against the same model server on this Mac.
+
+mod authoring {
+    use aralo_ffi::{
+        authoring_label, placeholder_changes, AiAuthoring, AiBridgeError, AiContextKind,
+        AiKeyChange, AiPlaceholderChange, DiffChange,
+    };
+
+    use super::commands::{serve, switch_on};
+    use super::{draft, open};
+
+    #[tokio::test]
+    async fn an_action_streams_an_answer_fitted_to_the_text_it_worked_on() {
+        let (address, bodies) = serve(&["```\n", "They're going", " home.", "\n```"], false);
+        let (_folder, profiles) = open();
+        switch_on(&profiles, &address);
+
+        let text = "  their going home.\n";
+        let run = profiles
+            .run_authoring(AiAuthoring::Proofread, text.into())
+            .await
+            .unwrap();
+        assert_eq!(run.original(), text);
+        let sent = run.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].kind, AiContextKind::Selection);
+        assert_eq!(sent[0].bytes, Some(text.len() as u64));
+        while run.next().await.unwrap().is_some() {}
+        assert_eq!(run.versions(), ["  They're going home.\n"]);
+        assert!(!run.cut_short());
+        let body = bodies.recv().unwrap();
+        assert!(body.contains("their going home."), "{body}");
+    }
+
+    #[tokio::test]
+    async fn an_action_does_not_run_with_ai_off() {
+        let (_folder, profiles) = open();
+        profiles
+            .save(
+                draft("Remote", "https://api.example.com/v1"),
+                AiKeyChange::Remove,
+            )
+            .unwrap();
+        let error = profiles
+            .run_authoring(AiAuthoring::Shorter, "text".into())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AiBridgeError::Refused { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn labels_and_placeholder_changes_are_the_cores() {
+        assert_eq!(
+            authoring_label(AiAuthoring::Translate {
+                language: "German".into()
+            }),
+            "Translate into German"
+        );
+        assert_eq!(
+            placeholder_changes("Hi {{field: who}}".into(), "Hi {{clipboard}}".into()),
+            [
+                AiPlaceholderChange {
+                    change: DiffChange::Removed,
+                    placeholder: "{{field: who}}".into()
+                },
+                AiPlaceholderChange {
+                    change: DiffChange::Added,
+                    placeholder: "{{clipboard}}".into()
+                },
+            ]
+        );
+    }
+}

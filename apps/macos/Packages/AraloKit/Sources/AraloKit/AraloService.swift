@@ -134,7 +134,8 @@ public final class AraloService {
             core.setLocale(tag: Locale.current.identifier)
             self.core = core
             library = LibraryStore(core: core) { [weak self] in self?.setKeyboard(.testField, $0) }
-            library?.models = blockRunner
+            library?.models = aiRunner
+            library?.writer = aiRunner
         } catch {
             state = .failed(error.reason)
             return
@@ -248,7 +249,7 @@ public final class AraloService {
             runner: controller,
             label: core?.snippet(id: session.snippetId())?.draft.label ?? "",
             context: sessionContext(for: RunningTargetApp.frontmost()),
-            models: blockRunner
+            models: aiRunner
         )
         guard !form.isFinished else { return }
         self.form = form

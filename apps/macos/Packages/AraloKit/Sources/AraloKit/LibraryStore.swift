@@ -55,6 +55,9 @@ public final class LibraryStore {
     /// puts in their fallbacks.
     @ObservationIgnored public var models: BlockRunner?
 
+    /// What runs the editor's AI actions. Nil leaves the AI menu out.
+    @ObservationIgnored public var writer: AuthoringRunner?
+
     @ObservationIgnored private let core: Core
 
     public init(core: Core, onTestFieldKeyboard: (@MainActor (Bool) -> Void)? = nil) {

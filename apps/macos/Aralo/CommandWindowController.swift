@@ -235,7 +235,7 @@ private struct CommandView: View {
                 .onAppear { editing = true }
         case .answered:
             ScrollView {
-                Text(Self.render(store.diff))
+                Text(DiffText.render(store.diff))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
@@ -300,27 +300,6 @@ private struct CommandView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    /// Struck-through red for what goes, green for what comes in.
-    static func render(_ spans: [DiffSpan]) -> AttributedString {
-        var text = AttributedString()
-        for span in spans {
-            var piece = AttributedString(span.text)
-            switch span.change {
-            case .same:
-                break
-            case .removed:
-                piece.strikethroughStyle = .single
-                piece.foregroundColor = .red
-                piece.backgroundColor = .red.opacity(0.12)
-            case .added:
-                piece.foregroundColor = .green
-                piece.backgroundColor = .green.opacity(0.12)
-            }
-            text += piece
-        }
-        return text
-    }
 }
 
 private struct CommandRow: View {
@@ -342,5 +321,29 @@ private struct CommandRow: View {
         .background(isSelected ? Color.accentColor.opacity(0.85) : .clear, in: .rect(cornerRadius: 6))
         .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         .padding(.horizontal, 8)
+    }
+}
+
+/// A word diff as text: struck-through red for what goes, green for what comes
+/// in. The command panel and the editor's AI sheet both draw it.
+enum DiffText {
+    static func render(_ spans: [DiffSpan]) -> AttributedString {
+        var text = AttributedString()
+        for span in spans {
+            var piece = AttributedString(span.text)
+            switch span.change {
+            case .same:
+                break
+            case .removed:
+                piece.strikethroughStyle = .single
+                piece.foregroundColor = .red
+                piece.backgroundColor = .red.opacity(0.12)
+            case .added:
+                piece.foregroundColor = .green
+                piece.backgroundColor = .green.opacity(0.12)
+            }
+            text += piece
+        }
+        return text
     }
 }

@@ -1,10 +1,12 @@
 import AppKit
+import AraloBridge
 import AraloKit
 import SwiftUI
 
 /// The snippet's body: a TextKit 2 text view that draws what the core reads in
-/// it, an Insert menu of the placeholders the core knows, and what the core has
-/// to say about the ones it could not read.
+/// it, an Insert menu of the placeholders the core knows, an AI menu that asks
+/// a model to write or change it, and what the core has to say about the
+/// placeholders it could not read.
 ///
 /// Every range drawn here comes from the core's own reading of the body, the
 /// same one an expansion runs, so what is marked is what would happen (PRD
@@ -12,10 +14,22 @@ import SwiftUI
 struct BodyEditor: View {
     let store: LibraryStore
     @Binding var text: String
+    /// The snippet's label, which a draft is written from.
+    let label: String
 
-    /// The Insert menu's and the advice list's way into the text view, so both
-    /// work on the text the reader's caret is in.
+    /// The Insert menu's, the AI menu's and the advice list's way into the
+    /// text view, so all of them work on the text the reader's caret is in.
     @State private var editor = BodyEditorHandle()
+
+    /// The AI sheet's model, while it is up.
+    @State private var authoring: AuthoringStore?
+
+    /// The languages the Translate menu offers. A model knows many more; these
+    /// are the ones asked for most.
+    private static let languages = [
+        "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Japanese",
+        "Chinese", "Korean"
+    ]
 
     private var highlight: BodyHighlight { store.outline(of: text) }
 
@@ -24,6 +38,9 @@ struct BodyEditor: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Body").font(.headline)
                 Spacer(minLength: 8)
+                if store.writer != nil {
+                    aiMenu
+                }
                 insertMenu
             }
             HighlightingTextView(text: $text, highlight: highlight, handle: editor)
@@ -37,6 +54,69 @@ struct BodyEditor: View {
                 advice
             }
         }
+        .sheet(isPresented: authoringIsUp) {
+            if let authoring {
+                AuthoringSheet(
+                    store: authoring,
+                    replace: { answer in
+                        editor.replace(
+                            authoring.range, expected: authoring.replacing, with: answer, action: authoring.label
+                        )
+                    },
+                    close: closeAuthoring
+                )
+            }
+        }
+    }
+
+    /// Asks a model to write or change the body. What it works on, and all
+    /// that is sent, is the selection, or the whole body when nothing is
+    /// selected; a draft sends only the label and the note.
+    private var aiMenu: some View {
+        Menu {
+            Button("Draft with AI\u{2026}") { ask(.draft(label: label, note: "")) }
+            Divider()
+            Button("Fix Spelling and Grammar") { ask(.proofread) }
+            Button("Make It Clearer") { ask(.clearer) }
+            Button("Make It Shorter") { ask(.shorter) }
+            Menu("Change the Tone") {
+                Button("Friendlier") { ask(.friendlier) }
+                Button("More Formal") { ask(.formal) }
+                Button("More Casual") { ask(.casual) }
+            }
+            Menu("Translate") {
+                ForEach(Self.languages, id: \.self) { language in
+                    Button(language) { ask(.translate(language: language)) }
+                }
+            }
+            Button("Suggest Variations") { ask(.variations) }
+        } label: {
+            Label("AI", systemImage: "sparkles")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Ask a model to write or change the body. The selection, or the whole body, is what it sees.")
+    }
+
+    private func ask(_ action: AiAuthoring) {
+        guard let writer = store.writer, let target = editor.target() else { return }
+        authoring = AuthoringStore(action: action, replacing: target.text, range: target.range, runner: writer)
+    }
+
+    private func closeAuthoring() {
+        authoring?.close()
+        authoring = nil
+    }
+
+    /// The sheet is up for as long as its model is. Closing it any other way
+    /// is closing it.
+    private var authoringIsUp: Binding<Bool> {
+        Binding(
+            get: { authoring != nil },
+            set: { isUp in
+                if !isUp { closeAuthoring() }
+            }
+        )
     }
 
     private var insertMenu: some View {
@@ -96,6 +176,23 @@ final class BodyEditorHandle {
         view.insertText(placeholder.insert, replacementRange: replacing)
         view.setSelectedRange(placeholder.selection(insertedAt: replacing.location))
         view.scrollRangeToVisible(view.selectedRange())
+    }
+
+    /// What an AI action works on: the selection, or the whole body when
+    /// nothing is selected. Nil before the view is there.
+    func target() -> (range: NSRange, text: String)? {
+        guard let view else { return nil }
+        let whole = view.string as NSString
+        let selected = view.selectedRange()
+        let range = selected.length > 0 ? selected : NSRange(location: 0, length: whole.length)
+        return (range, whole.substring(with: range))
+    }
+
+    /// Puts an AI answer in place of `range`, as one edit the editor's undo
+    /// takes back. False when the range no longer holds `expected`.
+    func replace(_ range: NSRange, expected: String, with text: String, action: String) -> Bool {
+        guard let view else { return false }
+        return TextReplacement.replace(in: view, range: range, expected: expected, with: text, action: action)
     }
 
     /// Shows the reader the range a problem is about.

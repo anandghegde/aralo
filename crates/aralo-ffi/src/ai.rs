@@ -1,7 +1,8 @@
 //! AI settings across the bridge: the switch, the profiles and their keys,
 //! Test connection, the capability probe and local-server detection, for the
 //! settings pane (plan 7.2, task 4.4); commands on selected text (task 4.5);
-//! and the runs that answer a snippet's `{{ai}}` blocks (task 4.6).
+//! the runs that answer a snippet's `{{ai}}` blocks (task 4.6); and the
+//! editor's actions (task 4.7).
 //!
 //! The calls that talk to an endpoint are `async`. UniFFI runs them on tokio,
 //! so Swift awaits them like any other async call and the main thread never
@@ -15,9 +16,9 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use aralo_core::ai::{
-    self as settings, AiError, AiSettings, AiSettingsError, BlockRun, Capabilities, Check, Command,
-    CommandRun, ContextKind, KeyChange, LocalServer, ManifestEntry, ProfileDraft, ProfileField,
-    SavedProfile, Secret, StopReason,
+    self as settings, AiError, AiSettings, AiSettingsError, Authoring, AuthoringRun, BlockRun,
+    Capabilities, Check, Command, CommandRun, ContextKind, KeyChange, LocalServer, ManifestEntry,
+    ProfileDraft, ProfileField, SavedProfile, Secret, StopReason,
 };
 use aralo_core::diff::{self, Change};
 use aralo_core::snippet::SnippetId;
@@ -347,6 +348,20 @@ impl AiProfiles {
         let run = self.settings.run_block(&request).await?;
         Ok(Arc::new(AiBlockRun::new(run)))
     }
+
+    /// Runs an editor action on `text`: the selection in the body, or the
+    /// whole body. A draft sends nothing from the editor. The answer streams
+    /// from the run this returns; nothing in the editor changes until the
+    /// shell puts it in.
+    pub async fn run_authoring(
+        &self,
+        action: AiAuthoring,
+        text: String,
+    ) -> Result<Arc<AiAuthoringRun>, AiBridgeError> {
+        let action = Authoring::from(action);
+        let run = self.settings.run_authoring(&action, &text).await?;
+        Ok(Arc::new(AiAuthoringRun::new(run)))
+    }
 }
 
 /// The providers the editor offers by name, with where to make a key.
@@ -597,6 +612,16 @@ impl Answering for CommandRun {
     }
 }
 
+impl Answering for AuthoringRun {
+    fn next_piece(&mut self) -> impl Future<Output = Option<Result<String, AiError>>> + Send {
+        self.next()
+    }
+
+    fn stop_reason(&self) -> Option<&StopReason> {
+        AuthoringRun::stop_reason(self)
+    }
+}
+
 impl Answering for BlockRun {
     fn next_piece(&mut self) -> impl Future<Output = Option<Result<String, AiError>>> + Send {
         self.next()
@@ -844,6 +869,158 @@ impl AiBlockRun {
     pub fn answer(&self) -> Option<String> {
         let answer = settings::fit_block(&self.stream.text());
         (!answer.is_empty()).then_some(answer)
+    }
+
+    /// Whether the model stopped at its length limit rather than at the end.
+    pub fn cut_short(&self) -> bool {
+        self.stream.cut_short()
+    }
+}
+
+// MARK: The editor's actions (task 4.7)
+
+/// An action in the editor's AI menu.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum AiAuthoring {
+    /// Write a body from the snippet's label and what the user adds.
+    Draft {
+        label: String,
+        note: String,
+    },
+    Proofread,
+    Clearer,
+    Shorter,
+    Friendlier,
+    Formal,
+    Casual,
+    /// Into a language named in words, such as "German".
+    Translate {
+        language: String,
+    },
+    Variations,
+}
+
+impl From<AiAuthoring> for Authoring {
+    fn from(action: AiAuthoring) -> Self {
+        match action {
+            AiAuthoring::Draft { label, note } => Self::Draft { label, note },
+            AiAuthoring::Proofread => Self::Proofread,
+            AiAuthoring::Clearer => Self::Clearer,
+            AiAuthoring::Shorter => Self::Shorter,
+            AiAuthoring::Friendlier => Self::Friendlier,
+            AiAuthoring::Formal => Self::Formal,
+            AiAuthoring::Casual => Self::Casual,
+            AiAuthoring::Translate { language } => Self::Translate { language },
+            AiAuthoring::Variations => Self::Variations,
+        }
+    }
+}
+
+/// What a menu calls an action, in the core's words.
+#[uniffi::export]
+pub fn authoring_label(action: AiAuthoring) -> String {
+    Authoring::from(action).label()
+}
+
+/// A placeholder an answer dropped (`Removed`) or added (`Added`), as written.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AiPlaceholderChange {
+    pub change: DiffChange,
+    pub placeholder: String,
+}
+
+/// The placeholders `after` dropped from `before`, then the ones it added. For
+/// the editor to say before the user takes an answer, and again after they
+/// edit it.
+#[uniffi::export]
+pub fn placeholder_changes(before: String, after: String) -> Vec<AiPlaceholderChange> {
+    settings::placeholder_changes(&before, &after)
+        .into_iter()
+        .map(|change| AiPlaceholderChange {
+            change: match change.change {
+                Change::Same => DiffChange::Same,
+                Change::Removed => DiffChange::Removed,
+                Change::Added => DiffChange::Added,
+            },
+            placeholder: change.placeholder,
+        })
+        .collect()
+}
+
+/// An editor action's answer, arriving, on the same terms as a command's.
+#[derive(uniffi::Object)]
+pub struct AiAuthoringRun {
+    stream: Streamed<AuthoringRun>,
+    action: Authoring,
+    profile: String,
+    model: String,
+    sent: Vec<AiContextSent>,
+    original: String,
+}
+
+impl std::fmt::Debug for AiAuthoringRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiAuthoringRun")
+            .field("action", &self.action)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AiAuthoringRun {
+    fn new(run: AuthoringRun) -> Self {
+        Self {
+            action: run.action().clone(),
+            profile: run.profile().to_owned(),
+            model: run.model().to_owned(),
+            sent: sent(run.manifest()),
+            original: run.original().to_owned(),
+            stream: Streamed::new(run),
+        }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl AiAuthoringRun {
+    /// The next piece of the answer, or nothing once it has finished or been
+    /// cancelled. An error ends it; what came before stays in `text`.
+    pub async fn next(&self) -> Result<Option<String>, AiBridgeError> {
+        self.stream.next().await
+    }
+
+    /// Stops the answer and closes the connection. What arrived is kept.
+    pub fn cancel(&self) {
+        self.stream.cancel();
+    }
+
+    pub fn profile(&self) -> String {
+        self.profile.clone()
+    }
+
+    pub fn model(&self) -> String {
+        self.model.clone()
+    }
+
+    /// What was sent with the instruction: the text worked on, or nothing
+    /// for a draft.
+    pub fn sent(&self) -> Vec<AiContextSent> {
+        self.sent.clone()
+    }
+
+    /// The text the action worked on. Empty for a draft.
+    pub fn original(&self) -> String {
+        self.original.clone()
+    }
+
+    /// The answer so far, as the model wrote it.
+    pub fn text(&self) -> String {
+        self.stream.text()
+    }
+
+    /// Every version the answer holds, fitted to the original: several for
+    /// variations, one otherwise, none while nothing has arrived.
+    pub fn versions(&self) -> Vec<String> {
+        settings::versions(&self.action, &self.original, &self.stream.text())
     }
 
     /// Whether the model stopped at its length limit rather than at the end.

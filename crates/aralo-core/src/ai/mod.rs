@@ -1,10 +1,13 @@
 //! AI settings: the switch, local-only mode and the saved profiles, with
-//! their keys in the keychain (plan 7.2, PRD P13).
+//! their keys in the keychain (plan 7.2, PRD P13), and the features that run
+//! on them: commands on selected text, AI blocks in snippets and the editor's
+//! actions.
 //!
 //! [`AiSettings`] is what the settings pane and `aralo ai` call. It owns the
 //! [`Gateway`], so Test connection, the capability probe and the model list
 //! go through the same policy check and network guard as any feature.
 
+mod authoring;
 mod block;
 mod command;
 mod file;
@@ -25,6 +28,10 @@ pub use aralo_ai::{
 };
 pub use aralo_providers::{LocalServer, LocalServerKind};
 
+pub use authoring::{
+    placeholder_changes, versions, Authoring, AuthoringProblem, AuthoringRun, PlaceholderChange,
+    VARIATIONS,
+};
 pub use block::{fit_block, BlockRequest, BlockRun, BlockSettings};
 pub use command::{
     builtin_commands, fit_to_selection, Command, CommandProblem, CommandRun, MAX_SELECTION,
@@ -147,6 +154,8 @@ pub enum AiSettingsError {
     Ai(#[from] AiError),
     #[error("{0}")]
     Command(#[from] CommandProblem),
+    #[error("{0}")]
+    Authoring(#[from] AuthoringProblem),
 }
 
 impl From<Refusal> for AiSettingsError {

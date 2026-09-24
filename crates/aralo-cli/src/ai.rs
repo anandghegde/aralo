@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aralo_core::ai::{
-    builtin_commands, profiles_path, provider_preset, AdapterKind, AiSettings, AiSwitches,
-    BlockRequest, Capabilities, Check, Command, KeyChange, ProfileDraft, SavedProfile, Secret,
-    PROVIDER_PRESETS,
+    builtin_commands, placeholder_changes, profiles_path, provider_preset, AdapterKind, AiSettings,
+    AiSwitches, Authoring, BlockRequest, Capabilities, Check, Command, KeyChange, ProfileDraft,
+    SavedProfile, Secret, PROVIDER_PRESETS,
 };
 use aralo_core::diff::Change;
 use aralo_core::Core;
@@ -93,6 +93,37 @@ pub enum AiCommand {
     /// Commands on selected text: the built-in ones and a library's
     #[command(subcommand)]
     Command(CommandAction),
+    /// The snippet editor's AI actions: run one on standard input, as if it
+    /// were the body, and print what would replace it
+    Write {
+        action: WriteAction,
+        /// For `translate`: the language, in words, such as German
+        #[arg(long)]
+        language: Option<String>,
+        /// For `draft`: the snippet's label. Nothing is read from standard input
+        #[arg(long, default_value = "")]
+        label: String,
+        /// For `draft`: what the snippet should say, beyond its label
+        #[arg(long, default_value = "")]
+        note: String,
+        /// Print the change word by word, `[-removed][+added]`, instead
+        #[arg(long)]
+        diff: bool,
+    },
+}
+
+/// An action in the editor's AI menu.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum WriteAction {
+    Draft,
+    Proofread,
+    Clearer,
+    Shorter,
+    Friendlier,
+    Formal,
+    Casual,
+    Translate,
+    Variations,
 }
 
 #[derive(Debug, Subcommand)]
@@ -354,6 +385,28 @@ pub fn run(command: AiCommand) -> Result<ExitCode, Failure> {
             }
         }
         AiCommand::Command(action) => return run_command(&settings, action),
+        AiCommand::Write {
+            action,
+            language,
+            label,
+            note,
+            diff,
+        } => {
+            let action = match action {
+                WriteAction::Draft => Authoring::Draft { label, note },
+                WriteAction::Proofread => Authoring::Proofread,
+                WriteAction::Clearer => Authoring::Clearer,
+                WriteAction::Shorter => Authoring::Shorter,
+                WriteAction::Friendlier => Authoring::Friendlier,
+                WriteAction::Formal => Authoring::Formal,
+                WriteAction::Casual => Authoring::Casual,
+                WriteAction::Translate => Authoring::Translate {
+                    language: language.unwrap_or_default(),
+                },
+                WriteAction::Variations => Authoring::Variations,
+            };
+            return run_write(&settings, &action, diff);
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -418,6 +471,56 @@ fn run_command(settings: &AiSettings, action: CommandAction) -> Result<ExitCode,
             out.flush()?;
         }
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Runs an editor action on standard input and prints the answer. Anything
+/// about placeholders the answer dropped or added goes to standard error, so
+/// standard output is still exactly the text.
+fn run_write(settings: &AiSettings, action: &Authoring, diff: bool) -> Result<ExitCode, Failure> {
+    let mut text = String::new();
+    if action.works_on_text() {
+        std::io::stdin().read_to_string(&mut text)?;
+    }
+    let run = block_on(async {
+        let mut run = settings.run_authoring(action, &text).await?;
+        while let Some(piece) = run.next().await {
+            piece.map_err(aralo_core::ai::AiSettingsError::from)?;
+        }
+        Ok::<_, aralo_core::ai::AiSettingsError>(run)
+    })?;
+    eprintln!("{}: {} with {}", action.label(), run.profile(), run.model());
+    let versions = run.variations();
+    if versions.is_empty() {
+        return Err("the model answered with nothing".into());
+    }
+    let mut out = std::io::stdout().lock();
+    for (number, version) in versions.iter().enumerate() {
+        if number > 0 {
+            writeln!(out, "\n%%%")?;
+        }
+        if diff && !text.is_empty() {
+            for span in aralo_core::diff::diff_words(&text, version) {
+                match span.change {
+                    Change::Same => write!(out, "{}", span.text)?,
+                    Change::Removed => write!(out, "[-{}]", span.text)?,
+                    Change::Added => write!(out, "[+{}]", span.text)?,
+                }
+            }
+        } else {
+            write!(out, "{version}")?;
+        }
+        if action.works_on_text() {
+            for change in placeholder_changes(&text, version) {
+                let what = match change.change {
+                    Change::Removed => "dropped",
+                    _ => "added",
+                };
+                eprintln!("aralo: the answer {what} {}", change.placeholder);
+            }
+        }
+    }
+    out.flush()?;
     Ok(ExitCode::SUCCESS)
 }
 

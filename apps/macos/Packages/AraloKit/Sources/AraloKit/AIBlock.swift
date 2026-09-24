@@ -56,9 +56,10 @@ extension AiProfiles: BlockRunner {
     }
 }
 
-/// Opens the AI settings the first time a block asks, so a snippet with no
-/// AI block never causes profiles.toml or the keychain to be read.
-public struct DeferredBlockRunner: BlockRunner {
+/// Opens the AI settings the first time something asks a model, so a snippet
+/// with no AI block, or an editor nobody asked for help in, never causes
+/// profiles.toml or the keychain to be read.
+public struct DeferredAIRunner: BlockRunner, AuthoringRunner {
     private let settings: @MainActor @Sendable () throws -> AiProfiles
 
     public init(settings: @escaping @MainActor @Sendable () throws -> AiProfiles) {
@@ -68,6 +69,11 @@ public struct DeferredBlockRunner: BlockRunner {
     public func start(_ session: ExpansionSession, block: UInt32) async throws -> AiBlockRunProtocol {
         let profiles = try await settings()
         return try await profiles.start(session, block: block)
+    }
+
+    public func start(_ action: AiAuthoring, text: String) async throws -> AiAuthoringRunProtocol {
+        let profiles = try await settings()
+        return try await profiles.start(action, text: text)
     }
 }
 

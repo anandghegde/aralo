@@ -123,11 +123,11 @@ extension AraloService {
         )
     }
 
-    /// Answers AI blocks with the AI settings, opened the first time a block
-    /// asks: a snippet with no AI block reads neither profiles.toml nor the
-    /// keychain.
-    var blockRunner: BlockRunner {
-        DeferredBlockRunner { [weak self] in
+    /// Answers AI blocks and the editor's actions with the AI settings,
+    /// opened the first time either asks: until then Aralo reads neither
+    /// profiles.toml nor the keychain.
+    var aiRunner: DeferredAIRunner {
+        DeferredAIRunner { [weak self] in
             guard let self else { throw AiBridgeError.Failed(message: "Aralo is closing.") }
             return try aiSettings()
         }

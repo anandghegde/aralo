@@ -16,9 +16,9 @@ library loader, a placeholder parser, the bridge to Swift and a command-line
 tool that expands snippets in an imaginary text field. The Mac app is a first
 slice you build yourself: a menu bar agent that expands plain-text snippets
 and walks you through the permissions on first run. AI is under way (M4):
-the gateway, the first adapter, the AI settings, commands on selected text and
-AI blocks inside snippets exist. Expect everything to change, including the
-file format, which is at version 0.
+the gateway, the first adapter, the AI settings, commands on selected text,
+AI blocks inside snippets and AI actions in the snippet editor exist. Expect
+everything to change, including the file format, which is at version 0.
 
 ## Privacy, as build properties
 
@@ -81,9 +81,9 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
 | `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser, the editor's outline of a body, the evaluator and plans, AI blocks included |
 | `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search, conflict-copy merge | M2: load, write, watch, index, search and merge |
-| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, the runtime that watches and indexes, the AI settings, commands and AI blocks |
-| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange, change events, the AI settings, commands and AI blocks |
-| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export`, `ai` | M1, the M2 import and search slices, AI profiles and commands, and `expand --ai` |
+| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, the runtime that watches and indexes, the AI settings, commands, AI blocks and editor actions |
+| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange, change events, the AI settings, commands, AI blocks and editor actions |
+| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export`, `ai` | M1, the M2 import and search slices, AI profiles and commands, `expand --ai` and `ai write` |
 | `aralo-ai` | Gateway, network guard, framing, profiles | Gateway, network guard, secret store, Test connection and the capability probe |
 | `aralo-providers` | Provider adapters, SSE parser, local-server detection | `openai_compat` and local-server detection |
 | `aralo-embed` | Embedding runtime, vector scan | Empty, M4 |
@@ -372,6 +372,17 @@ AI off, local-only mode refusing the host, or no network, the block puts in
 its fallback and the panel says why. `aralo expand --ai` does the same from
 the terminal, and without `--ai` a block puts in its fallback and says how to
 ask. See [AI blocks in snippets](docs/architecture.md#ai-blocks-in-snippets).
+
+The snippet editor has AI actions (task 4.7). An AI menu beside Insert can
+draft a body from the snippet's label, fix spelling and grammar, make the text
+clearer or shorter, change its tone, translate it or suggest variations. It
+works on the selection, or on the whole body when nothing is selected, and
+that is all it sends; a draft sends only the label and a note. The answer
+streams into a sheet with a word diff, and the sheet names any placeholder the
+answer dropped or added, because one a model writes is one the snippet will
+expand. Replace puts it in as one edit, so one ⌘Z in the editor takes it back.
+`aralo ai write proofread < body.txt` does the same from a terminal. See
+[AI actions in the editor](docs/architecture.md#ai-actions-in-the-editor).
 
 Seven spikes (S1 to S7) are still owed in M0. They are listed in
 [docs/adr/README.md](docs/adr/README.md).
