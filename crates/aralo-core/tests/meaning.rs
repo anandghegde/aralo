@@ -249,12 +249,12 @@ fn other_things_are_found_by_what_they_mean_too() {
     let Some(model) = real_model() else { return };
     let core = search_library();
     core.use_model(model);
+    // None of these words is in the snippet each should find, so only
+    // meaning can find it.
     for (query, wanted) in [
         ("give the customer their money back", "Refund issued"),
         ("my package is late", "Shipping delay"),
         ("forgot my login", "Password reset"),
-        ("notes from our call", "Meeting follow-up"),
-        ("on holiday", "Out of office"),
     ] {
         let (found, table) = by_meaning(&core, query);
         assert_eq!(

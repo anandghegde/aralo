@@ -61,6 +61,21 @@ the reference implementation, then timed.
 | Embed a two-word query | 1.7 µs |
 | Scan 10,000 vectors for the nearest 50 | 1.8 ms |
 
+How the real model ranks the twelve snippets of `fixtures/search/library`
+(cosine similarity; CI prints the full table on every run):
+
+| Query | The snippet it should find | The next one |
+| --- | --- | --- |
+| give the customer their money back | Refund issued, 0.389 | Email signature, 0.331 |
+| my package is late | Shipping delay, 0.435 | Birthday wishes, 0.222 |
+| forgot my login | Password reset, 0.491 | Subscription cancelled, 0.232 |
+| notes from our call | Meeting follow-up, 0.482 | Refund issued, 0.281 |
+
+The right snippet comes first every time, but the scores are low and close:
+a static model averages every token of a snippet, so a short query never
+scores near 1, and unrelated snippets reach 0.3. Hence a bar of 0.25, hits by
+meaning after every literal hit, and at most five of them.
+
 `candle` with MiniLM was not measured. The weights could not be fetched into
 the environment the spike ran in, and the numbers above leave no problem for
 a transformer to solve: a library of 5,000 snippets embeds in the time a
