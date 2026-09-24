@@ -12,6 +12,11 @@ extension Error {
             case .Library(let message), .CompatTable(let message), .Import(let message), .Trash(let message):
                 return message
             }
+        case let bridge as AiBridgeError:
+            switch bridge {
+            case .Invalid(_, let message), .NotFound(let message), .Refused(let message), .Failed(let message):
+                return message
+            }
         default:
             return localizedDescription
         }

@@ -93,9 +93,11 @@ guard needs code-owner review (see `.github/CODEOWNERS`).
 
 **2. Only the network guard constructs HTTP clients.** The guard lives in
 `aralo-ai`. It is the single place that creates an HTTP client, and it refuses
-non-loopback addresses in local-only mode. A lint bans
-`reqwest::Client::new` everywhere else. If your code needs to make a request,
-ask the guard for a client.
+non-loopback addresses in local-only mode. Only `aralo-ai` may depend on
+`reqwest` (cargo-deny), only `crates/aralo-ai/src/guard/` may name it
+(`scripts/check-deps.sh`), and clippy bans `reqwest::Client::new` and
+`reqwest::Client::builder` everywhere else. If your code needs to make a
+request, take a `Transport` from the gateway, as the provider adapters do.
 
 **3. Secrets and content stay out of logs.** Logging uses `tracing` with a
 field allow-list: IDs, counts, durations and error codes. Snippet bodies,

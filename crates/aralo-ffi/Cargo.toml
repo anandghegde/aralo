@@ -26,10 +26,16 @@ bindgen = ["uniffi/cli"]
 aralo-core = { workspace = true }
 aralo-engine = { workspace = true }
 thiserror = { workspace = true }
-uniffi = { workspace = true }
+# `sync` for a command run: `cancel` has to reach a `next` that is waiting on
+# the network.
+tokio = { workspace = true, features = ["sync", "macros"] }
+# `tokio`: the AI calls are async, and reqwest needs tokio's reactor under them.
+uniffi = { workspace = true, features = ["tokio"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 # Not `workspace = true`: UniFFI's generated scaffolding is `unsafe extern "C"`,
 # so this is the one crate that cannot forbid unsafe code. Hand-written unsafe

@@ -333,7 +333,7 @@ impl Core {
     /// snippet that does not exist yet.
     pub fn check_draft(&self, draft: &Draft, editing: Option<SnippetId>) -> Vec<DraftIssue> {
         let mut issues = Vec::new();
-        if draft.kind != SnippetKind::Text {
+        if !draft.kind.is_supported() {
             issues.push(DraftIssue {
                 abbr: None,
                 problem: Problem::UnsupportedKind(draft.kind),

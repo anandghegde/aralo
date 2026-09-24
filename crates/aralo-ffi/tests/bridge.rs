@@ -187,6 +187,7 @@ fn query(text: &str) -> SearchQuery {
         tag: None,
         enabled_only: false,
         limit: 0,
+        kind: None,
     }
 }
 

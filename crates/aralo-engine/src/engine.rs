@@ -274,6 +274,24 @@ impl Engine {
         verdict
     }
 
+    /// Whether a command on selected text may run in `app_id`: read what is
+    /// selected there, and paste over it.
+    ///
+    /// Not while paused, and never in an excluded app: a password manager's
+    /// selection is not something to send anywhere. The buffer and the undo
+    /// record are cleared, because the text around the caret is about to be
+    /// replaced by something nobody typed.
+    pub fn command_in(&mut self, app_id: &str) -> Result<(), InsertRefusal> {
+        if self.paused {
+            return Err(InsertRefusal::Paused);
+        }
+        if self.is_excluded(app_id) {
+            return Err(InsertRefusal::ExcludedApp);
+        }
+        self.clear();
+        Ok(())
+    }
+
     /// Records a snippet the user picked from a list rather than typed, so
     /// that the undo key takes it back the way it takes any expansion back.
     /// [`Engine::expansion_done`] arms it, as it does for a match.

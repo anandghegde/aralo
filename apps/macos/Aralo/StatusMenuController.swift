@@ -13,6 +13,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var onImport: (() -> Void)?
     /// Opens the search palette, the same as the hot key does.
     var onSearchSnippets: (() -> Void)?
+    /// Reads the selection in the app in front and opens the command panel,
+    /// the same as the hot key does.
+    var onTransformSelection: (() -> Void)?
+    /// Opens Settings.
+    var onShowSettings: (() -> Void)?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
     init(service: AraloService) {
@@ -49,21 +54,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         switch service.state {
         case .active, .paused, .secureInput:
-            let title = service.isPaused ? "Resume Aralo" : "Pause Aralo"
-            let pause = command(title, #selector(togglePause))
-            if let shortcut = service.pauseShortcut {
-                // Shown for the user to learn. The hot key itself is global.
-                pause.keyEquivalent = String(shortcut.character)
-                pause.keyEquivalentModifierMask = shortcut.modifiers
-            }
-            menu.addItem(pause)
-            let search = command("Insert Snippet\u{2026}", #selector(searchSnippets))
-            if let shortcut = service.paletteShortcut {
-                // Shown for the user to learn. The hot key itself is global.
-                search.keyEquivalent = String(shortcut.character)
-                search.keyEquivalentModifierMask = shortcut.modifiers
-            }
-            menu.addItem(search)
+            addTypingCommands(to: menu)
         case .needsPermissions:
             menu.addItem(command("Set Up Aralo…", #selector(setUp)))
         case .failed:
@@ -85,8 +76,37 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         addLibraryCommands(to: menu)
         menu.addItem(.separator())
+        let settings = command("Settings\u{2026}", #selector(showSettings))
+        settings.keyEquivalent = ","
+        menu.addItem(settings)
         let quit = #selector(NSApplication.terminate(_:))
         menu.addItem(NSMenuItem(title: "Quit Aralo", action: quit, keyEquivalent: "q"))
+    }
+
+    /// Pause, and the two panels that open over the app in front. Each shows
+    /// its hot key for the user to learn; the hot key itself is global.
+    private func addTypingCommands(to menu: NSMenu) {
+        let title = service.isPaused ? "Resume Aralo" : "Pause Aralo"
+        let pause = command(title, #selector(togglePause))
+        if let shortcut = service.pauseShortcut {
+            // Shown for the user to learn. The hot key itself is global.
+            pause.keyEquivalent = String(shortcut.character)
+            pause.keyEquivalentModifierMask = shortcut.modifiers
+        }
+        menu.addItem(pause)
+        let search = command("Insert Snippet\u{2026}", #selector(searchSnippets))
+        if let shortcut = service.paletteShortcut {
+            // Shown for the user to learn. The hot key itself is global.
+            search.keyEquivalent = String(shortcut.character)
+            search.keyEquivalentModifierMask = shortcut.modifiers
+        }
+        menu.addItem(search)
+        let transform = command("Transform Selection\u{2026}", #selector(transformSelection))
+        if let shortcut = service.commandShortcut {
+            transform.keyEquivalent = String(shortcut.character)
+            transform.keyEquivalentModifierMask = shortcut.modifiers
+        }
+        menu.addItem(transform)
     }
 
     /// The snippet window, and what reaches the folder behind it.
@@ -137,4 +157,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func showLibrary() { onShowLibrary?() }
     @objc private func searchSnippets() { onSearchSnippets?() }
     @objc private func importSnippets() { onImport?() }
+    @objc private func transformSelection() { onTransformSelection?() }
+    @objc private func showSettings() { onShowSettings?() }
 }

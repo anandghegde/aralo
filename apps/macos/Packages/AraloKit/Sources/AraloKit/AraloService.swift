@@ -48,12 +48,21 @@ public final class AraloService {
     /// shell's business.
     public var onFormRequested: (@MainActor () -> Void)?
 
+    /// The command panel's model, while it is up. It is made when the hot key
+    /// is pressed, after the selection has been read, so each one holds the
+    /// selection it was opened for.
+    public internal(set) var commands: CommandStore?
+
+    /// The command hot key was pressed and the panel's model is ready. On the
+    /// same terms as `onPaletteRequested`.
+    public var onCommandsRequested: (@MainActor () -> Void)?
+
     public let libraryURL: URL
     public let cacheURL: URL
-    private var core: Core?
+    var core: Core?
     private var tap: EventTap?
-    private var controller: ExpansionController?
-    private var secureInput: SecureInputMonitor?
+    var controller: ExpansionController?
+    var secureInput: SecureInputMonitor?
     private var frontApp: FrontAppMonitor?
     private let keyboardLayout = KeyboardLayoutMonitor()
     /// One pasteboard for the whole app: the injector pastes with it, and a
@@ -61,13 +70,20 @@ public final class AraloService {
     private let pasteboard = SystemPasteboard()
     private var pauseHotKey: GlobalHotKey?
     private var paletteHotKey: GlobalHotKey?
+    private var commandHotKey: GlobalHotKey?
+    /// The AI settings, opened the first time something needs them: until
+    /// then nothing reads profiles.toml or the keychain.
+    var aiProfiles: AiProfiles?
+    /// True while the selection is being read for a command panel, so a hot
+    /// key pressed twice reads it once.
+    var isReadingSelection = false
     /// Which of Aralo's own windows have the keyboard. A set rather than a
     /// flag: a form panel opens from the palette, and the palette saying it
     /// has gone must not answer for the panel that is still up.
     private var keyboardOwners: Set<KeyboardOwner> = []
     /// The app the open palette will insert into: whatever was in front when
     /// the hot key was pressed, held until the palette closes.
-    private var paletteTarget: TargetApp?
+    var paletteTarget: TargetApp?
     private var permissionTimer: Timer?
 
     public init(libraryURL: URL, cacheURL: URL = AraloService.defaultCacheURL) {
@@ -92,6 +108,10 @@ public final class AraloService {
     /// The shortcut that opens the search palette from any app, on the same
     /// terms as `pauseShortcut`.
     public private(set) var paletteShortcut: GlobalHotKey.Shortcut?
+
+    /// The shortcut that runs a command on the selected text, on the same
+    /// terms as `pauseShortcut`.
+    public private(set) var commandShortcut: GlobalHotKey.Shortcut?
 
     public var snippetCount: Int { core?.snippets().count ?? 0 }
     /// The tap is up. The first run uses this rather than guessing from grants.
@@ -171,6 +191,10 @@ public final class AraloService {
         let palette = paletteHotKey ?? GlobalHotKey { [weak self] in self?.openPalette() }
         paletteHotKey = palette
         paletteShortcut = register(.palette, on: palette)
+
+        let command = commandHotKey ?? GlobalHotKey { [weak self] in self?.openCommands() }
+        commandHotKey = command
+        commandShortcut = register(.command, on: command)
     }
 
     /// Points a hot key at the key the shortcut names on the layout in use, and
@@ -182,44 +206,6 @@ public final class AraloService {
         let registered = keyCode.map { hotKey.register(keyCode: $0, modifiers: shortcut.modifiers) } ?? false
         if !registered { hotKey.unregister() }
         return registered ? shortcut : nil
-    }
-
-    // MARK: - The palette
-
-    /// Opens the search palette over the app in front: notes the app the text
-    /// will go into, empties the search box, and asks the shell for a window.
-    ///
-    /// Does nothing before Aralo may type. The hot key needs no permission and
-    /// so answers sooner than the rest of the app works; a palette that could
-    /// only say "nothing was inserted" is worse than no palette.
-    public func openPalette() {
-        guard let palette, controller != nil else { return }
-        paletteTarget = RunningTargetApp.frontmost()
-        palette.reset()
-        onPaletteRequested?()
-    }
-
-    /// Whether the palette's window has the keyboard.
-    ///
-    /// While it does, Aralo watches nothing: what is typed into the search box
-    /// is a query, not text in a document, and an abbreviation typed there must
-    /// not expand into a field that is about to close. The buffer is emptied on
-    /// the way in and on the way out, so the two sides of the palette cannot
-    /// join up into an abbreviation neither of them typed.
-    ///
-    /// The window gives the keyboard back *before* a snippet is inserted: what
-    /// clears the buffer clears the undo record with it, and the snippet that
-    /// is about to land has to be undoable.
-    public func setPaletteHasKeyboard(_ hasKeyboard: Bool) {
-        setKeyboard(.palette, hasKeyboard)
-    }
-
-    /// The palette has gone for good. The app it was opened over is no longer
-    /// spoken for, so a plan is never run against an app the user has since
-    /// left.
-    public func paletteClosed() {
-        paletteTarget = nil
-        setKeyboard(.palette, false)
     }
 
     // MARK: - The form panel
@@ -271,7 +257,7 @@ public final class AraloService {
     /// keyboard. The buffer is emptied on the way in and on the way out, so
     /// the two sides of a panel cannot join up into an abbreviation neither of
     /// them typed.
-    private func setKeyboard(_ owner: KeyboardOwner, _ hasKeyboard: Bool) {
+    func setKeyboard(_ owner: KeyboardOwner, _ hasKeyboard: Bool) {
         if hasKeyboard {
             keyboardOwners.insert(owner)
         } else {
@@ -355,6 +341,8 @@ public final class AraloService {
         // The session cannot be finished without an injector, so it goes too.
         form?.cancel()
         form = nil
+        commands?.close()
+        commands = nil
         keyboardOwners = []
         frontApp?.stop()
         frontApp = nil
@@ -378,8 +366,8 @@ public final class AraloService {
 }
 
 /// A window of Aralo's own that can hold the keyboard.
-private enum KeyboardOwner {
-    case palette, form, testField
+enum KeyboardOwner {
+    case palette, form, testField, command
 }
 
 /// The core's end of `onLibraryChange`. Rust calls this on the thread that

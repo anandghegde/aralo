@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use aralo_snippet::{
-    GroupFile, Manifest, ParseError, SnippetFile, SnippetId, SnippetKind, GROUP_FILE_NAME,
-    MANIFEST_FILE_NAME, SNIPPET_EXTENSION,
+    GroupFile, Manifest, ParseError, SnippetFile, SnippetId, GROUP_FILE_NAME, MANIFEST_FILE_NAME,
+    SNIPPET_EXTENSION,
 };
 
 use crate::{
@@ -280,7 +280,7 @@ impl Loader<'_> {
             }
         };
 
-        if file.front.kind != SnippetKind::Text {
+        if !file.front.kind.is_supported() {
             self.report(relative, Issue::UnsupportedKind(file.front.kind));
         }
         let (id, id_is_temporary) = match file.front.id {

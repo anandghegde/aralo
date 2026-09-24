@@ -486,3 +486,25 @@ fn non_ascii_abbreviations_and_folding_work() {
         matched(1, 4, CasePattern::Upper, Some(' '))
     );
 }
+
+#[test]
+fn a_command_on_a_selection_clears_what_was_typed_and_stays_out_of_excluded_apps() {
+    let mut engine = engine_with(vec![Abbreviation::new(SnippetId(1), ";rf")]);
+    assert_eq!(
+        engine.command_in("com.1password.1password"),
+        Err(InsertRefusal::ExcludedApp),
+        "a password manager's selection is never read"
+    );
+    engine.set_paused(true);
+    assert_eq!(
+        engine.command_in("com.apple.TextEdit"),
+        Err(InsertRefusal::Paused)
+    );
+    engine.set_paused(false);
+
+    type_str(&mut engine, ";r");
+    assert_eq!(engine.command_in("com.apple.TextEdit"), Ok(()));
+    // The ";r" before the replacement cannot complete an abbreviation across it.
+    assert!(engine.holds_no_keystrokes());
+    assert_eq!(last_verdict(&mut engine, "f "), KeyVerdict::Pass);
+}

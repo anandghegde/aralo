@@ -157,4 +157,72 @@ final class InjectorTests: XCTestCase {
             .undo(deleteCount: 4, retype: "a ", method: .pasted, profile: profile { $0.undo = .backspace })
         XCTAssertEqual(sink.keys, [.backspace, .backspace, .backspace, .backspace, .text("a ")])
     }
+
+    // MARK: - Commands on selected text
+
+    func testCopySelectionReadsWhatTheAppCopiedAndPutsTheClipboardBack() {
+        let original: PasteboardContents = [["public.utf8-plain-text": Data("mine".utf8)]]
+        let pasteboard = FakePasteboard(items: original)
+        let sink = AppSink { key in
+            if key == .copy { pasteboard.copyFromElsewhere("their going home") }
+        }
+        let injector = Injector(sink: sink, pasteboard: pasteboard, sleep: { _ in })
+        XCTAssertEqual(injector.copySelection(profile: profile()), "their going home")
+        XCTAssertEqual(sink.keys, [.copy])
+        XCTAssertEqual(pasteboard.contents(), original)
+    }
+
+    func testCopySelectionWaitsForASlowAppAndGivesUpOnASilentOne() {
+        let pasteboard = FakePasteboard(items: [["public.utf8-plain-text": Data("mine".utf8)]])
+        var waited: TimeInterval = 0
+        let slow = Injector(sink: RecordingSink(), pasteboard: pasteboard) { pause in
+            waited += pause
+            // The app gets round to copying 50 ms after the key.
+            if waited > 0.045, pasteboard.changeCount == 0 { pasteboard.copyFromElsewhere("late") }
+        }
+        XCTAssertEqual(slow.copySelection(profile: profile { $0.keyDelayMs = 0 }), "late")
+
+        // Nothing selected: the app copies nothing, the clipboard is not
+        // touched, and the wait ends.
+        let untouched = FakePasteboard(items: [["public.utf8-plain-text": Data("mine".utf8)]])
+        var total: TimeInterval = 0
+        let silent = Injector(sink: RecordingSink(), pasteboard: untouched) { total += $0 }
+        XCTAssertNil(silent.copySelection(profile: profile { $0.keyDelayMs = 0 }))
+        XCTAssertEqual(untouched.changeCount, 0)
+        XCTAssertEqual(total, Injector.copyPatience, accuracy: 0.02)
+    }
+
+    func testReplaceSelectionPastesSoOneUndoTakesItBack() {
+        let original: PasteboardContents = [["public.utf8-plain-text": Data("mine".utf8)]]
+        let pasteboard = FakePasteboard(items: original)
+        let sink = RecordingSink()
+        var pasted: PasteboardContents = []
+        pasteboard.onWrite = { pasted = pasteboard.contents() }
+        // Short single-line text that `auto` would type goes in as a paste.
+        let outcome = makeInjector(sink, pasteboard).replaceSelection(with: "They're", profile: profile())
+        XCTAssertEqual(outcome, Injector.Outcome(method: .pasted, undoable: true))
+        XCTAssertEqual(sink.keys, [.paste])
+        XCTAssertEqual(pasted, [["public.utf8-plain-text": Data("They're".utf8)]])
+        XCTAssertEqual(pasteboard.contents(), original)
+
+        // An app that only takes typing is typed into.
+        let typed = RecordingSink()
+        makeInjector(typed, FakePasteboard()).replaceSelection(with: "ok", profile: profile { $0.insert = .type })
+        XCTAssertEqual(typed.keys, [.text("ok")])
+    }
+}
+
+/// A sink that stands in for the app, answering the keys it is sent.
+final class AppSink: EventSink {
+    private(set) var keys: [SyntheticKey] = []
+    private let answer: (SyntheticKey) -> Void
+
+    init(answer: @escaping (SyntheticKey) -> Void) {
+        self.answer = answer
+    }
+
+    func post(_ key: SyntheticKey) {
+        keys.append(key)
+        answer(key)
+    }
 }

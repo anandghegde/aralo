@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-B9z","object":"chat.completion.chunk","created":1790200000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"The quick"},"finish_reason":null}]}
+
+data: <html><body>502 Bad Gateway</body></html>
+

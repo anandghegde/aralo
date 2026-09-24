@@ -17,7 +17,7 @@
 
 use std::fmt;
 
-use aralo_snippet::SnippetId;
+use aralo_snippet::{SnippetId, SnippetKind};
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
@@ -50,6 +50,9 @@ pub struct Query {
     pub tag: Option<String>,
     /// Leave out snippets that are switched off.
     pub enabled_only: bool,
+    /// Only snippets of this type, such as the `text` ones a palette can
+    /// insert.
+    pub kind: Option<SnippetKind>,
     /// At most this many hits, after ranking.
     pub limit: Option<usize>,
 }
@@ -258,6 +261,12 @@ impl Query {
     /// Whether the filters let this snippet through, before any matching.
     fn allows(&self, snippet: &LoadedSnippet) -> bool {
         if self.enabled_only && !snippet.settings.enabled {
+            return false;
+        }
+        if self
+            .kind
+            .is_some_and(|kind| kind != snippet.file.front.kind)
+        {
             return false;
         }
         if let Some(group) = &self.group {

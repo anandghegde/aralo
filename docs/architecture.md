@@ -601,6 +601,244 @@ strip a newer one's file. `check_draft` reports blank, repeated and
 already-taken abbreviations, and reports rather than refuses: the folder is the
 user's, and a save is never blocked by advice.
 
+## The AI gateway
+
+`aralo-ai` holds everything between a feature and a model
+([ADR-0007](adr/0007-ai-gateway-and-network-guard.md)). A feature builds an
+`AiRequest`: the feature, the profile, a system prompt, the user's
+instruction and the context kinds its snippet or command declared. It never
+holds a URL, a key or a provider's wire format.
+
+`Gateway::prepare` runs the stages before the network, in order:
+
+| Stage | What it does | Where |
+| --- | --- | --- |
+| Policy check | The AI switch (off by default), local-only mode and a managed allow-list of hosts. A refusal comes before any context is read | `Policy::check` |
+| Context assembly | Asks a `ContextSource` for each declared kind, once, and for nothing else. Records the kind and size of each for the preview panel | `context::assemble` |
+| Redaction | An empty stage until v1 | `redact` |
+| Prompt framing | Each context item goes in a block whose tag carries a nonce hashed from the content, and the system prompt says that what is inside is data | `framing::frame` |
+
+`Gateway::send` checks the policy again, since it may have changed while the
+panel was open. It then hands the framed request to the `Adapter` for the
+profile's kind (see [provider adapters](#provider-adapters)), together with a
+`Transport`. An adapter builds HTTP requests and reads the answers; it never
+holds a client. A 429 or 5xx is retried twice before the first token, after
+500 ms and then 1 s, or after the endpoint's `Retry-After` up to 10 s. Once the
+stream has begun nothing is retried. The `AiStream` that comes back adds each
+usage report to per-feature, per-profile counters. A profile's soft cap warns
+once, when it is crossed, and never stops a stream. Dropping the stream closes
+the connection.
+
+The one real `Transport` is `guard::NetworkGuard`, the only code in the
+workspace that builds an HTTP client. In local-only mode it refuses at two
+points:
+
+1. **Before sending, by URL.** An IP address that is not loopback is refused,
+   and so is any name except `localhost` and the names under it. This is the
+   only check an IP literal meets, because `reqwest` does not resolve one.
+2. **When connecting, by address.** The client's resolver drops every address
+   that is not loopback. `localhost` pointed at another machine by a hosts
+   file fails, and a name that resolves both ways reaches only loopback.
+
+The client has no proxy, so a system proxy cannot carry a local request off
+the machine. It follows no redirect, so an endpoint cannot bounce the request,
+and its key, to another host. Switching local-only mode on builds a new
+client, so no pooled connection to a remote host survives the switch.
+Client errors lose their URL before they are reported, because a URL can
+carry a key in its query.
+
+Four checks keep the guard the only way out:
+
+- cargo-deny lets no crate but `aralo-ai` depend on `reqwest`.
+- `clippy.toml` bans `reqwest::Client::new` and `reqwest::Client::builder`.
+  The guard's one call carries the only `allow`.
+- `scripts/check-deps.sh` fails if `reqwest::` appears anywhere outside
+  `crates/aralo-ai/src/guard/`.
+- `.github/CODEOWNERS` protects that folder.
+
+`crates/aralo-ai/tests/local_only.rs` is the test for P6. It runs against a
+real listener on 127.0.0.1 that counts the connections it accepts, and against
+documentation addresses that nothing answers on. A refusal has to arrive
+within two seconds with no connection made.
+
+### Provider adapters
+
+`aralo-providers` holds the adapters. It depends on `aralo-ai` for the
+`Adapter` and `Transport` traits and on no HTTP client, so an adapter can only
+reach the network through the transport the gateway hands it.
+`aralo_providers::register_all` registers every adapter with a gateway.
+
+**`openai_compat`** sends `POST {base}/chat/completions` with `stream: true`
+and `stream_options.include_usage`, and the key as a bearer token. A header
+set on the profile replaces the adapter's header of the same name, so a proxy
+can bring its own `Authorization`. `list_models` reads `GET {base}/models`.
+`Gateway::list_models` checks the policy before calling it, as `send` does.
+
+The stream is read by `sse::SseParser`. It follows the WHATWG event-stream
+rules, gives the same events wherever the chunk boundaries fall, and refuses a
+line over 1 MiB. On top of it the adapter is lenient where the copies of
+OpenAI's API differ, and strict where leniency would hide a failure:
+
+| Case | What the adapter does |
+| --- | --- |
+| Usage in a last chunk with no choices (OpenAI, OpenRouter, Ollama), in `x_groq.usage` (Groq), or as running totals in every chunk | Keeps the last report and passes it on once, just before `Done` |
+| `: comment` lines, such as OpenRouter's `PROCESSING` | Ignored |
+| `reasoning` or `reasoning_content` beside `content` | Only `content` is output |
+| A body that closes after a finish reason but without `[DONE]` | Finishes normally |
+| A body that closes before any finish reason | `AiError::Protocol`, after the text that did arrive |
+| A chunk that is not JSON, such as a proxy's HTML error page | `AiError::Protocol`, after the text before it |
+| An `error` object mid-stream (OpenRouter) | `AiError::Status` with the provider's code and message. Not retried, since text may be on screen |
+| An error status before the stream | `AiError::Status` with the message from the body in any of the usual shapes, and `Retry-After` in seconds |
+| A server that ignores `stream: true` and answers with one JSON body | Read as a stream of one piece |
+
+**Local servers.** `detect_local_servers` probes `GET /v1/models` on
+127.0.0.1 at the default ports of Ollama (11434), LM Studio (1234),
+llama.cpp (8080) and vLLM (8000), all at once, 1.5 s each at most. A port
+counts only if it answers with a model list, so another program on 8080 is
+not taken for a model server. The probes go through the network guard and
+never leave the machine. `LocalServer::profile` gives a profile ready to save,
+with no key.
+
+**Tests.** `tests/transcripts.rs` replays the bodies in `fixtures/sse/`
+through the gateway in 1-byte, 7-byte and whole-body chunks, and checks the
+text, the usage metered and the stop reason. `tests/network.rs` runs against
+real listeners on 127.0.0.1 through the guard in local-only mode. After the
+first token, dropping the stream must close the connection within two
+seconds. Detection must find only the port that answers with a model list,
+and a hung port must cost one timeout, not one per port. `tests/live.rs` is
+ignored by default. It streams from a real endpoint named in environment
+variables, and can record the response body as a new transcript. Until they
+are replaced by recordings, the provider transcripts are written by hand from
+each provider's documented format; see `fixtures/sse/README.md`.
+
+### Profiles and keys
+
+`aralo-core`'s `AiSettings` owns the AI settings. It keeps the switch,
+local-only mode and the saved profiles in `profiles.toml` in the state folder
+(`ARALO_STATE`, by default `~/Library/Application Support/Aralo`). That is
+outside the library, so it never syncs (PRD P13). The file is written
+atomically, under a lock, and keeps no key. A profile names its key by a
+`key_ref`, and the key is kept in a `SecretStore`: the login keychain, under
+the service `Aralo AI key`, through the `keyring` crate. Tests and the
+Swift tests use `MemorySecretStore`.
+
+```toml
+enabled = true
+local_only = false
+default_profile = "OpenRouter"
+
+[[profile]]
+name = "OpenRouter"
+adapter = "openai_compat"
+base_url = "https://openrouter.ai/api/v1"
+default_model = "openai/gpt-4o-mini"
+key_ref = "…"
+headers = { X-Title = "Aralo" }
+```
+
+The settings check a draft before saving it, and a problem names the field to
+fix. A header that carries credentials (`Authorization`, `X-Api-Key`,
+`Cookie` and the like) is refused, and so is a header value or an address
+that looks like a key: a key goes in the key field, where it is kept in the
+keychain. A key arrives as a `KeyChange` (`Keep`, `Set` or `Remove`) beside
+the draft, and is never read back. A saved profile says whether it has a
+key, not what the key is. Renaming a profile keeps its key. Deleting one
+deletes the key too. The first profile saved becomes the default.
+
+**Test connection** sends one short chat with the draft on screen, saved or
+not, and reports the model, the time to the first token and the reply. A
+model list alone does not show that a key and a model work together, because
+some endpoints list models without a key. **The probe** tries each
+capability with the cheapest request that shows it: the models route, one
+chat that shows streaming and whether the system prompt was read, and one
+asking for JSON output. Embeddings are not checked until `aralo-embed`
+exists. The result is kept in the file with the time of the probe, and is
+cleared when the address, model, headers or key change. All of these go
+through the gateway, so each is refused while AI is off, and a remote one in
+local-only mode, before anything is sent.
+
+**Presets.** `PROVIDER_PRESETS` fills a new profile for OpenAI, Anthropic's
+OpenAI-compatible endpoint, Gemini, OpenRouter, Groq, Mistral, DeepSeek,
+Together, Ollama and LM Studio. Each remote preset carries the page where its
+keys are made. The settings pane links to that page beside the key field, and
+`aralo ai add` prints it when a profile is saved without a key. A unit test
+checks that every preset's address passes the network guard's parser, and
+that a key page exists exactly when the address is not this Mac.
+
+**Where it is used.** The Mac app's Settings window (⌘, in the menu) has an
+AI tab: the switch, local-only mode, the profiles with the default marked, an
+editor with Test Connection, List Models, the probe's findings and Detect for
+local servers. The model behind it is `AISettingsStore` in AraloKit. The
+terminal has `aralo ai` (`status`, `on`, `off`, `local-only`, `presets`,
+`add`, `edit`, `remove`, `default`, `test`, `probe`, `models`, `detect`, `command`). It
+takes a key only from an environment variable (`--key-env`) or standard input
+(`--key-stdin`), never as an argument, where it would be kept in the shell's
+history.
+
+**The key-leak scan.** `scripts/key-leak-scan.sh` runs the whole workspace's
+tests with `HOME`, `ARALO_STATE` and `TMPDIR` in a scratch folder. It then
+looks for the test canary, and for anything shaped like a real provider key,
+in every file the run wrote there and in every repository file it changed.
+It fails if it finds one. `crates/aralo-core/tests/ai_settings.rs` checks the
+same from the inside. The canary must reach the transport only as the
+`Authorization` header, and must never appear in the file, in `Debug` output
+or in an error.
+
+### Commands on selected text
+
+A command is a snippet with `type: command`. Its body is the instruction, and
+`ai.profile` and `ai.model` choose who answers. Seven built-in commands live
+in `data/commands/` and are compiled into `aralo-core`. `Core::commands()`
+lists the built-ins first and then the library's commands, sorted by label. A
+library command with a built-in's ID takes that built-in's place in the list.
+A command's abbreviations expand nothing, and the palette lists only
+`type: text` snippets.
+
+**The run.** `AiSettings::run_command(command, selection)` refuses before
+anything is sent when:
+
+- the selection is empty or only white space;
+- the selection is longer than `MAX_SELECTION`, which is 100 KB;
+- AI is off;
+- there is no profile to use.
+
+Otherwise it goes through the gateway as `Feature::Command`, declaring
+`Selection` and nothing else. The answer streams back through `CommandRun`.
+`fit_to_selection` then shapes the answer to fit the selection:
+
+- it removes a code fence around the whole answer, unless the selection was
+  fenced too;
+- it puts back the selection's leading and trailing white space;
+- it writes CRLF line endings when the selection used them.
+
+`aralo_core::diff::diff_words` cuts the word diff the panel shows. Removed
+and added text is grouped, so a rewritten phrase reads as one change.
+
+**The Mac side.** The hot key (⌃⌥⌘A) or Transform Selection… in the menu
+starts `AraloService.openCommands`. The steps run in this order:
+
+1. `Engine::command_target(app)` refuses when Aralo is paused or the app is
+   excluded. Otherwise it clears the typing buffer and returns the app's
+   `InjectionProfile`. Secure input also refuses.
+2. `SelectionCapture` reads the focused element's `AXSelectedText`, with a
+   250 ms messaging timeout, before the panel takes the keyboard. It refuses
+   a password field. If Accessibility gives no answer, the injector posts
+   ⌘C on its queue and waits up to 300 ms for the pasteboard to change. It
+   then reads the text and restores the user's clipboard. An empty answer
+   from a text field or text area is believed and nothing is copied, because
+   some editors copy the whole line when nothing is selected.
+3. `CommandStore` is the panel's model: the command list, the streamed
+   answer, the draft, the diff, the context sent and the profile and model
+   that answered. Its tests run with a fake runner. `CommandWindowController`
+   is a non-activating panel like the palette.
+4. Replace gives the keyboard back, brings the app forward and asks the core
+   again. The injector then pastes the draft, unless the app's row says
+   `insert = "type"`. A paste is one step of the app's own undo, so one ⌘Z
+   restores the original.
+
+`AraloService` owns the one `AiProfiles` that the Settings pane and the
+panel share.
+
 ## Bridge API
 
 The bridge is `crates/aralo-ffi`, generated by UniFFI. Nothing in it may
@@ -622,7 +860,13 @@ the event tap.
 | `Core`, sync conflicts | `conflicts()`, `conflict(copy) -> ConflictDetail`, `resolve_conflict(copy, ConflictChoice)`: `KeepOriginal`, `KeepCopy` or `Write { text }` | Synchronous |
 | `CoreEvents` | `library_changed(event)`: `Outside`, `Edited`, `Reloaded`, `Failed`, `Merged`, `Indexed`. The shell implements it | Called on a background thread |
 | `Trash` | `discard(path)`: moves a merged or resolved conflict copy out of the library. The shell implements it | Called on whichever thread read the folder, with the library locked |
-| Functions | `core_version()`, `excluded_app_presets()`, `placeholder_choices()`: what an editor's insert menu offers, `compat_apps(path?)`: the rows of a table, for the injection matrix | Synchronous |
+| `AiProfiles` | `open(path?, KeyStorage)` (constructor), `reload()`, `switches()`, `set_switches`, `profiles()`, `save(draft, AiKeyChange)`, `delete`, `set_default` | Synchronous |
+| `AiProfiles`, asking the endpoint | `test_connection(draft, key)`, `list_models(draft, key)`, `probe_capabilities(name)`, `detect_local_servers()`. A problem with a draft is `AiBridgeError.Invalid` and names the field | Async (Swift `async`, on a tokio runtime in the bridge) |
+| `AiProfiles`, commands | `run_command(AiCommand, selection) -> AiCommandRun`. Refusals (nothing selected, too long, AI off, no profile) come back before anything is sent | Async |
+| `AiCommandRun` | `next() -> String?` streams the answer, `cancel()` stops it (a `next()` that is waiting returns nil), `profile()`, `model()`, `sent() -> [AiContextSent]`, `text()`, `cut_short()`, `replacement()`: the answer fitted to the selection, `diff() -> [DiffSpan]` | `next` async, the rest synchronous |
+| `Core`, commands | `commands() -> [AiCommand]`: the built-in ones, then the library's | Synchronous |
+| `Engine`, commands | `command_target(app) -> CommandTarget`: `Ready { profile }` or `Refused { reason }`. Clears the typing buffer | Synchronous |
+| Functions | `core_version()`, `excluded_app_presets()`, `placeholder_choices()`: what an editor's insert menu offers, `compat_apps(path?)`: the rows of a table, for the injection matrix, `ai_provider_presets()`, `diff_words(before, after)` | Synchronous |
 
 `KeyAction` is one of `Pass`, `Expand { snippet_id, consume, steps,
 undo_delete_count, profile }`, `StartSession { snippet_id, consume, session }`
@@ -643,7 +887,6 @@ the app came forward changes nothing and undo survives it.
 | Object | Calls | Arrives |
 | --- | --- | --- |
 | `ExpansionSession` | `regenerate`: ask a model for another answer, for an AI block | M4 |
-| `AiProfiles` | `save`, `test_connection`, `probe_capabilities`, `list_models`, `detect_local_servers` | M4 |
 | Callbacks the shell implements | `ContextProvider`, optional `SecretStore` | M4. A session asks the shell for context by returning `SessionAction.Context`, so nothing is needed for the clipboard |
 
 An import comes back as the report the app shows
@@ -661,9 +904,9 @@ is the exception: its crates may depend on each other.
 
 | Layer | Crates | State today |
 | --- | --- | --- |
-| 3 | `aralo-ffi`, `aralo-cli` | The bridge carries the keystroke path, editing, search and interchange. The CLI also imports, exports, searches and expands |
-| 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search, editing, and the runtime that watches and indexes |
-| 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. The rest are empty |
+| 3 | `aralo-ffi`, `aralo-cli` | The bridge carries the keystroke path, editing, search, interchange and the AI settings. The CLI also imports, exports, searches, expands and manages AI profiles |
+| 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search, editing, the runtime that watches and indexes, and the AI settings with keys in the keychain |
+| 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. `aralo-ai` has the gateway and the network guard. `aralo-providers` has the `openai_compat` adapter and local-server detection. The rest are empty |
 | 0 | `aralo-engine`, `aralo-snippet`, `aralo-template` | Implemented, evaluator included: dates and times in 15 locales, the clipboard, forms, nested snippets and cursor stops. An AI block inserts its fallback until M4 |
 
 The rule covers every dependency kind, including dev and build dependencies.
@@ -683,12 +926,12 @@ breaks. "Planned" means the code it would check does not exist yet.
 | Keystrokes stay in memory, 64 characters at most (P1) | Fixed ring in `aralo-engine`, zeroed with `zeroize` on every reset, after every match and on drop. The undo record holds the typed abbreviation for one key | `crates/aralo-engine/tests/privacy.rs`: the buffer is zero after every reset reason and every invalidating state change, the undo record is dropped by a reset, a match empties the buffer, `Debug` output carries no typed text |
 | The engine cannot write, send or log what it sees (P1) | No I/O, clock, network or logging dependency. `#![no_std]` | `scripts/check-deps.sh`: dependency-tree check, and a source scan for `println!`, `eprintln!`, `print!`, `eprint!`, `dbg!`, `log::` and `tracing::`. `crates/aralo-engine/clippy.toml` bans the same macros. Code owners on `crates/aralo-engine/` and the tap |
 | No hand-written `unsafe` | The workspace forbids `unsafe_code`. `aralo-ffi` is the one crate that cannot, because UniFFI generates `unsafe` scaffolding | `scripts/check-deps.sh` scans `crates/aralo-ffi/src` |
-| Nothing is recorded while paused or in an excluded app (P2) | The check runs before the buffer is touched. Password managers are preset | `privacy.rs`: `nothing_is_recorded_while_paused_or_in_an_excluded_app`. A unit test on the presets. `crates/aralo-ffi/tests/bridge.rs`: `excluded_apps_never_expand` |
+| Nothing is recorded while paused or in an excluded app (P2) | The check runs before the buffer is touched. Password managers are preset | `privacy.rs`: `nothing_is_recorded_while_paused_or_in_an_excluded_app`. A unit test on the presets. `crates/aralo-ffi/tests/bridge.rs`: `excluded_apps_never_expand`. A command on a selection is refused the same way: `matching.rs`: `a_command_on_a_selection_clears_what_was_typed_and_stays_out_of_excluded_apps`, and `SelectionCaptureTests` in AraloKit |
 | No expansion while secure input is on (P2) | The shell polls `IsSecureEventInputEnabled()`, resets, and names the app that holds it in the menu | `SecureInputMonitor` in AraloKit. The engine side, `reset(SecureInput)`, is covered by `privacy.rs` |
-| AI sends only declared context (P4) | The session requests only declared kinds | Planned, M4 |
-| Local-only mode means no network (P6) | The network guard is the only HTTP client constructor ([ADR-0007](adr/0007-ai-gateway-and-network-guard.md)) | Planned, M4. `deny.toml` already bans other HTTP clients and will confine `reqwest` to `aralo-ai` |
-| Prompt injection cannot act (P10) | AI output is literal text with no path back into the evaluator | Planned, M4 |
-| Keys only in the keychain (P13) | `SecretStore`. Profiles hold a reference, never a value | Planned, M4 |
+| AI sends only declared context (P4) | The gateway asks a `ContextSource` for the declared kinds only, and asks for nothing when the policy refuses | `crates/aralo-ai/tests/gateway.rs`: `only_declared_context_is_asked_for_or_sent`. `local_only.rs`: a refused request reads no context. A command declares only the selection: `crates/aralo-core/tests/ai_command.rs` checks the manifest and that every refusal sends nothing. The session side arrives with AI blocks (task 4.6) |
+| Local-only mode means no network (P6) | The network guard is the only HTTP client constructor, and refuses by URL before sending and by address at connect ([the AI gateway](#the-ai-gateway)) | `crates/aralo-ai/tests/local_only.rs`. `deny.toml` confines `reqwest` to `aralo-ai`, `clippy.toml` bans building a client, `scripts/check-deps.sh` keeps `reqwest` inside the guard module |
+| Prompt injection cannot act (P10) | AI output is literal text with no path back into the evaluator. Context is framed as data | `gateway.rs`: `model_output_is_passed_on_as_literal_text`. Framing tests in `aralo-ai`. The evaluator side arrives with AI blocks (task 4.6) |
+| Keys only in the keychain (P13) | `SecretStore` on the login keychain. `profiles.toml` holds a `key_ref`, never a value, and refuses a key-shaped header or address. The CLI takes a key only from the environment or standard input ([profiles and keys](#profiles-and-keys)) | `crates/aralo-core/tests/ai_settings.rs`: `after_every_operation_the_key_is_only_in_the_store_and_the_auth_header`, with a canary key. `scripts/key-leak-scan.sh`: no key in any file a full test run wrote |
 | Licences, advisories, sources | `deny.toml` | `cargo-deny` in CI |
 
 All of these run in `.github/workflows/check.yml` on every pull request.

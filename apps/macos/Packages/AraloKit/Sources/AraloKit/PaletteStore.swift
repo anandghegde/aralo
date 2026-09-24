@@ -156,7 +156,9 @@ public final class PaletteStore {
                 // A switched-off snippet does not expand when it is typed, so
                 // the palette does not offer it either.
                 enabledOnly: true,
-                limit: Self.limit
+                limit: Self.limit,
+                // A command runs on a selection; it has no text to insert.
+                kind: .text
             )
         ).map(SnippetRow.init)
     }
@@ -169,7 +171,7 @@ public final class PaletteStore {
     /// pick from.
     private func recentlyUsed() -> [SnippetRow] {
         let all = core.search(
-            query: SearchQuery(text: "", group: nil, tag: nil, enabledOnly: true, limit: Self.limit)
+            query: SearchQuery(text: "", group: nil, tag: nil, enabledOnly: true, limit: Self.limit, kind: .text)
         ).map(SnippetRow.init)
         let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let recents = core.recents(limit: Self.limit).compactMap { byID[$0] }

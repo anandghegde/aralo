@@ -60,7 +60,7 @@ key that is absent or `null` means "inherit from the group"; see
 | `id` | ULID string | none | The snippet's identity. Hand-written files may leave it out; Aralo assigns one on the first save |
 | `label` | string | empty | Name shown in lists and search |
 | `abbr` | string or list of strings | none | The abbreviations that expand this snippet. With none, the snippet is reachable through search only |
-| `type` | `text`, `rich`, `command`, `prompt`, `script` | `text` | The kind of snippet. Only `text` has behaviour today |
+| `type` | `text`, `rich`, `command`, `prompt`, `script` | `text` | The kind of snippet. `text` is inserted. `command` is a command on selected text: its body is the instruction, and it is offered in the command panel rather than expanded (see [below](#type-command)). The others load with a warning and do nothing yet |
 | `trigger` | `immediate`, `delimiter` | inherit, then `delimiter` | When the abbreviation fires. See [matching.md](matching.md#triggers) |
 | `case` | `exact`, `ignore`, `adaptive` | inherit, then `adaptive` | How case is matched and applied. See [matching.md](matching.md#case) |
 | `word` | boolean | inherit, then `true` | Whole-word rule. See [matching.md](matching.md#whole-word) |
@@ -102,6 +102,7 @@ comment and unquoted `yes` is a boolean.
 | --- | --- | --- |
 | `context` | list of strings | The context kinds this snippet declares. Nothing else may be requested from the shell or sent to a model. The plan names `fillins`, `selection`, `clipboard`, `app` and `window`. This version stores the strings without checking them |
 | `profile` | string | Name of the provider profile to use. Absent: the profile chosen in settings. Profiles live outside the library folder and never hold a key in a file |
+| `model` | string | The model to ask. Absent: the profile's default model |
 
 Unknown keys inside `ai` are preserved.
 
@@ -128,6 +129,28 @@ The body is everything after the closing `---` line.
 For `type: text` the body is inserted as plain text. It is not rendered as
 Markdown. The `.md` extension is there so that editors and Git hosts show the
 file sensibly.
+
+### `type: command`
+
+A command runs on the text selected in another app, and its answer replaces
+that text. The body is the instruction the model is given, in plain words. It
+is not a template: `{{…}}` is sent as written. The selection is the only
+context a command sends, whatever `ai.context` says. `ai.profile` and
+`ai.model` choose who answers.
+
+```markdown
+---
+label: Make it sound like a pirate
+type: command
+ai:
+  model: gpt-4o-mini
+---
+Rewrite the text the way a pirate would say it. Keep its meaning.
+```
+
+A command has nothing to insert, so its abbreviations expand nothing. Aralo
+ships seven built-in commands (`data/commands/`). A library command with the
+same `id` as a built-in one replaces it in the list.
 
 ## What Aralo changes when it rewrites a file
 

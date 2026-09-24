@@ -9,16 +9,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var library: LibraryWindowController?
     private var palette: PaletteWindowController?
     private var form: FormWindowController?
+    private var commands: CommandWindowController?
+    private var settings: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let statusMenu = StatusMenuController(service: service)
         statusMenu.onSetUp = { [weak self] in self?.showOnboarding(fromMenu: true) }
         statusMenu.onShowLibrary = { [weak self] in self?.showLibrary() }
         statusMenu.onSearchSnippets = { [weak self] in self?.service.openPalette() }
+        statusMenu.onTransformSelection = { [weak self] in self?.service.openCommands() }
         statusMenu.onImport = { [weak self] in self?.libraryWindow()?.chooseImport() }
+        statusMenu.onShowSettings = { [weak self] in self?.showSettings() }
         self.statusMenu = statusMenu
         service.onPaletteRequested = { [weak self] in self?.showPalette() }
         service.onFormRequested = { [weak self] in self?.showForm() }
+        service.onCommandsRequested = { [weak self] in self?.showCommands() }
         service.start()
         showOnboarding(fromMenu: false)
     }
@@ -36,6 +41,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return controller
     }
 
+    /// Settings, made the first time they are asked for. The AI settings open
+    /// then too: until that, nothing reads profiles.toml or the keychain.
+    private func showSettings() {
+        if settings == nil {
+            do {
+                // The service's instance, which the command panel runs with.
+                settings = SettingsWindowController(aiSettings: AISettingsStore(settings: try service.aiSettings()))
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Aralo could not open its AI settings"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+                return
+            }
+        }
+        settings?.show()
+    }
+
     /// The search palette, made the first time the hot key is pressed. It is
     /// kept afterwards: it opens often, and on the key a user is still holding.
     private func showPalette() {
@@ -50,6 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         form?.window?.close()
         let controller = FormWindowController(service: service)
         form = controller
+        controller?.show()
+    }
+
+    /// The command panel, made fresh for each selection: the text it works on
+    /// is the one read when the hot key was pressed.
+    private func showCommands() {
+        commands?.window?.close()
+        let controller = CommandWindowController(service: service)
+        commands = controller
         controller?.show()
     }
 

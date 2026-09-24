@@ -21,6 +21,7 @@ public struct SyntheticKey: Equatable, Sendable {
     }
 
     public static let backspace = SyntheticKey(keyCode: CGKeyCode(kVK_Delete))
+    public static let copy = SyntheticKey(keyCode: CGKeyCode(kVK_ANSI_C), flags: .maskCommand, equivalent: "c")
     public static let paste = SyntheticKey(keyCode: CGKeyCode(kVK_ANSI_V), flags: .maskCommand, equivalent: "v")
     public static let undo = SyntheticKey(keyCode: CGKeyCode(kVK_ANSI_Z), flags: .maskCommand, equivalent: "z")
     public static let `return` = SyntheticKey(keyCode: CGKeyCode(kVK_Return))

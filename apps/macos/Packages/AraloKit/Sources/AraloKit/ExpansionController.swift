@@ -139,6 +139,38 @@ public final class ExpansionController: @unchecked Sendable {
         }
     }
 
+    // MARK: - Commands on selected text
+
+    /// Whether a command may read and replace the selection in `app`, and how
+    /// to type into it. Asking clears the buffer: what was typed before the
+    /// selection was made is not the start of an abbreviation after it.
+    public func commandTarget(app: String) -> CommandTarget {
+        translator.clear()
+        return engine.commandTarget(app: app)
+    }
+
+    /// Copies the selection in the app with the keyboard, on the queue every
+    /// other injection runs on, so it never lands in the middle of one.
+    public func copySelection(profile: InjectionProfile) async -> String? {
+        await withCheckedContinuation { continuation in
+            schedule { [injector] in
+                continuation.resume(returning: injector.copySelection(profile: profile))
+            }
+        }
+    }
+
+    /// Replaces the selection in the app with the keyboard, and returns once
+    /// the text has gone in.
+    public func replaceSelection(with text: String, profile: InjectionProfile) async {
+        translator.clear()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            schedule { [injector] in
+                injector.replaceSelection(with: text, profile: profile)
+                continuation.resume()
+            }
+        }
+    }
+
     private func act(on action: KeyAction) -> Bool {
         switch action {
         case .pass:

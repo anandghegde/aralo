@@ -1,0 +1,12 @@
+# Workspace-wide clippy configuration. A crate with its own clippy.toml
+# (crates/aralo-engine) does not read this one, and repeats what it needs.
+
+# The network guard in aralo-ai is the only constructor of HTTP clients
+# (ADR-0007). Its one call carries an `allow`; scripts/check-deps.sh also fails
+# if `reqwest` is named outside crates/aralo-ai/src/guard/.
+disallowed-methods = [
+    { path = "reqwest::Client::new", reason = "HTTP clients are built by the network guard in aralo-ai only (ADR-0007)" },
+    { path = "reqwest::Client::builder", reason = "HTTP clients are built by the network guard in aralo-ai only (ADR-0007)" },
+    { path = "reqwest::ClientBuilder::new", reason = "HTTP clients are built by the network guard in aralo-ai only (ADR-0007)" },
+    { path = "reqwest::get", reason = "HTTP goes through the network guard in aralo-ai (ADR-0007)" },
+]

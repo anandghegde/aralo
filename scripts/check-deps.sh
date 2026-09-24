@@ -8,6 +8,8 @@
 #   c. No unsafe in ffi   aralo-ffi contains no hand-written `unsafe`.
 #   d. Silent engine      aralo-engine contains no printing or logging call.
 #   e. Timeless template  aralo-template reads no clock (ADR-0014).
+#   f. One HTTP door      `reqwest` is named only inside the network guard
+#                         (ADR-0007).
 #
 # Needs: bash 3.2 or later, cargo, python3 (standard library only). No jq.
 # Usage: scripts/check-deps.sh        Exit status 0 = every check passed.
@@ -44,6 +46,8 @@ LAYER_3="aralo-ffi aralo-cli"
 FFI_SRC="crates/aralo-ffi/src"
 ENGINE_SRC="crates/aralo-engine/src"
 TEMPLATE_SRC="crates/aralo-template/src"
+# The network guard: the only code that may name the HTTP client.
+GUARD_SRC="crates/aralo-ai/src/guard"
 
 # -----------------------------------------------------------------------------
 
@@ -288,6 +292,23 @@ else
         echo "$hits" | sed 's/^/        /' >&2
     else
         pass "silent engine: $ENGINE_SRC has no println!, eprintln!, print!, eprint!, dbg!, log:: or tracing::"
+    fi
+fi
+
+# --- f: one HTTP door ------------------------------------------------------------
+# cargo-deny keeps `reqwest` out of every crate but aralo-ai, and clippy bans
+# building a client. This keeps it out of the rest of aralo-ai: a module that
+# can name `reqwest` can hold a client, which is what the guard exists to stop.
+
+if [ ! -d "$GUARD_SRC" ]; then
+    fail "one HTTP door: directory $GUARD_SRC not found"
+else
+    hits="$(scan crates '(^|[^A-Za-z0-9_])reqwest::' | grep -v "^$GUARD_SRC/" || true)"
+    if [ -n "$hits" ]; then
+        fail "one HTTP door: \`reqwest\` is named outside the network guard. Adapters get a Transport from the gateway (ADR-0007):"
+        echo "$hits" | sed 's/^/        /' >&2
+    else
+        pass "one HTTP door: \`reqwest\` is named only in $GUARD_SRC"
     fi
 fi
 

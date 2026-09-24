@@ -28,6 +28,9 @@ public struct RunningTargetApp: TargetApp {
     public let bundleId: String
     private let app: NSRunningApplication
 
+    /// The process, for asking Accessibility what is selected in it.
+    public var processIdentifier: pid_t { app.processIdentifier }
+
     /// How long the app gets to come forward after a click has made Aralo the
     /// active one. Longer than a switch takes, short enough that a user who is
     /// waiting for text sees no lag before the message that none is coming.

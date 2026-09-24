@@ -77,6 +77,49 @@ public final class Injector: @unchecked Sendable {
         type(retype, profile)
     }
 
+    /// Copies what is selected in the app with the keyboard, and puts the
+    /// user's clipboard back.
+    ///
+    /// Nil when the app copied nothing, which is what most apps do when
+    /// nothing is selected, and what an app that ignores synthetic Cmd+C does
+    /// always. The copy is waited for rather than assumed: the app writes to
+    /// the pasteboard in its own time.
+    public func copySelection(profile: InjectionProfile) -> String? {
+        let saved = pasteboard.contents()
+        let before = pasteboard.changeCount
+        press(.copy, times: 1, profile)
+        var waited: TimeInterval = 0
+        while pasteboard.changeCount == before, waited < Self.copyPatience {
+            sleep(Self.copyPoll)
+            waited += Self.copyPoll
+        }
+        guard pasteboard.changeCount != before else { return nil }
+        let text = pasteboard.text()
+        pasteboard.restore(saved)
+        return text
+    }
+
+    /// Puts `text` in place of what is selected.
+    ///
+    /// Pasted, unless the app's row says it only takes typing: a paste is one
+    /// step of the app's own undo, so one Cmd+Z brings the original back.
+    @discardableResult
+    public func replaceSelection(with text: String, profile: InjectionProfile) -> Outcome {
+        var outcome = Outcome(method: .typed, undoable: true)
+        guard !text.isEmpty else { return outcome }
+        if profile.insert == .type {
+            outcome.undoable = !type(text, profile)
+        } else {
+            paste(text, profile)
+            outcome.method = .pasted
+        }
+        return outcome
+    }
+
+    /// How long an app gets to answer Cmd+C, and how often to look.
+    public static let copyPatience: TimeInterval = 0.3
+    static let copyPoll: TimeInterval = 0.01
+
     /// `auto` types short single-line text and pastes the rest: a line break
     /// in a typed event is a Return key to many apps, which sends the message.
     public static func method(for text: String, profile: InjectionProfile) -> InsertMethod {

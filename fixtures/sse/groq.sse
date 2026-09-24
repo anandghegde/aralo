@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl-7f3","object":"chat.completion.chunk","created":1790200000,"model":"llama-3.1-8b-instant","system_fingerprint":"fp_a4265e44d5","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"x_groq":{"id":"req_01k5"}}
+
+data: {"id":"chatcmpl-7f3","object":"chat.completion.chunk","created":1790200000,"model":"llama-3.1-8b-instant","system_fingerprint":"fp_a4265e44d5","choices":[{"index":0,"delta":{"content":"The quick"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7f3","object":"chat.completion.chunk","created":1790200000,"model":"llama-3.1-8b-instant","system_fingerprint":"fp_a4265e44d5","choices":[{"index":0,"delta":{"content":" brown fox — ünïcödé ✓"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-7f3","object":"chat.completion.chunk","created":1790200000,"model":"llama-3.1-8b-instant","system_fingerprint":"fp_a4265e44d5","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"x_groq":{"id":"req_01k5","usage":{"queue_time":0.041,"prompt_tokens":1320,"prompt_time":0.06,"completion_tokens":9,"completion_time":0.012,"total_tokens":1329,"total_time":0.072}}}
+
+data: [DONE]
+

@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-412","object":"chat.completion.chunk","created":1790200000,"model":"llama3.2:3b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"The"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-412","object":"chat.completion.chunk","created":1790200000,"model":"llama3.2:3b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":" quick"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-412","object":"chat.completion.chunk","created":1790200000,"model":"llama3.2:3b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":" brown fox — ünïcödé ✓"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-412","object":"chat.completion.chunk","created":1790200000,"model":"llama3.2:3b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-412","object":"chat.completion.chunk","created":1790200000,"model":"llama3.2:3b","system_fingerprint":"fp_ollama","choices":[],"usage":{"prompt_tokens":1320,"completion_tokens":9,"total_tokens":1329}}
+
+data: [DONE]
+

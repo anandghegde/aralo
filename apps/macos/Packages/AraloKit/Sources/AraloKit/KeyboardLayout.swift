@@ -28,7 +28,7 @@ public final class ShortcutKeyCodes: @unchecked Sendable {
 
 public enum KeyboardLayout {
     /// The characters of every shortcut the injector posts.
-    public static let shortcutCharacters: Set<Character> = ["v", "z"]
+    public static let shortcutCharacters: Set<Character> = ["c", "v", "z"]
 
     /// What one key produces, with and without Command held.
     public typealias Translate = (_ keyCode: CGKeyCode, _ command: Bool) -> String?

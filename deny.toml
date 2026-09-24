@@ -72,6 +72,12 @@ exceptions = [
     # platforms' own. Keeping this per-crate means the next CC0 dependency is
     # read on its own merits instead of arriving allowed (ADR-0008).
     { crate = "notify", allow = ["CC0-1.0"] },
+    # Mozilla's root certificates as data, which rustls-platform-verifier
+    # falls back on where the platform has no trust store of its own. The
+    # CDLA-Permissive-2.0 licence covers data rather than code and asks only
+    # that the licence text travel with it; it places no condition on the
+    # code that loads it (ADR-0008).
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [licenses.private]
@@ -111,18 +117,15 @@ deny = [
     { crate = "openssl-sys", reason = "rustls only; no OpenSSL to bundle (plan section 2)" },
     { crate = "native-tls", reason = "rustls only; no OpenSSL to bundle (plan section 2)" },
 
-    # PLACEHOLDER, not active yet. `aralo-ai` has no dependencies today, so
-    # there is nothing for this entry to check, and cargo-deny reports a
-    # wrapper it never encounters. Uncomment it in the pull request that adds
-    # reqwest to `aralo-ai` (M4, task 4.1). From then on, reqwest as a direct
-    # dependency of any crate other than `aralo-ai` fails the check.
+    # The guard's own crate is the only one that may depend on reqwest (M4,
+    # task 4.1). Inside aralo-ai, scripts/check-deps.sh keeps it to the guard
+    # module, and clippy.toml bans building a client anywhere else.
     #
     # If the adapters in `aralo-providers` need reqwest's types, do not add
     # that crate to `wrappers` without a new ADR: it widens the set of crates
     # that can construct a client, which is the thing the guard exists to
-    # prevent. Prefer passing them a client, or a wrapper type, from the guard.
-    #
-    # { crate = "reqwest", wrappers = ["aralo-ai"], reason = "only the network guard in aralo-ai may construct HTTP clients (ADR-0007)" },
+    # prevent. They are given a `Transport` by the gateway instead.
+    { crate = "reqwest", wrappers = ["aralo-ai"], reason = "only the network guard in aralo-ai may construct HTTP clients (ADR-0007)" },
 ]
 
 # Duplicate versions we accept, each with a reason.

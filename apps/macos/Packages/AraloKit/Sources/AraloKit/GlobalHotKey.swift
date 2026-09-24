@@ -33,6 +33,9 @@ public final class GlobalHotKey {
             character: " ", modifiers: [.control, .option, .command], fixedKeyCode: CGKeyCode(kVK_Space)
         )
 
+        /// Control+Option+Command+A, for a command on the selected text.
+        public static let command = Shortcut(character: "a", modifiers: [.control, .option, .command])
+
         /// As menus write it: the modifiers in the system's order, then the key.
         public var display: String {
             let symbols: [(NSEvent.ModifierFlags, String)] = [

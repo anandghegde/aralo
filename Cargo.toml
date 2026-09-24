@@ -39,16 +39,28 @@ criterion = "0.8"
 csv = "1.4"
 # Three-way merge of a snippet body and its sync client's conflict copy (ADR-0008).
 diffy = { version = "0.4", default-features = false }
+# The word-level diff a command on selected text shows before it replaces
+# anything (ADR-0008).
+similar = { version = "2", default-features = false, features = ["text"] }
+# API keys in the system keychain (PRD P13). Each crate that uses it picks the
+# platform store by target; with none, it keeps keys in memory.
+keyring = { version = "3.6", default-features = false }
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 nucleo-matcher = "0.3"
 plist = { version = "1.10", default-features = false, features = ["serde"] }
 proptest = "1.11"
+# The one HTTP client, and only the network guard in aralo-ai constructs it
+# (ADR-0007). rustls only; no system proxy, so local-only mode cannot be
+# routed through one.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
 tempfile = "3"
 thiserror = "2"
+# The core runtime (ADR-0004). Crates ask for the features they use.
+tokio = { version = "1.53", default-features = false }
 toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
 ulid = { version = "3", default-features = false }
 unicode-segmentation = "1.12"

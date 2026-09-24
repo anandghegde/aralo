@@ -1,0 +1,6 @@
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1790200001-def","provider":"Together","model":"meta-llama/llama-3.1-8b-instruct","object":"chat.completion.chunk","created":1790200001,"choices":[{"index":0,"delta":{"role":"assistant","content":"The quick"},"finish_reason":null}]}
+
+data: {"id":"gen-1790200001-def","object":"chat.completion.chunk","created":1790200001,"provider":"Together","model":"meta-llama/llama-3.1-8b-instruct","error":{"code":502,"message":"Provider disconnected"},"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error"}]}
+

@@ -15,8 +15,9 @@ What exists today is the Rust base: the matching engine, the file format, the
 library loader, a placeholder parser, the bridge to Swift and a command-line
 tool that expands snippets in an imaginary text field. The Mac app is a first
 slice you build yourself: a menu bar agent that expands plain-text snippets
-and walks you through the permissions on first run, with no editor and no
-settings yet. There is no AI code yet. Expect everything to change, including the
+and walks you through the permissions on first run. AI is under way (M4):
+the gateway, the first adapter, the AI settings and commands on selected text
+exist. AI blocks inside snippets do not yet. Expect everything to change, including the
 file format, which is at version 0.
 
 ## Privacy, as build properties
@@ -80,11 +81,11 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-snippet` | Data model: snippet, group and manifest files | Implemented |
 | `aralo-template` | Placeholder parser, evaluator, `ExpansionPlan` | Parser, the editor's outline of a body, the evaluator and plans. An AI block inserts its fallback until M4 |
 | `aralo-library` | Folder store, inheritance, atomic writes, watcher, index, search, conflict-copy merge | M2: load, write, watch, index, search and merge |
-| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, and the runtime that watches and indexes |
-| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange and change events |
-| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export` | M1 and the M2 import and search slices |
-| `aralo-ai` | Gateway, network guard, framing, profiles | Empty, M4 |
-| `aralo-providers` | Provider adapters | Empty, M4 |
+| `aralo-core` | The facade the shells talk to | Open, expand, simulate, import, export, search, edit, the runtime that watches and indexes, and the AI settings |
+| `aralo-ffi` | UniFFI bridge to Swift | The keystroke path, editing, search, interchange, change events and the AI settings |
+| `aralo-cli` | `aralo`: `init`, `validate`, `list`, `search`, `type`, `expand`, `import`, `export`, `ai` | M1, the M2 import and search slices, and AI profiles |
+| `aralo-ai` | Gateway, network guard, framing, profiles | Gateway, network guard, secret store, Test connection and the capability probe |
+| `aralo-providers` | Provider adapters, SSE parser, local-server detection | `openai_compat` and local-server detection |
 | `aralo-embed` | Embedding runtime, vector scan | Empty, M4 |
 | `aralo-import` | Importers, the import report, export to JSON, YAML and CSV | TextExpander, CSV, JSON and YAML in; JSON, YAML and CSV out |
 | `aralo-script` | Script sandbox | Empty, v1 |
@@ -308,6 +309,54 @@ is told why. See
 [the snippet window](docs/architecture.md#the-snippet-window),
 [the folder store](docs/architecture.md#the-folder-store) and
 [the bridge API](docs/architecture.md#bridge-api).
+
+M4 has begun with the gateway every AI feature will go through (task 4.1). It
+checks the AI switch, local-only mode and a managed allow-list, asks the shell
+only for the context a snippet declared, frames that context as data, and
+meters tokens per feature and per profile. It is also the only code that can
+reach the network. In local-only mode it refuses any URL that is not this
+Mac before sending, and any address that is not loopback when connecting.
+`crates/aralo-ai/tests/local_only.rs` proves both against a real listener.
+
+The first adapter is in (task 4.2). `openai_compat` streams chat completions
+from OpenAI and every API that copies it: OpenRouter, Groq, Together, LiteLLM
+and the local servers. It reads the stream incrementally and meters usage
+once, at the end. A cut or garbled stream is an error, never a short answer.
+Dropping the stream closes the socket, and a test against a real listener
+proves it. `detect_local_servers` finds Ollama, LM Studio, llama.cpp and vLLM
+on their default ports. The adapter's tests replay transcripts from
+`fixtures/sse/`. One is recorded from a live endpoint; the rest are
+hand-written from each provider's documented format, and
+`crates/aralo-providers/tests/live.rs` can record replacements. A native
+Anthropic adapter (task 4.3) is deferred: Claude models are reachable through
+OpenAI-compatible endpoints such as OpenRouter. See [the AI gateway](docs/architecture.md#the-ai-gateway) and
+[provider adapters](docs/architecture.md#provider-adapters).
+
+Profiles and keys are in (task 4.4). A profile is a provider's address, a
+model and optional headers, saved in `profiles.toml` in Aralo's state folder,
+outside the library. Its key is kept in the login keychain, and the file
+holds only a reference to it. The Mac app has a Settings window (⌘,) with an
+AI tab. It has the switch and local-only mode, presets for ten providers with
+a link to each one's key page, Test Connection, a model list, local-server
+detection and a probe that shows what an endpoint can do. The terminal has
+the same through `aralo ai`, which reads a key only from the environment or
+standard input. `scripts/key-leak-scan.sh` runs every test and then looks
+for a key in every file the run wrote. See
+[profiles and keys](docs/architecture.md#profiles-and-keys).
+
+Commands on selected text are in (task 4.5). Select text in any app and press
+⌃⌥⌘A, or pick Transform Selection… from the menu. Aralo reads the selection
+through Accessibility, or copies it when the app does not say, and puts your
+clipboard back. Then pick a command, such as "Fix spelling and grammar" or
+"Make it shorter". The answer streams in and is shown against the selection
+word by word. Enter replaces the selection with one paste, so one ⌘Z in the app
+brings the original back. E edits the answer first and R asks again. The panel
+names what was sent and to which profile and model. A command is a snippet with
+`type: command` whose body is the instruction. Seven are built in, and a
+library can add its own or replace them. `aralo ai command list` and
+`aralo ai command run` do the same from the terminal, with the selection on
+standard input. See
+[commands on selected text](docs/architecture.md#commands-on-selected-text).
 
 Seven spikes (S1 to S7) are still owed in M0. They are listed in
 [docs/adr/README.md](docs/adr/README.md).

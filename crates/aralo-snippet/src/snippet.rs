@@ -69,6 +69,14 @@ impl SnippetKind {
     fn is_text(&self) -> bool {
         *self == SnippetKind::Text
     }
+
+    /// Whether this build does something with the kind. `text` expands; a
+    /// `command` runs on selected text through the AI gateway, and is never
+    /// expanded by typing. The rest are in the format and load, but do
+    /// nothing yet.
+    pub fn is_supported(self) -> bool {
+        matches!(self, SnippetKind::Text | SnippetKind::Command)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -94,6 +102,9 @@ pub struct AiSettings {
     pub context: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Overrides the profile's default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     #[serde(flatten)]
     pub extra: Extra,
 }

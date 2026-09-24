@@ -7,6 +7,8 @@
 // only text it handles is what the user passed on the command line.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+mod ai;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -114,6 +116,11 @@ enum Command {
         #[arg(long)]
         group: Option<String>,
     },
+    /// Set up AI: the switch, provider profiles and their keys
+    Ai {
+        #[command(subcommand)]
+        command: ai::AiCommand,
+    },
 }
 
 /// The formats an import reads. TextExpander is read-only: Aralo does not
@@ -195,6 +202,7 @@ fn main() -> ExitCode {
 
 fn run(command: Command) -> Result<ExitCode, Failure> {
     match command {
+        Command::Ai { command } => ai::run(command),
         Command::Init { library } => {
             let core = Core::open(&library)?;
             println!(
@@ -258,6 +266,7 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
                 group: group.as_deref().map(|group| group_path(Some(group))),
                 tag,
                 enabled_only: enabled,
+                kind: None,
                 // One more than asked for, so the footer can say whether
                 // anything was left out rather than guessing from the count.
                 limit: Some(limit.saturating_add(1)),

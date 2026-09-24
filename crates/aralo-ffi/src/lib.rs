@@ -34,6 +34,10 @@ use aralo_core::{
     LibraryListener, MacroPolicy, MatchInfo, Outcome, Query, Runtime, RuntimeOptions, Step,
 };
 
+mod ai;
+
+pub use ai::*;
+
 uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -152,6 +156,16 @@ pub enum InsertOutcome {
     },
     /// Nothing goes in, and why. The picker is the one place a user is told
     /// this: an expansion they typed simply does not happen.
+    Refused { reason: InsertRefusal },
+}
+
+/// Whether a command on selected text may run in an app.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum CommandTarget {
+    /// Read the selection and paste over it the way this row of the
+    /// compatibility table says.
+    Ready { profile: InjectionProfile },
+    /// Leave the app alone, and why.
     Refused { reason: InsertRefusal },
 }
 
@@ -933,6 +947,24 @@ impl Engine {
         self.profile()
     }
 
+    /// Whether a command may read the selection in `app` and replace it: not
+    /// while paused, and never in an excluded app. When it may, the buffer
+    /// and the undo record are cleared, since what is around the caret is
+    /// about to change, and the answer carries `app`'s row of the table.
+    pub fn command_target(&self, app: String) -> CommandTarget {
+        if let Err(reason) = self.matcher().command_in(&app) {
+            return CommandTarget::Refused {
+                reason: match reason {
+                    matcher::InsertRefusal::Paused => InsertRefusal::Paused,
+                    matcher::InsertRefusal::ExcludedApp => InsertRefusal::ExcludedApp,
+                },
+            };
+        }
+        CommandTarget::Ready {
+            profile: self.shared.compat().profile_for(&app).into(),
+        }
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.matcher().set_paused(paused);
     }
@@ -1067,6 +1099,14 @@ impl Core {
 
     pub fn library_path(&self) -> String {
         self.shared.runtime.root().to_string_lossy().into_owned()
+    }
+
+    /// The commands to run on selected text: the built-in ones, then the
+    /// library's `type: command` snippets.
+    pub fn commands(&self) -> Vec<AiCommand> {
+        self.shared
+            .runtime
+            .read(|core| core.commands().iter().map(AiCommand::from).collect())
     }
 
     pub fn snippets(&self) -> Vec<SnippetSummary> {
@@ -1459,6 +1499,7 @@ impl Core {
         search.group = query.group;
         search.tag = query.tag;
         search.enabled_only = query.enabled_only;
+        search.kind = query.kind.map(SnippetKind::from);
         if query.limit > 0 {
             search.limit = Some(query.limit as usize);
         }
@@ -1731,6 +1772,10 @@ pub struct SearchQuery {
     pub enabled_only: bool,
     /// At most this many hits, after ranking. Zero is no limit.
     pub limit: u32,
+    /// Only snippets of this type. The palette asks for `Text`: a command
+    /// runs on a selection and has nothing to insert.
+    #[uniffi(default = None)]
+    pub kind: Option<SnippetType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

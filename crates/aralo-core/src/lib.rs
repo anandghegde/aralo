@@ -10,8 +10,10 @@
 //! handed, so every expansion takes the time from the [`Clock`] on the core,
 //! and a test can stop it.
 
+pub mod ai;
 pub mod clock;
 pub mod compat;
+pub mod diff;
 mod edit;
 mod field;
 mod merge;
@@ -411,7 +413,14 @@ impl Core {
     /// question.
     ///
     /// `None` when the snippet has gone since the list was drawn.
+    ///
+    /// A `command` snippet is not text to insert: it runs on a selection
+    /// ([`ai::Command`]), so asking to insert one is `None` too.
     pub fn insert(&self, id: aralo_snippet::SnippetId) -> Option<Expand> {
+        let snippet = self.library.snippet(id)?;
+        if snippet.file.front.kind == aralo_snippet::SnippetKind::Command {
+            return None;
+        }
         self.begin(id, Shape::default(), None)
     }
 
