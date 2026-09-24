@@ -39,7 +39,8 @@ pub use aralo_import::{
     ExportOptions, Format, ImportOptions, ImportReport, MacroPolicy, Outcome, SnippetRecord,
 };
 pub use aralo_library::{
-    Conflict, Diagnostic, Field, Issue, LoadedGroup, LoadedSnippet, Query, Recent, Settings, Stats,
+    slashed, Conflict, Diagnostic, Field, Issue, LoadedGroup, LoadedSnippet, Query, Recent,
+    Settings, Stats,
 };
 pub use aralo_snippet as snippet;
 pub use aralo_template as template;

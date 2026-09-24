@@ -97,7 +97,7 @@ Dependencies point one way. `aralo-engine`, `aralo-snippet` and
 ## Building
 
 **Rust crates and the CLI** build and test on macOS, Linux and Windows. You
-need Rust stable, 1.86 or later. You do not need a Mac.
+need Rust stable, 1.88 or later. You do not need a Mac.
 
 ```sh
 cargo test --workspace
@@ -140,7 +140,7 @@ cargo run -p aralo-cli -- search /tmp/aralo-imported '%delay'
 
 | Tool | Version | Install |
 | --- | --- | --- |
-| Rust | stable, 1.86 or later | <https://rustup.rs> |
+| Rust | stable, 1.88 or later | <https://rustup.rs> |
 | Xcode | 16 or later | App Store |
 | xcodegen | any recent | `brew install xcodegen` |
 | SwiftLint | any recent | `brew install swiftlint` |

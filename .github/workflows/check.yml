@@ -81,13 +81,13 @@ jobs:
 
   # Why: the workspace declares `rust-version`; prove it still builds there. Keep in step with Cargo.toml.
   msrv:
-    name: msrv (1.86)
+    name: msrv (1.88)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.86"
+          toolchain: "1.88"
       - uses: Swatinem/rust-cache@v2
       - name: Check the workspace on the minimum supported Rust version
         run: cargo check --workspace

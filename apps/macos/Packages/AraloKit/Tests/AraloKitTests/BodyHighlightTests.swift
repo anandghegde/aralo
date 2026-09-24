@@ -143,9 +143,9 @@ final class BodyHighlightTests: XCTestCase {
         XCTAssertEqual(expands["date"], true)
         XCTAssertEqual(expands["clipboard"], true)
         XCTAssertEqual(expands["field"], true)
-        // Waiting on a later milestone: the core inserts these as the text they
-        // are written as, and a menu can say so instead of promising a value.
-        XCTAssertEqual(expands["ai"], false)
+        XCTAssertEqual(expands["ai"], true)
+        // Waiting on a later milestone: the core inserts this as the text it is
+        // written as, and a menu can say so instead of promising a value.
         XCTAssertEqual(expands["selection"], false)
     }
 

@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use aralo_core::{
-    Core, ExportOptions, Field, Format, ImportOptions, ImportReport, Issue, MacroPolicy, Outcome,
-    Query, SearchHit, Simulator,
+    slashed, Core, ExportOptions, Field, Format, ImportOptions, ImportReport, Issue, MacroPolicy,
+    Outcome, Query, SearchHit, Simulator,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -255,7 +255,7 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
                 if level == Level::Error {
                     broken += 1;
                 }
-                println!("{}: {}: {message}", diagnostic.path.display(), level.name());
+                println!("{}: {}: {message}", slashed(&diagnostic.path), level.name());
             }
             println!("{} snippets, {broken} broken files", core.snippets().len());
             Ok(if broken == 0 {
@@ -281,7 +281,7 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
                     } else {
                         &front.label
                     },
-                    snippet.path.display()
+                    slashed(&snippet.path)
                 );
             }
             Ok(ExitCode::SUCCESS)
@@ -442,7 +442,7 @@ fn print_hit(hit: &SearchHit) {
         "{:<16} {}{state}{why}  [{}]",
         hit.abbr.join(" "),
         hit.name,
-        hit.path.display()
+        slashed(&hit.path)
     );
 }
 
@@ -521,14 +521,14 @@ fn describe(issue: &Issue) -> (Level, String) {
             Level::Error,
             format!(
                 "has the same id as {}; this file is ignored",
-                first.display()
+                slashed(first)
             ),
         ),
         Issue::ConflictCopy { original } => (
             Level::Warning,
             format!(
                 "a sync conflict copy of {}; the app merges it when it can, or keep one and delete the other",
-                original.display()
+                slashed(original)
             ),
         ),
         Issue::AbbreviationRejected {

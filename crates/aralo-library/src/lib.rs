@@ -31,6 +31,16 @@ pub use settings::Settings;
 pub use watch::{Changes, OwnWrites, Watch, WatchError, DEFAULT_DEBOUNCE};
 pub use write::write_atomic;
 
+/// A path inside the library as the format writes it: its parts joined with
+/// `/` on every platform. A report, a search result or a test reads the same
+/// on Windows as on a Mac, and names what a user sees in any file manager.
+pub fn slashed(path: &Path) -> String {
+    path.iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Reserved at the library root for images of rich snippets (v1). The loader
 /// does not walk into it and the watcher does not report changes inside it.
 pub(crate) const ASSETS_FOLDER: &str = "assets";
@@ -524,4 +534,17 @@ fn collect_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
         collect_files(&entry?.path(), out)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_library_path_is_written_with_slashes_on_every_platform() {
+        let path = Path::new("Work").join("Email").join("signature.md");
+        assert_eq!(slashed(&path), "Work/Email/signature.md");
+        assert_eq!(slashed(Path::new("note.md")), "note.md");
+        assert_eq!(slashed(Path::new("")), "");
+    }
 }

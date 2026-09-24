@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aralo_library::{Changes, Library, OwnWrites, Watch};
 
@@ -62,11 +62,32 @@ fn until(receiver: &Receiver<Changes>, paths: &[&str]) -> Vec<PathBuf> {
     seen
 }
 
-fn nothing(receiver: &Receiver<Changes>) {
-    match receiver.recv_timeout(SILENCE) {
-        Err(RecvTimeoutError::Timeout) => {}
-        Ok(changes) => panic!("expected silence, got {changes:?}"),
-        Err(RecvTimeoutError::Disconnected) => panic!("the watch stopped"),
+/// Waits out the silence, and fails on any report that names a path outside
+/// `late`.
+///
+/// `late` is a real snippet the test wrote or changed that may still be
+/// reported: FSEvents can deliver a write made just before the stream began
+/// after it has begun, and can report one write twice. A report of a snippet
+/// that did change is not what these tests are about; a report of anything
+/// else is.
+fn nothing_but(receiver: &Receiver<Changes>, late: &[&str]) {
+    let deadline = Instant::now() + SILENCE;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        match receiver.recv_timeout(left) {
+            Err(RecvTimeoutError::Timeout) => return,
+            Ok(changes) => assert!(
+                changes
+                    .paths
+                    .iter()
+                    .all(|path| late.iter().any(|late| path == Path::new(late))),
+                "expected silence, got {changes:?}"
+            ),
+            Err(RecvTimeoutError::Disconnected) => panic!("the watch stopped"),
+        }
     }
 }
 
@@ -139,7 +160,7 @@ fn a_save_by_aralo_is_not_reported_but_an_edit_beside_it_is() {
     let seen = until(&changes, &["Work/theirs.md"]);
     assert_eq!(seen, [PathBuf::from("Work/theirs.md")]);
     assert_eq!(library.writes().outstanding(), 0, "the save was claimed");
-    nothing(&changes);
+    nothing_but(&changes, &["Work/theirs.md"]);
 }
 
 #[test]
@@ -173,7 +194,7 @@ fn files_the_loader_ignores_are_not_reported() {
     write(folder.path(), "_drafts/wip.md", &snippet("wip", "Later"));
     write(folder.path(), "assets/logo.md", "not a snippet");
     write(folder.path(), "README.txt", "about this folder");
-    nothing(&changes);
+    nothing_but(&changes, &["Work/note.md"]);
 
     // The watch is still live, and still hears about a real snippet.
     write(folder.path(), "Work/note.md", &snippet("note", "Second"));

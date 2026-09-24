@@ -33,8 +33,9 @@ pub struct Entry {
     pub abbr: Vec<String>,
     pub group: Vec<String>,
     /// Where it was written, relative to the library root, or where it would
-    /// be written on a dry run. `None` for anything skipped.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// be written on a dry run. `None` for anything skipped. It is written
+    /// with `/` on every platform.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "slashed")]
     pub path: Option<PathBuf>,
     pub outcome: Outcome,
     pub notes: Vec<Note>,
@@ -241,6 +242,13 @@ fn plural(count: usize, noun: &str) -> String {
 
 fn display(path: &Path) -> std::path::Display<'_> {
     path.display()
+}
+
+fn slashed<S: serde::Serializer>(path: &Option<PathBuf>, serializer: S) -> Result<S::Ok, S::Error> {
+    match path {
+        Some(path) => serializer.serialize_some(&aralo_library::slashed(path)),
+        None => serializer.serialize_none(),
+    }
 }
 
 #[cfg(test)]
