@@ -16,6 +16,7 @@
 mod authoring;
 mod block;
 mod command;
+pub mod conformance;
 mod file;
 mod keychain;
 mod presets;

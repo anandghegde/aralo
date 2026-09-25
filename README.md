@@ -213,11 +213,13 @@ aralo/
                         no network under the embedding runtime
     build-xcframework.sh
     fetch-model.sh      the embedding model, checked against its checksums
+    conformance-hosted.sh  the nightly conformance run against hosted endpoints
   docs/
     architecture.md
     format/             the file format specification
     adr/                architecture decision records
-  conformance/          provider protocol checks (M4)
+  conformance/          what `aralo conformance` runs against, its evaluation
+                        set, and the reports behind docs/compatibility.md
   fixtures/
     matrix/library/     the snippets the injection matrix types
     import/             the import corpus and its golden reports
@@ -424,6 +426,19 @@ what was sent and to whom; a click lists each kind the request could carry,
 with the bytes that went or "nothing to send". See
 [the master switch](docs/architecture.md#the-master-switch).
 
+The conformance suite is in (task 4.9). `aralo conformance --profile <name>`
+runs protocol checks against a profile's endpoint (the models route,
+streaming, the system prompt, cancel, and the errors for an unknown model and
+a wrong key), each named in a JSON report that holds the host and never a key.
+`--evaluation` adds the editor's actions on fixed texts, scored.
+`aralo conformance table` turns reports into
+[docs/compatibility.md](docs/compatibility.md). Every push replays each
+recorded provider stream through a mock and runs the suite against a real
+Ollama and llama.cpp server; a nightly workflow runs the hosted providers
+whose keys are repository secrets. Against the mock, Aralo adds about a
+millisecond to the first token. See
+[the conformance suite](docs/architecture.md#the-conformance-suite).
+
 Six spikes are still owed in M0; S5, the embedding runtime, is answered by
 ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).
 
@@ -433,6 +448,7 @@ ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).
 | --- | --- |
 | [docs/format/](docs/format/README.md) | The library and snippet file format, placeholders, matching rules |
 | [docs/architecture.md](docs/architecture.md) | Process model, threads, the keystroke path, the bridge, privacy invariants |
+| [docs/compatibility.md](docs/compatibility.md) | Which AI endpoints pass the conformance suite, check by check |
 | [docs/adr/](docs/adr/README.md) | Decision records |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, the rules CI enforces, sign-off |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |

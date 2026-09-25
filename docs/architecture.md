@@ -797,7 +797,9 @@ and a hung port must cost one timeout, not one per port. `tests/live.rs` is
 ignored by default. It streams from a real endpoint named in environment
 variables, and can record the response body as a new transcript. Until they
 are replaced by recordings, the provider transcripts are written by hand from
-each provider's documented format; see `fixtures/sse/README.md`.
+each provider's documented format; see `fixtures/sse/README.md`. The
+conformance suite replays the same recordings' framing through every protocol
+check ([the conformance suite](#the-conformance-suite)).
 
 ### Profiles and keys
 
@@ -1020,6 +1022,73 @@ the sheet says why. The AI settings are opened the first time an action asks.
 `aralo ai write <action>` runs the same actions on standard input. It prints
 the answer, and names any placeholders the answer changed on standard error.
 
+### The conformance suite
+
+`aralo conformance --profile <name>` checks that a saved profile's endpoint
+works with Aralo (plan 7.4). `AiSettings::conformance` in
+`aralo-core/src/ai/conformance.rs` runs it through the gateway as
+`Feature::Conformance`, so the policy check, the network guard and metering
+are those of any request, and the AI switch refuses it like any other.
+
+**Protocol checks** decide conformance, and each is named in the report, so a
+failure says what broke:
+
+| Check | Required | Passes when |
+| --- | --- | --- |
+| `models` | yes | `GET /models` lists at least one model |
+| `stream` | yes | an answer arrives in more than one piece and ends with a stop reason |
+| `system_prompt` | yes | the model does what the system prompt asks, which the user message never mentions |
+| `cancel` | yes | a stream dropped after its first piece leaves the endpoint answering the next request |
+| `unknown_model` | yes | a model the endpoint does not have is refused with a 4xx Aralo can read |
+| `wrong_key` | yes | a wrong key is refused with a 4xx Aralo can read |
+| `usage` | no | the stream reports token counts |
+| `json_output` | no | JSON mode answers with a JSON object |
+
+An error check is skipped when there is nothing to check: no key to replace
+with a wrong one, or a local server that serves the model it has loaded
+whatever the name. Temperature is left to the endpoint, as the probe leaves
+it.
+
+**The evaluation set**, `conformance/evaluation.toml`, compiled in, runs the
+editor's own actions (`start_authoring`, the code the editor's menu runs) on
+fixed texts and checks each answer: a grammar fix, two tone shifts, a date
+placeholder kept exactly, and one written when a draft asks for it. Words are
+matched whole, ignoring case and curly quotes, and placeholders are compared
+with `placeholder_changes`. It measures the model and never decides
+conformance.
+
+**Reports.** A report is JSON: the Aralo version, the date, the endpoint as a
+provider name (a preset's, or a local server's on its default port), its host
+and port, the model, whether it is local and whether a key was sent, then
+every check with its verdict, detail and time, and the evaluation. Nothing
+else of the address goes in, since a path or query can hold a key, and any
+word of a detail that looks like a key is replaced with `[redacted]`.
+`--key-env VAR` sends a key from the environment for one run and saves it
+nowhere, for CI, which has a repository secret and no keychain.
+
+**The table.** `aralo conformance table <reports>` merges reports, keeping the
+latest for each endpoint and model, with `conformance/endpoints.toml`, into
+[docs/compatibility.md](compatibility.md): a row of verdicts per endpoint, a
+note for every check that did not pass, and the planned endpoints with no
+report yet. `make compatibility` rebuilds it, and a test fails when the page
+and the committed reports disagree.
+
+**Where it runs.** `crates/aralo-core/tests/conformance.rs` runs the whole
+suite against a mock server on every push. The mock replays each recorded
+stream in `fixtures/sse` that holds a whole answer, keeping the provider's own
+chunks before and after the text and putting each check's answer in pieces
+shaped like the recording's; every one passes every check and the evaluation
+set. Mocks broken one way each (a whole answer, a system prompt ignored, no
+models route, a 500 for an unknown model, a stream cut off) fail naming the
+check. The mock also watches the cancel: it streams a piece every 20 ms and
+must see the connection close within a second of the first. Against the same
+mock, the time from preparing a request to its first piece, less a raw
+socket's time to the same piece, is what Aralo adds to the first token: about
+a millisecond in a debug build, held under 30 ms. CI's `conformance` job runs
+the suite against a real Ollama and a real llama.cpp server in containers, and
+`conformance-nightly.yml` runs every hosted endpoint whose key is a
+repository secret (`scripts/conformance-hosted.sh`).
+
 ## Bridge API
 
 The bridge is `crates/aralo-ffi`, generated by UniFFI. Nothing in it may
@@ -1119,7 +1188,7 @@ breaks. "Planned" means the code it would check does not exist yet.
 | Prompt injection cannot act (P10) | AI output is literal text with no path back into the evaluator. Context is framed as data | `gateway.rs`: `model_output_is_passed_on_as_literal_text`. Framing tests in `aralo-ai`. `crates/aralo-template/tests/ai_blocks.rs`: an answer written as placeholders goes in as those characters and reads nothing, and the text around a block is byte-identical whatever the answer (a property test). `fixtures/golden/ai.toml` pins both |
 | With the AI switch off, no model loads and no model call is possible (plan 4.10) | Every request and settings call refuses first, before a key or any context is read. The embedding model follows the switch: never loaded while it is off, dropped when it goes off ([the master switch](#the-master-switch)) | `crates/aralo-core/tests/ai_switch.rs`, through the real guard to a socket that counts connections, with a key store that counts reads. `MeaningSearchTests` in AraloKit for the bridge |
 | Search by meaning never leaves the machine (A4) | The model ships inside the app and is fetched at build time against recorded checksums, never at runtime. `aralo-embed` reads it from disk and has no networking crate anywhere in its dependencies ([search by meaning](#search-by-meaning)) | `scripts/check-deps.sh`: `aralo-embed`'s whole dependency closure is an allow-list. `crates/aralo-core/tests/meaning.rs` finds the refund reply by meaning with the model loaded from disk |
-| Keys only in the keychain (P13) | `SecretStore` on the login keychain. `profiles.toml` holds a `key_ref`, never a value, and refuses a key-shaped header or address. The CLI takes a key only from the environment or standard input ([profiles and keys](#profiles-and-keys)) | `crates/aralo-core/tests/ai_settings.rs`: `after_every_operation_the_key_is_only_in_the_store_and_the_auth_header`, with a canary key. `scripts/key-leak-scan.sh`: no key in any file a full test run wrote |
+| Keys only in the keychain (P13) | `SecretStore` on the login keychain. `profiles.toml` holds a `key_ref`, never a value, and refuses a key-shaped header or address. The CLI takes a key only from the environment or standard input ([profiles and keys](#profiles-and-keys)). A conformance report names the endpoint by host, says only whether a key was sent, and redacts anything key-shaped in an endpoint's message; `aralo conformance --key-env` sends a key for one run and saves it nowhere ([the conformance suite](#the-conformance-suite)) | `crates/aralo-core/tests/ai_settings.rs`: `after_every_operation_the_key_is_only_in_the_store_and_the_auth_header`, with a canary key. `scripts/key-leak-scan.sh`: no key in any file a full test run wrote. `crates/aralo-core/tests/conformance.rs`: no key in any report, a key given for a run is in no file, and no committed report looks like it holds one |
 | Licences, advisories, sources | `deny.toml` | `cargo-deny` in CI |
 
 All of these run in `.github/workflows/check.yml` on every pull request.

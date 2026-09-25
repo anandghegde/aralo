@@ -1,0 +1,72 @@
+# The endpoints the conformance suite is run against (plan 7.4), for the
+# compatibility table in docs/compatibility.md. An endpoint with a report in
+# conformance/reports/ gets a row of results; one without is listed as not yet
+# run live.
+#
+#   name        the provider or server; a report's `provider` matches it
+#   base_url    what a profile for it holds
+#   model       the model the suite runs
+#   key_env     the environment variable, and the repository secret of the
+#               same name, holding a key. The nightly workflow runs an
+#               endpoint only when its secret is set.
+#   runs        when CI runs it
+#   transcript  the recorded stream the mock server replays on every push
+#               (fixtures/sse/README.md says which were recorded live)
+
+[[endpoint]]
+name = "Ollama"
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen2.5:0.5b"
+runs = "every push, in a container"
+transcript = "fixtures/sse/ollama.sse"
+
+[[endpoint]]
+name = "llama.cpp"
+base_url = "http://127.0.0.1:8080/v1"
+model = "qwen2.5-0.5b"
+runs = "every push, in a container"
+
+[[endpoint]]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+key_env = "ARALO_CONFORMANCE_OPENAI_KEY"
+runs = "nightly"
+transcript = "fixtures/sse/openai.sse"
+
+[[endpoint]]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+model = "openai/gpt-4o-mini"
+key_env = "ARALO_CONFORMANCE_OPENROUTER_KEY"
+runs = "nightly"
+transcript = "fixtures/sse/openrouter.sse"
+
+[[endpoint]]
+name = "Groq"
+base_url = "https://api.groq.com/openai/v1"
+model = "llama-3.1-8b-instant"
+key_env = "ARALO_CONFORMANCE_GROQ_KEY"
+runs = "nightly"
+transcript = "fixtures/sse/groq.sse"
+
+[[endpoint]]
+name = "Google Gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+model = "gemini-2.5-flash"
+key_env = "ARALO_CONFORMANCE_GEMINI_KEY"
+runs = "nightly"
+
+[[endpoint]]
+name = "Mistral"
+base_url = "https://api.mistral.ai/v1"
+model = "mistral-small-latest"
+key_env = "ARALO_CONFORMANCE_MISTRAL_KEY"
+runs = "nightly"
+
+[[endpoint]]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+key_env = "ARALO_CONFORMANCE_DEEPSEEK_KEY"
+runs = "nightly"

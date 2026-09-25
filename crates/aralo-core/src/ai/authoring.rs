@@ -201,9 +201,24 @@ impl AiSettings {
         }
         let saved = self.default_profile()?.ok_or(CommandProblem::NoProfile)?;
         let key = self.key_for(&saved.profile)?;
+        self.start_authoring(action, original, saved.profile, key, Feature::Authoring)
+            .await
+    }
+
+    /// Sends an action whose text is checked already, on `profile` with
+    /// `key`. The conformance suite's evaluation set runs the editor's
+    /// actions this way, on the profile it tests.
+    pub(super) async fn start_authoring(
+        &self,
+        action: &Authoring,
+        original: String,
+        profile: aralo_ai::Profile,
+        key: Option<aralo_ai::Secret>,
+        feature: Feature,
+    ) -> Result<AuthoringRun, AiSettingsError> {
         let request = AiRequest {
-            feature: Feature::Authoring,
-            profile: saved.profile,
+            feature,
+            profile,
             model: None,
             system: SYSTEM.to_owned(),
             instruction: action.instruction(),

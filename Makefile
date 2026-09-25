@@ -17,7 +17,7 @@ APP       := $(DERIVED)/Build/Products/Debug/Aralo.app
 SIGN_IDENTITY ?= -
 
 .PHONY: help bootstrap xcframework xcframework-debug project model app run test test-swift lint lint-swift check \
-	matrix latency clean
+	compatibility matrix latency clean
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -61,6 +61,9 @@ lint-swift: ## SwiftLint, strict
 
 check: lint test ## What CI's Rust jobs run, plus the dependency rules
 	scripts/check-deps.sh
+
+compatibility: ## Rebuild docs/compatibility.md from the reports in conformance/reports
+	cargo run --quiet -p aralo-cli -- conformance table conformance/reports --out docs/compatibility.md
 
 # The two targets below take over the keyboard of the Mac they run on: they
 # launch apps and type into them with real key events. Run them at a Mac set

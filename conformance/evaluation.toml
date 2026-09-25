@@ -1,0 +1,62 @@
+# The evaluation set of `aralo conformance --evaluation` (plan 7.4).
+#
+# Each case runs one of the snippet editor's AI actions on `text`, through the
+# code the editor uses, and checks the answer. The protocol checks decide
+# whether an endpoint works with Aralo; these say how well its model does
+# Aralo's work, and never decide conformance. A small local model is expected
+# to miss some. Grounded replies join the set in v1.
+#
+# The file is compiled into the core, and `cargo test -p aralo-core` fails if
+# it does not parse.
+#
+#   name                what the table and the report call the case
+#   action              draft, proofread, clearer, shorter, friendlier,
+#                       formal, casual or translate
+#   text                what the action works on
+#   label, note         for a draft, which writes from these alone
+#   language            for translate, in words
+#   contains            each of these is in the answer
+#   lacks               none of these is
+#   any_of              at least one of these is
+#   keeps_placeholders  every placeholder in `text` is in the answer as it
+#                       was written, and none is added
+#   at_most             the answer is at most this fraction of the text's
+#                       length, in characters
+#
+# Text is compared ignoring case, with curly quotes read as straight ones, and
+# a word is matched as a whole word: "hey" is not found in "they".
+
+[[case]]
+name = "grammar"
+action = "proofread"
+text = "Thank you for you're order. We has shipped it yesterday, and it should arrive tomorow."
+contains = ["your order", "tomorrow"]
+lacks = ["you're order", "we has", "tomorow"]
+
+[[case]]
+name = "tone: formal"
+action = "formal"
+text = "hey!! cant make it thursday, can we do friday instead? cheers"
+contains = ["friday"]
+lacks = ["hey", "cant", "cheers"]
+
+[[case]]
+name = "tone: shorter"
+action = "shorter"
+text = "I just wanted to reach out to let you know that, unfortunately, due to a number of circumstances that were entirely outside of our control, the meeting that we had originally scheduled for Thursday afternoon will now need to be moved to Friday morning instead."
+contains = ["friday"]
+at_most = 0.7
+
+[[case]]
+name = "date macro kept"
+action = "proofread"
+text = "Your order from {{date: %d %B}} has shiped, and it will arive in {{field: days}} days."
+contains = ["shipped", "arrive"]
+keeps_placeholders = true
+
+[[case]]
+name = "date macro written"
+action = "draft"
+label = "Today's date"
+note = "It holds only today's date, which Aralo's date placeholder fills in when the snippet expands."
+any_of = ["{{date"]

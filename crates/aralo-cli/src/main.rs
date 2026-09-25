@@ -8,6 +8,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod ai;
+mod conformance;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -137,6 +138,10 @@ enum Command {
         #[command(subcommand)]
         command: ai::AiCommand,
     },
+    /// Check that a profile's endpoint works with Aralo, and write a report;
+    /// exit 1 if a required check fails. `table` makes the compatibility
+    /// table from reports.
+    Conformance(conformance::Conformance),
 }
 
 /// The formats an import reads. TextExpander is read-only: Aralo does not
@@ -245,6 +250,7 @@ fn main() -> ExitCode {
 fn run(command: Command) -> Result<ExitCode, Failure> {
     match command {
         Command::Ai { command } => ai::run(command),
+        Command::Conformance(conformance) => conformance::run(conformance),
         Command::Init { library } => {
             let core = Core::open(&library)?;
             println!(

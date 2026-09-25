@@ -1,0 +1,45 @@
+# The conformance suite against hosted endpoints (plan 7.4), with keys held as repository secrets.
+# conformance/endpoints.toml lists the endpoints; each runs only when the secret its `key_env` names is
+# set, and the others are skipped by name. A key goes to `aralo conformance --key-env`, which sends it for
+# the run and saves it nowhere; no key is an argument or printed. The reports are kept as artifacts, to
+# be checked and committed to conformance/reports/ by hand.
+name: conformance-nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  hosted:
+    name: hosted endpoints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the command line
+        run: cargo build -p aralo-cli
+      # One line per endpoint in conformance/endpoints.toml that has a `key_env`.
+      - name: Run every endpoint whose key is set
+        env:
+          ARALO_CONFORMANCE_OPENAI_KEY: ${{ secrets.ARALO_CONFORMANCE_OPENAI_KEY }}
+          ARALO_CONFORMANCE_OPENROUTER_KEY: ${{ secrets.ARALO_CONFORMANCE_OPENROUTER_KEY }}
+          ARALO_CONFORMANCE_GROQ_KEY: ${{ secrets.ARALO_CONFORMANCE_GROQ_KEY }}
+          ARALO_CONFORMANCE_GEMINI_KEY: ${{ secrets.ARALO_CONFORMANCE_GEMINI_KEY }}
+          ARALO_CONFORMANCE_MISTRAL_KEY: ${{ secrets.ARALO_CONFORMANCE_MISTRAL_KEY }}
+          ARALO_CONFORMANCE_DEEPSEEK_KEY: ${{ secrets.ARALO_CONFORMANCE_DEEPSEEK_KEY }}
+        run: scripts/conformance-hosted.sh target/debug/aralo reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-hosted
+          path: reports/
+          if-no-files-found: ignore

@@ -125,6 +125,72 @@ jobs:
       - name: on_key p99 gate
         run: cargo bench -p aralo-engine
 
+  # Why: the protocol checks against real model servers, not only the recorded streams the mock replays
+  # (plan 7.4). Each server runs in a container with a small model, and fails the job if a required check
+  # fails. The evaluation set runs too, and is only reported: a model this small is expected to miss some.
+  # The report is kept as an artifact; a committed copy goes into docs/compatibility.md.
+  conformance:
+    name: conformance (${{ matrix.server }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - server: Ollama
+            report: ollama-qwen2.5-0.5b
+            base_url: http://127.0.0.1:11434/v1
+            model: qwen2.5:0.5b
+          - server: llama.cpp
+            report: llama.cpp-qwen2.5-0.5b
+            base_url: http://127.0.0.1:8080/v1
+            model: qwen2.5-0.5b
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the command line
+        run: cargo build -p aralo-cli
+      - name: Start Ollama, and pull the model
+        if: matrix.server == 'Ollama'
+        run: |
+          docker run --detach --name model-server --publish 127.0.0.1:11434:11434 ollama/ollama:0.11.4
+          for attempt in $(seq 60); do curl -fsS http://127.0.0.1:11434/api/version && break; sleep 1; done
+          echo
+          docker exec model-server ollama pull "${{ matrix.model }}"
+      # llama.cpp publishes its server image under build numbers only; the log records which one ran.
+      - name: Start llama.cpp's server, with the model
+        if: matrix.server == 'llama.cpp'
+        run: |
+          docker run --detach --name model-server --publish 127.0.0.1:8080:8080 \
+            ghcr.io/ggml-org/llama.cpp:server \
+            --hf-repo Qwen/Qwen2.5-0.5B-Instruct-GGUF --hf-file qwen2.5-0.5b-instruct-q4_k_m.gguf \
+            --alias "${{ matrix.model }}" --host 0.0.0.0 --port 8080 --ctx-size 8192
+          # /health answers 200 once the model is downloaded and loaded.
+          for attempt in $(seq 300); do curl -fsS http://127.0.0.1:8080/health && break; sleep 2; done
+          echo
+          curl -fsS http://127.0.0.1:8080/props | python3 -c 'import json, sys; print(json.load(sys.stdin).get("build_info", ""))' || true
+      - name: Run the conformance suite
+        env:
+          ARALO_STATE: ${{ runner.temp }}/state
+        run: |
+          mkdir -p reports
+          target/debug/aralo ai on
+          target/debug/aralo ai add "${{ matrix.server }}" --base-url "${{ matrix.base_url }}" --model "${{ matrix.model }}"
+          target/debug/aralo conformance --profile "${{ matrix.server }}" --evaluation \
+            --report "reports/${{ matrix.report }}.json"
+      - name: The report
+        if: always()
+        run: cat reports/*.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-${{ matrix.report }}
+          path: reports/
+          if-no-files-found: ignore
+      - name: The server's log
+        if: failure()
+        run: docker logs model-server 2>&1 | tail -n 200
+
   # Why: the Swift shell must keep building against the generated bridge: XCFramework, Swift bindings, xcodegen project, SwiftLint, XCTest.
   macos-app:
     name: macos-app

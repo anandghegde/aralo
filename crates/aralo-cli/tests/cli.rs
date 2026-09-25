@@ -302,3 +302,135 @@ fn search_with_a_model_finds_a_snippet_by_what_it_means_while_ai_is_on() {
         "{broken:?}"
     );
 }
+
+/// A model server on this machine that streams "one two three PINEAPPLE" to
+/// every chat for `m`, refuses any other model, and lists `m`.
+fn tiny_server() -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("http://{}/v1", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for mut socket in listener.incoming().flatten() {
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut head = String::new();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+                head.push_str(&line);
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let body = String::from_utf8_lossy(&body);
+            let (status, kind, answer) = if head.starts_with("GET") {
+                (
+                    "200 OK",
+                    "application/json",
+                    r#"{"data":[{"id":"m"}]}"#.to_owned(),
+                )
+            } else if !body.contains(r#""model":"m""#) {
+                (
+                    "404 Not Found",
+                    "application/json",
+                    r#"{"error":{"message":"no such model"}}"#.to_owned(),
+                )
+            } else {
+                let mut events = String::new();
+                for piece in ["one", " two", " three", " PINEAPPLE"] {
+                    events.push_str(&format!(
+                        "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"{piece}\"}}}}]}}\n\n"
+                    ));
+                }
+                events.push_str(
+                    "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\
+                     \"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n",
+                );
+                ("200 OK", "text/event-stream", events)
+            };
+            let _ = write!(
+                socket,
+                "HTTP/1.1 {status}\r\ncontent-type: {kind}\r\ncontent-length: {}\r\n\
+                 connection: close\r\n\r\n{answer}",
+                answer.len()
+            );
+        }
+    });
+    address
+}
+
+#[test]
+fn conformance_runs_against_a_profile_and_its_reports_make_the_table() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("state");
+    let server = tiny_server();
+    let added = aralo_in(
+        &state,
+        &["ai", "add", "Local", "--base-url", &server, "--model", "m"],
+    );
+    assert!(added.status.success(), "{added:?}");
+
+    // Off, which is how AI starts: nothing is run.
+    let refused = aralo_in(&state, &["conformance", "--profile", "Local"]);
+    assert_eq!(refused.status.code(), Some(2), "{refused:?}");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("AI is switched off"));
+
+    assert!(aralo_in(&state, &["ai", "on"]).status.success());
+    let ran = aralo_in(
+        &state,
+        &[
+            "conformance",
+            "--profile",
+            "Local",
+            "--report",
+            "-",
+            "--timeout",
+            "10",
+        ],
+    );
+    let summary = String::from_utf8_lossy(&ran.stderr);
+    assert!(ran.status.success(), "{summary}");
+    assert!(summary.contains("It conforms."), "{summary}");
+    // Not a JSON object, so JSON output fails; it is not required.
+    assert!(summary.contains("fail  json_output"), "{summary}");
+    let report: serde_json::Value = serde_json::from_slice(&ran.stdout).unwrap();
+    assert_eq!(report["passed"], true);
+    assert_eq!(report["endpoint"]["key"], false);
+    assert_eq!(report["endpoint"]["model"], "m");
+
+    let reports = folder.path().join("reports");
+    std::fs::create_dir_all(&reports).unwrap();
+    std::fs::write(reports.join("local.json"), &ran.stdout).unwrap();
+    let endpoints = folder.path().join("endpoints.toml");
+    std::fs::write(
+        &endpoints,
+        "[[endpoint]]\nname = \"Nowhere\"\nbase_url = \"https://nowhere.example/v1\"\n\
+         model = \"x\"\nruns = \"by hand\"\n",
+    )
+    .unwrap();
+    let table = aralo(&[
+        "conformance",
+        "table",
+        reports.to_str().unwrap(),
+        "--endpoints",
+        endpoints.to_str().unwrap(),
+    ]);
+    assert!(table.status.success(), "{table:?}");
+    let table = stdout(&table);
+    assert!(
+        table.contains("| `m` | yes | pass | pass | pass | pass | pass | skip | pass | **fail** |"),
+        "{table}"
+    );
+    assert!(
+        table.contains("**json_output** failed (not required)"),
+        "{table}"
+    );
+    assert!(
+        table.contains("| Nowhere | `https://nowhere.example/v1` |"),
+        "{table}"
+    );
+}
