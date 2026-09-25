@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "aralo": "0.0.1",
+  "date": "2026-09-25",
+  "endpoint": {
+    "provider": "Ollama",
+    "adapter": "openai_compat",
+    "host": "127.0.0.1:11434",
+    "model": "qwen2.5:0.5b",
+    "local": true,
+    "key": false
+  },
+  "passed": true,
+  "first_token_ms": 1186,
+  "protocol": [
+    {
+      "check": "models",
+      "required": true,
+      "verdict": "pass",
+      "detail": "1 model; the profile's model is one",
+      "ms": 1
+    },
+    {
+      "check": "stream",
+      "required": true,
+      "verdict": "pass",
+      "detail": "43 pieces, the first after 1186 ms; stopped by the model",
+      "ms": 2177
+    },
+    {
+      "check": "system_prompt",
+      "required": true,
+      "verdict": "pass",
+      "detail": "the model answered as the system prompt asked",
+      "ms": 390
+    },
+    {
+      "check": "cancel",
+      "required": true,
+      "verdict": "pass",
+      "detail": "cancelled at the first piece, 545 ms in; the next request's first piece came 318 ms after it was sent",
+      "ms": 924
+    },
+    {
+      "check": "unknown_model",
+      "required": true,
+      "verdict": "pass",
+      "detail": "404: model \"aralo-conformance-no-such-model\" not found, try pulling it first",
+      "ms": 1
+    },
+    {
+      "check": "wrong_key",
+      "required": true,
+      "verdict": "skip",
+      "detail": "the profile sends no key",
+      "ms": 0
+    },
+    {
+      "check": "usage",
+      "required": false,
+      "verdict": "pass",
+      "detail": "47 tokens in, 44 out",
+      "ms": 0
+    },
+    {
+      "check": "json_output",
+      "required": false,
+      "verdict": "pass",
+      "detail": "the answer was a JSON object",
+      "ms": 539
+    }
+  ],
+  "evaluation": {
+    "passed": 1,
+    "cases": [
+      {
+        "case": "grammar",
+        "verdict": "pass",
+        "detail": "as expected",
+        "answer": "<text>Hi! The product I've ordered you are here? We have already sent your order yesterday; it should arrive tomorrow.</text>"
+      },
+      {
+        "case": "tone: formal",
+        "verdict": "fail",
+        "detail": "does not have “friday”",
+        "answer": "The user's block contains information about the user's work assignments. It indicates that they cannot complete certain tasks due to unforeseen circumstances, although no specific instructions have been sent. The user's own requests fall under this category."
+      },
+      {
+        "case": "tone: shorter",
+        "verdict": "fail",
+        "detail": "does not have “friday”",
+        "answer": "To reach out to, user has requested the meeting change due to outside circumstance that couldn't be controlled."
+      },
+      {
+        "case": "date macro kept",
+        "verdict": "fail",
+        "detail": "does not have “shipped”; does not have “arrive”; dropped {{date: %d %B}}; dropped {{field: days}}; added {{name}}",
+        "answer": "In one year, my name is {{name}}, I am currently working on making a video about programming languages that was originally planned for the 4th half of last summer vacation.\n\n{aralo-text} My computer crashed at noon on that date and I have some files there.\n\nI should be out in two days to see John."
+      },
+      {
+        "case": "date macro written",
+        "verdict": "fail",
+        "detail": "has none of “{{date”",
+        "answer": "{{today: current date}} CURRENT DATE"
+      }
+    ]
+  }
+}

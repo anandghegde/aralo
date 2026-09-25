@@ -436,7 +436,11 @@ a wrong key), each named in a JSON report that holds the host and never a key.
 recorded provider stream through a mock and runs the suite against a real
 Ollama and llama.cpp server; a nightly workflow runs the hosted providers
 whose keys are repository secrets. Against the mock, Aralo adds about a
-millisecond to the first token. See
+millisecond to the first token. The first table has two live endpoints, Ollama
+and llama.cpp's server, both running Qwen2.5 0.5B in CI: both conform, and the
+evaluation shows how little of the editor's work a model that small gets
+right. The six hosted providers in `conformance/endpoints.toml` are listed as
+not run live until their keys are repository secrets. See
 [the conformance suite](docs/architecture.md#the-conformance-suite).
 
 Six spikes are still owed in M0; S5, the embedding runtime, is answered by
