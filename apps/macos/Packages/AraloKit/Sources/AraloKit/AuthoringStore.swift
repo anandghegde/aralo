@@ -102,6 +102,13 @@ public final class AuthoringStore {
         }
     }
 
+    /// Whether the action is a draft, which sends the label and a note rather
+    /// than any of the text.
+    public var isDraft: Bool {
+        if case .draft = action { return true }
+        return false
+    }
+
     /// Whether Replace can put the draft in now.
     public var canReplace: Bool {
         phase == .answered && !draft.isEmpty

@@ -17,6 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use aralo_core::ai::{AiSettings, AiSwitches, MemorySecretStore};
 use aralo_core::{
     Core, Field, LibraryChange, LibraryListener, Model, Query, Runtime, RuntimeOptions, SearchHit,
     MIN_SIMILARITY,
@@ -81,15 +82,31 @@ impl LibraryListener for Quiet {
     fn changed(&self, _: LibraryChange, _: &Core) {}
 }
 
-fn runtime(folder: &Path, model: Option<PathBuf>) -> Runtime {
+fn runtime(folder: &Path) -> Runtime {
     let core = Core::open_without_starter(&folder.join("Aralo")).unwrap();
     let options = RuntimeOptions {
         index: Some(folder.join("state/index.sqlite3")),
         watch: false,
-        model,
         ..RuntimeOptions::default()
     };
     Runtime::with_core(core, options, Arc::new(Quiet)).unwrap()
+}
+
+/// AI settings with the switch on: the embedding model follows it
+/// (`tests/ai_switch.rs` has what happens when it is off).
+fn ai_on(folder: &Path) -> AiSettings {
+    let settings = AiSettings::open_with_secrets(
+        folder.join("state/profiles.toml"),
+        Arc::new(MemorySecretStore::new()),
+    )
+    .unwrap();
+    settings
+        .set_switches(AiSwitches {
+            enabled: true,
+            local_only: false,
+        })
+        .unwrap();
+    settings
 }
 
 fn stored_vectors(folder: &Path) -> usize {
@@ -102,7 +119,9 @@ fn stored_vectors(folder: &Path) -> usize {
 fn a_runtime_embeds_on_its_indexer_and_keeps_the_vectors() {
     let folder = tempfile::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
-    let runtime = runtime(folder.path(), Some(tiny()));
+    let ai = ai_on(folder.path());
+    let runtime = runtime(folder.path());
+    runtime.use_model(tiny(), &ai);
     runtime.flush();
     assert_eq!(runtime.meaning_error(), None);
     let hits = runtime.search(&Query::new("world hello"));
@@ -136,11 +155,11 @@ fn a_runtime_embeds_on_its_indexer_and_keeps_the_vectors() {
 fn a_model_can_be_given_to_a_runtime_that_is_already_running() {
     let folder = tempfile::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
-    let runtime = runtime(folder.path(), None);
+    let runtime = runtime(folder.path());
     runtime.flush();
     assert!(runtime.search(&Query::new("world hello")).is_empty());
 
-    runtime.use_model(tiny());
+    runtime.use_model(tiny(), &ai_on(folder.path()));
     runtime.flush();
     let hits = runtime.search(&Query::new("world hello"));
     assert_eq!(names(&hits)[0], ("Greeting", Field::Meaning));
@@ -150,7 +169,9 @@ fn a_model_can_be_given_to_a_runtime_that_is_already_running() {
 fn a_model_that_will_not_load_leaves_search_to_the_words() {
     let folder = tempfile::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
-    let runtime = runtime(folder.path(), Some(folder.path().join("no-such-model")));
+    let ai = ai_on(folder.path());
+    let runtime = runtime(folder.path());
+    runtime.use_model(folder.path().join("no-such-model"), &ai);
     runtime.flush();
     let problem = runtime.meaning_error().unwrap();
     assert!(problem.contains("tokenizer.json"), "{problem}");
@@ -160,7 +181,7 @@ fn a_model_that_will_not_load_leaves_search_to_the_words() {
     );
 
     // A model that does load clears the problem.
-    runtime.use_model(tiny());
+    runtime.use_model(tiny(), &ai);
     runtime.flush();
     assert_eq!(runtime.meaning_error(), None);
 }

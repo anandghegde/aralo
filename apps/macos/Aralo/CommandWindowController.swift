@@ -261,10 +261,9 @@ private struct CommandView: View {
                 Label(refusal, systemImage: "exclamationmark.triangle").font(.callout)
             }
             HStack(spacing: 8) {
-                Text(sentChip)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ManifestLabel(ContextManifest(
+                    store.sent, profile: store.profile, model: store.model, request: "the instruction"
+                ))
                 Spacer()
                 if store.phase == .answered {
                     if !store.isEditing {
@@ -288,10 +287,6 @@ private struct CommandView: View {
 
     /// What went where, the privacy promise in one line: which context the
     /// request carried, and which profile and model it went to.
-    private var sentChip: String {
-        sentSummary(store.sent, profile: store.profile, model: store.model, alone: "the instruction only")
-    }
-
     private func message(_ text: String, detail: String) -> some View {
         VStack(spacing: 6) {
             Text(text).font(.title3).multilineTextAlignment(.center)

@@ -115,9 +115,52 @@ pub fn assemble(
     (items, manifest)
 }
 
+/// The manifest with each kind's size taken from the items as they will be
+/// sent, after every stage that changes them.
+pub fn measured(manifest: Vec<ManifestEntry>, sent: &[ContextItem]) -> Vec<ManifestEntry> {
+    manifest
+        .into_iter()
+        .map(|entry| ManifestEntry {
+            kind: entry.kind,
+            bytes: sent
+                .iter()
+                .find(|item| item.kind == entry.kind)
+                .map(|item| item.text.len()),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_manifest_measures_what_is_sent_not_what_was_fetched() {
+        let fetched = vec![ManifestEntry {
+            kind: ContextKind::Clipboard,
+            bytes: Some(40),
+        }];
+        // A stage after fetching shortened the text.
+        let sent = [ContextItem {
+            kind: ContextKind::Clipboard,
+            text: "[masked]".to_owned(),
+        }];
+        assert_eq!(
+            measured(fetched.clone(), &sent),
+            [ManifestEntry {
+                kind: ContextKind::Clipboard,
+                bytes: Some(8)
+            }]
+        );
+        // One a stage dropped entirely was not sent.
+        assert_eq!(
+            measured(fetched, &[]),
+            [ManifestEntry {
+                kind: ContextKind::Clipboard,
+                bytes: None
+            }]
+        );
+    }
 
     #[test]
     fn declared_names_are_read_once_and_unknown_ones_kept_apart() {

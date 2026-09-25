@@ -9,11 +9,17 @@ extension AraloService {
         Bundle.main.url(forResource: "potion-base-8M", withExtension: nil)
     }
 
-    /// Hands the core the model the app ships with. The core loads it and
-    /// embeds the library on its indexer thread, so nothing here waits, and
-    /// nothing of the library leaves the Mac.
+    /// Hands the core the model the app ships with, and the AI settings whose
+    /// switch it follows (plan 4.10): while AI is off the model is never
+    /// loaded, and switching AI on or off in the settings loads or drops it.
+    /// The core does the work on its indexer thread, so nothing here waits,
+    /// and nothing of the library leaves the Mac.
+    ///
+    /// This is why a copy of Aralo that ships a model reads profiles.toml at
+    /// start: the switch is in it. No key is read until a model is asked
+    /// something.
     func useBundledModel(_ core: Core) {
-        guard let model = Self.bundledModel else { return }
-        core.useModel(folder: model.path)
+        guard let model = Self.bundledModel, let settings = try? aiSettings() else { return }
+        core.useModel(folder: model.path, ai: settings)
     }
 }

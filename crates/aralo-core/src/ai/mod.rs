@@ -6,6 +6,12 @@
 //! [`AiSettings`] is what the settings pane and `aralo ai` call. It owns the
 //! [`Gateway`], so Test connection, the capability probe and the model list
 //! go through the same policy check and network guard as any feature.
+//!
+//! The switch is the master switch (plan 4.10): while it is off, no model is
+//! asked anything and no model loads. Every request is refused before a key
+//! is read or context gathered, and the embedding model search by meaning
+//! uses follows the switch through [`AiSettings::watch_switches`]
+//! ([`crate::Runtime::use_model`]).
 
 mod authoring;
 mod block;
@@ -171,6 +177,9 @@ fn invalid(field: ProfileField, message: impl Into<String>) -> AiSettingsError {
     }
 }
 
+/// Told the switches whenever they change.
+type SwitchWatcher = Box<dyn Fn(AiSwitches) + Send + Sync>;
+
 pub struct AiSettings {
     path: PathBuf,
     secrets: Arc<dyn SecretStore>,
@@ -183,6 +192,9 @@ pub struct AiSettings {
     /// this process cannot interleave.
     lock: Mutex<()>,
     clock: fn() -> String,
+    /// The switches as last applied, to tell a change from a rewrite.
+    applied: Mutex<AiSwitches>,
+    watchers: Mutex<Vec<SwitchWatcher>>,
 }
 
 impl std::fmt::Debug for AiSettings {
@@ -242,6 +254,8 @@ impl AiSettings {
             transport,
             lock: Mutex::new(()),
             clock: now,
+            applied: Mutex::new(switches_of(file)),
+            watchers: Mutex::new(Vec::new()),
         }
     }
 
@@ -264,7 +278,43 @@ impl AiSettings {
     /// applies its switches.
     pub fn reload(&self) -> Result<(), AiSettingsError> {
         let file = read(&self.path)?;
-        self.apply(&file)
+        self.apply(&file)?;
+        self.announce(switches_of(&file));
+        Ok(())
+    }
+
+    /// Calls `watcher` with the switches each time they change here: through
+    /// [`AiSettings::set_switches`], or a [`AiSettings::reload`] that found
+    /// them changed. It is called on whatever thread made the change, after
+    /// the change is in force, and should return quickly.
+    pub fn watch_switches(&self, watcher: impl Fn(AiSwitches) + Send + Sync + 'static) {
+        lock(&self.watchers).push(Box::new(watcher));
+    }
+
+    /// The switches as they are in force now, without reading the file.
+    pub fn switches_in_force(&self) -> AiSwitches {
+        *lock(&self.applied)
+    }
+
+    /// Loads an embedding model. It is a model like any other, so it is
+    /// refused while AI is off (plan 4.10). Local-only mode does not stop it:
+    /// the model is files on this machine and never reaches the network.
+    pub fn load_model(&self, folder: &Path) -> Result<aralo_embed::Model, AiSettingsError> {
+        self.ensure_on()?;
+        aralo_embed::Model::open(folder).map_err(|error| AiSettingsError::File {
+            path: folder.display().to_string(),
+            message: error.to_string(),
+        })
+    }
+
+    /// Refuses while AI is off, before anything else is looked at: no key is
+    /// read and no context is gathered for a request that will not be sent.
+    fn ensure_on(&self) -> Result<(), AiSettingsError> {
+        if self.gateway.policy().ai_enabled {
+            Ok(())
+        } else {
+            Err(Refusal::Off.into())
+        }
     }
 
     pub fn switches(&self) -> Result<AiSwitches, AiSettingsError> {
@@ -466,6 +516,7 @@ impl AiSettings {
         draft: &ProfileDraft,
         key: KeyChange,
     ) -> Result<ConnectionReport, AiSettingsError> {
+        self.ensure_on()?;
         let (profile, key) = self.resolve(draft, key)?;
         Ok(self.gateway.test_connection(&profile, key).await?)
     }
@@ -476,12 +527,14 @@ impl AiSettings {
         draft: &ProfileDraft,
         key: KeyChange,
     ) -> Result<Vec<String>, AiSettingsError> {
+        self.ensure_on()?;
         let (profile, key) = self.resolve(draft, key)?;
         Ok(self.gateway.list_models(&profile, key).await?)
     }
 
     /// Probes a saved profile and keeps what it found with the profile.
     pub async fn probe(&self, name: &str) -> Result<Capabilities, AiSettingsError> {
+        self.ensure_on()?;
         let stored = read(&self.path)?
             .find(name)
             .cloned()
@@ -511,9 +564,7 @@ impl AiSettings {
     /// never leaves the machine, but it is still a request to a model server,
     /// so it waits for the AI switch.
     pub async fn detect_local_servers(&self) -> Result<Vec<LocalServer>, AiSettingsError> {
-        if !self.gateway.policy().ai_enabled {
-            return Err(Refusal::Off.into());
-        }
+        self.ensure_on()?;
         Ok(aralo_providers::detect_local_servers(self.transport.as_ref()).await)
     }
 
@@ -572,11 +623,28 @@ impl AiSettings {
         &self,
         edit: impl FnOnce(&mut ProfilesFile) -> Result<(), AiSettingsError>,
     ) -> Result<(), AiSettingsError> {
-        let _held = self.hold();
-        let mut file = read(&self.path)?;
-        edit(&mut file)?;
-        write(&self.path, &file)?;
-        self.apply(&file)
+        let switches = {
+            let _held = self.hold();
+            let mut file = read(&self.path)?;
+            edit(&mut file)?;
+            write(&self.path, &file)?;
+            self.apply(&file)?;
+            switches_of(&file)
+        };
+        // Outside the file's lock, so a watcher that reads the settings back
+        // does not wait for itself.
+        self.announce(switches);
+        Ok(())
+    }
+
+    /// Tells the watchers, when the switches changed.
+    fn announce(&self, switches: AiSwitches) {
+        let changed = std::mem::replace(&mut *lock(&self.applied), switches) != switches;
+        if changed {
+            for watcher in lock(&self.watchers).iter() {
+                watcher(switches);
+            }
+        }
     }
 
     fn apply(&self, file: &ProfilesFile) -> Result<(), AiSettingsError> {
@@ -731,6 +799,21 @@ fn saved(stored: &StoredProfile, default: Option<&str>) -> SavedProfile {
             .map(|stored| (stored.capabilities(), stored.probed_at.clone())),
         profile,
     }
+}
+
+fn switches_of(file: &ProfilesFile) -> AiSwitches {
+    AiSwitches {
+        enabled: file.enabled,
+        local_only: file.local_only,
+    }
+}
+
+/// A lock whose holder panicked still guards data that is whole: each value
+/// here is replaced in one step.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn policy(file: &ProfilesFile) -> Policy {

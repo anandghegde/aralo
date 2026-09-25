@@ -203,6 +203,9 @@ impl Gateway {
 
         let (items, manifest) = context::assemble(&request.declared, source);
         let items = redact::redact(items);
+        // What the panel shows is what goes out: measured after redaction,
+        // which changes the text it masks.
+        let manifest = context::measured(manifest, &items);
         let framed = framing::frame(&request.system, &request.instruction, &items);
 
         Ok(Prepared {

@@ -15,7 +15,7 @@ use aralo_core::ai::{
     SavedProfile, Secret, PROVIDER_PRESETS,
 };
 use aralo_core::diff::Change;
-use aralo_core::Core;
+use aralo_core::{Core, Model};
 use clap::{Args, Subcommand, ValueEnum};
 
 use crate::Failure;
@@ -540,6 +540,24 @@ fn chosen(settings: &AiSettings, name: Option<&str>) -> Result<SavedProfile, Fai
             .default_profile()?
             .ok_or_else(|| "there are no profiles yet; add one with `aralo ai add`".into()),
     }
+}
+
+/// The embedding model for `aralo search --model`, loaded through the AI
+/// settings: it is a model, so it loads only while AI is on (plan 4.10).
+/// While AI is off this says so on standard error and gives `None`, and the
+/// search goes by words.
+pub fn embedding_model(folder: &Path) -> Result<Option<Model>, Failure> {
+    let path =
+        profiles_path().ok_or("cannot find Aralo's state folder: set HOME or ARALO_STATE")?;
+    let settings = AiSettings::open(path)?;
+    if !settings.switches_in_force().enabled {
+        eprintln!(
+            "aralo: AI is switched off, so the model is not loaded and this searches by words; \
+             `aralo ai on` turns it on"
+        );
+        return Ok(None);
+    }
+    Ok(Some(settings.load_model(folder)?))
 }
 
 /// Who answers an `{{ai}}` block for `aralo expand --ai` and `aralo type --ai`:

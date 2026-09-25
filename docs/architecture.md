@@ -563,15 +563,19 @@ its placeholders taken out, because `{{clipboard}}` says where text goes, not
 what the snippet is about. That is exactly what the content hash covers, so a
 vector keyed by the hash stays right across a rename or a move.
 
-**Where it runs.** `Runtime::use_model(folder)`, or `RuntimeOptions::model`,
-hands the indexer thread a model folder. The thread loads it, then after every
+**Where it runs.** `Runtime::use_model(folder, ai)` names the model and the
+AI settings whose switch it follows ([the master switch](#the-master-switch)):
+while AI is off the model is never loaded, and there is no other way to give a
+runtime one. While AI is on, the indexer thread loads it, then after every
 sync works out which content has no vector (under the library's read lock),
 embeds that (without it), stores the new vectors in `vectors`, prunes those of
 snippets that went and of other models, and gives the core a `Meaning`: the
 model and one vector per snippet. A restart embeds only what changed while
 Aralo was not running. A core with no runtime, as the CLI opens one, embeds in
-memory: `Core::use_model`. A model that will not load, or a runtime with no
-index, leaves search going by words, and `meaning_error()` says why.
+memory: `Core::use_model`, with a model the CLI loads through
+`AiSettings::load_model`, which refuses while AI is off. AI off, a model that
+will not load, or a runtime with no index leaves search going by words, and
+`meaning_error()` says why.
 
 **How it ranks.** `Core::search` embeds the query, scans every vector, and
 hands [`Searcher::search_with_meaning`](../crates/aralo-library/src/search.rs)
@@ -667,9 +671,40 @@ holds a URL, a key or a provider's wire format.
 | Stage | What it does | Where |
 | --- | --- | --- |
 | Policy check | The AI switch (off by default), local-only mode and a managed allow-list of hosts. A refusal comes before any context is read | `Policy::check` |
-| Context assembly | Asks a `ContextSource` for each declared kind, once, and for nothing else. Records the kind and size of each for the preview panel | `context::assemble` |
+| Context assembly | Asks a `ContextSource` for each declared kind, once, and for nothing else | `context::assemble` |
 | Redaction | An empty stage until v1 | `redact` |
+| Manifest | The kind and size of each declared item, measured after redaction, so the panel shows the bytes that go out. A kind with nothing to give is listed as not sent | `context::measured` |
 | Prompt framing | Each context item goes in a block whose tag carries a nonce hashed from the content, and the system prompt says that what is inside is data | `framing::frame` |
+
+### The master switch
+
+AI is off until the user switches it on, and while it is off no model loads
+and no model call is possible (plan 4.10). The switch is `enabled` in
+`profiles.toml`, and `AiSettings` applies it to everything that could reach a
+model:
+
+- **Requests.** The gateway's policy check refuses every request, and every
+  feature and settings call — commands, AI blocks, editor actions, Test
+  connection, the model list, the probe, local-server detection — refuses
+  before it reads a key or gathers context.
+- **The embedding model.** `AiSettings::watch_switches` tells a watcher when
+  the switches change, through `set_switches` or a `reload` that finds them
+  changed. `Runtime::use_model` registers one: switching AI off stops search
+  using the model at once and drops it from memory; switching it on loads it
+  again. Local-only mode does not stop it: the model never leaves the machine.
+
+`crates/aralo-core/tests/ai_switch.rs` holds all of it to the promise, through
+the real network guard to a real socket that counts connections and a key
+store that counts reads: with AI off, every way of asking a model is refused,
+no key is read, no context is asked for, nothing connects and no model loads,
+not even one whose folder is missing. Then AI goes on, to show the same calls
+reach the socket, and off again, to show the model goes.
+
+The panels show what a request sent in the words of the gateway's manifest:
+one line under the answer, and on a click every declared kind with the bytes
+that went or "nothing to send", and a last line saying nothing else was sent
+(`ContextManifest` and `ManifestLabel` in AraloKit). The command panel, the AI
+preview in the form panel and the editor's sheet all use it.
 
 `Gateway::send` checks the policy again, since it may have changed while the
 panel was open. It then hands the framed request to the `Adapter` for the
@@ -997,7 +1032,7 @@ the event tap.
 | --- | --- | --- |
 | `Engine` | `on_key(KeyInput) -> KeyAction`, `insert(snippet_id, into_app) -> InsertOutcome`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
 | `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
-| `Core`, search by meaning | `use_model(folder)`: load the embedding model and embed the library on the indexer thread; `meaning_problem()`; `wait_for_index()` for tests. A hit found by meaning has `SearchField.meaning` | Synchronous; the work is on the indexer thread |
+| `Core`, search by meaning | `use_model(folder, ai)`: the embedding model, loaded and the library embedded on the indexer thread while the switch in `ai` (an `AiProfiles`) is on, dropped while it is off; `meaning_problem()`; `wait_for_index()` for tests. A hit found by meaning has `SearchField.meaning` | Synchronous; the work is on the indexer thread |
 | `Core`, editing | `create_snippet`, `save_snippet`, `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
 | `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `outline_draft(body)`, `try_draft(draft, group, editing?) -> DraftTrial`, `recents(limit)` | Synchronous |
 | `DraftTrial` | `key(KeyInput) -> TrialAction` (`Typed`, `Expanded` or `Session { session }`), `field() -> TrialField`, `move_caret(caret)`, `clear()`, `finish(steps, undo_delete_count?)`, `cancel(session)`, `abbreviations()`. Offsets are UTF-16 | Synchronous |
@@ -1082,6 +1117,7 @@ breaks. "Planned" means the code it would check does not exist yet.
 | AI sends only declared context (P4) | The gateway asks a `ContextSource` for the declared kinds only, and asks for nothing when the policy refuses | `crates/aralo-ai/tests/gateway.rs`: `only_declared_context_is_asked_for_or_sent`. `local_only.rs`: a refused request reads no context. A command declares only the selection: `crates/aralo-core/tests/ai_command.rs` checks the manifest and that every refusal sends nothing. An AI block sends only what its snippet declared, never the text around it: `crates/aralo-core/tests/ai_blocks.rs`, `only_declared_context_is_asked_for_and_only_it_is_sent`, and `FormSessionAITests` for what the Mac shell reads. An editor action sends the text it works on, and a draft nothing from the editor: `crates/aralo-core/tests/ai_authoring.rs` |
 | Local-only mode means no network (P6) | The network guard is the only HTTP client constructor, and refuses by URL before sending and by address at connect ([the AI gateway](#the-ai-gateway)) | `crates/aralo-ai/tests/local_only.rs`. `deny.toml` confines `reqwest` to `aralo-ai`, `clippy.toml` bans building a client, `scripts/check-deps.sh` keeps `reqwest` inside the guard module |
 | Prompt injection cannot act (P10) | AI output is literal text with no path back into the evaluator. Context is framed as data | `gateway.rs`: `model_output_is_passed_on_as_literal_text`. Framing tests in `aralo-ai`. `crates/aralo-template/tests/ai_blocks.rs`: an answer written as placeholders goes in as those characters and reads nothing, and the text around a block is byte-identical whatever the answer (a property test). `fixtures/golden/ai.toml` pins both |
+| With the AI switch off, no model loads and no model call is possible (plan 4.10) | Every request and settings call refuses first, before a key or any context is read. The embedding model follows the switch: never loaded while it is off, dropped when it goes off ([the master switch](#the-master-switch)) | `crates/aralo-core/tests/ai_switch.rs`, through the real guard to a socket that counts connections, with a key store that counts reads. `MeaningSearchTests` in AraloKit for the bridge |
 | Search by meaning never leaves the machine (A4) | The model ships inside the app and is fetched at build time against recorded checksums, never at runtime. `aralo-embed` reads it from disk and has no networking crate anywhere in its dependencies ([search by meaning](#search-by-meaning)) | `scripts/check-deps.sh`: `aralo-embed`'s whole dependency closure is an allow-list. `crates/aralo-core/tests/meaning.rs` finds the refund reply by meaning with the model loaded from disk |
 | Keys only in the keychain (P13) | `SecretStore` on the login keychain. `profiles.toml` holds a `key_ref`, never a value, and refuses a key-shaped header or address. The CLI takes a key only from the environment or standard input ([profiles and keys](#profiles-and-keys)) | `crates/aralo-core/tests/ai_settings.rs`: `after_every_operation_the_key_is_only_in_the_store_and_the_auth_header`, with a canary key. `scripts/key-leak-scan.sh`: no key in any file a full test run wrote |
 | Licences, advisories, sources | `deny.toml` | `cargo-deny` in CI |

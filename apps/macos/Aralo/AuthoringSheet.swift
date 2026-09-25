@@ -117,11 +117,10 @@ struct AuthoringSheet: View {
                 Label(refusal, systemImage: "exclamationmark.triangle").font(.callout)
             }
             HStack(spacing: 8) {
-                Text(sentSummary(store.sent, profile: store.profile, model: store.model,
-                                 alone: "the label only"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                ManifestLabel(ContextManifest(
+                    store.sent, profile: store.profile, model: store.model,
+                    request: store.isDraft ? "the label and your note" : "the instruction"
+                ))
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
                 buttons

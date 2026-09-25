@@ -77,30 +77,6 @@ public struct DeferredAIRunner: BlockRunner, AuthoringRunner {
     }
 }
 
-/// What a request sent and to whom, in one line: the privacy promise where the
-/// user reads the answer. The command panel and the AI preview both say it.
-///
-/// A kind the snippet declared but the app had nothing for was not sent, and
-/// is not named. `alone` is what went when no context did.
-public func sentSummary(
-    _ sent: [AiContextSent], profile: String?, model: String?, alone: String = "the prompt only"
-) -> String {
-    guard let profile else { return "" }
-    let parts = sent.compactMap { sent -> String? in
-        guard let bytes = sent.bytes else { return nil }
-        let name = switch sent.kind {
-        case .selection: "the selection"
-        case .clipboard: "the clipboard"
-        case .fillins: "the answers you gave"
-        case .app: "the app's name"
-        case .window: "the window title"
-        }
-        return "\(name) (\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)))"
-    }
-    let what = parts.isEmpty ? alone : parts.joined(separator: ", ")
-    return "Sent \(what) to \(profile) · \(model ?? "")"
-}
-
 /// The stretches of `text` that the spans mark, as ranges of the string. The
 /// core counts in UTF-16 code units, as a text view does; a span that does not
 /// land on characters of `text` is left out rather than trusted.

@@ -231,9 +231,21 @@ fn search_narrows_by_group_limit_and_the_enabled_flag() {
     assert!(capped.contains("raise --limit"), "{capped}");
 }
 
+/// `aralo` with its state in `state`, so the AI switch it reads is the
+/// test's and never the machine's.
+fn aralo_in(state: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_aralo"))
+        .env("ARALO_STATE", state)
+        .env_remove("ARALO_MODEL")
+        .args(args)
+        .output()
+        .unwrap()
+}
+
 #[test]
-fn search_with_a_model_finds_a_snippet_by_what_it_means() {
+fn search_with_a_model_finds_a_snippet_by_what_it_means_while_ai_is_on() {
     let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("state");
     let library = folder.path().join("lib");
     std::fs::create_dir_all(&library).unwrap();
     std::fs::write(
@@ -247,10 +259,26 @@ fn search_with_a_model_finds_a_snippet_by_what_it_means() {
     let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/embed/tiny");
     let model = model.to_str().unwrap();
 
-    let words = aralo(&["search", library, "world hello"]);
+    let words = aralo_in(&state, &["search", library, "world hello"]);
     assert_eq!(words.status.code(), Some(1), "{words:?}");
 
-    let meaning = aralo(&["search", library, "world hello", "--model", model]);
+    // AI is off until it is switched on, and so is the model (plan 4.10):
+    // the search goes by words and says why.
+    let off = aralo_in(
+        &state,
+        &["search", library, "world hello", "--model", model],
+    );
+    assert_eq!(off.status.code(), Some(1), "{off:?}");
+    assert!(
+        String::from_utf8_lossy(&off.stderr).contains("AI is switched off"),
+        "{off:?}"
+    );
+
+    assert!(aralo_in(&state, &["ai", "on"]).status.success());
+    let meaning = aralo_in(
+        &state,
+        &["search", library, "world hello", "--model", model],
+    );
     assert!(meaning.status.success(), "{meaning:?}");
     assert!(
         stdout(&meaning).contains("meaning: hello world"),
@@ -260,13 +288,14 @@ fn search_with_a_model_finds_a_snippet_by_what_it_means() {
     // ARALO_MODEL does what --model does.
     let from_environment = Command::new(env!("CARGO_BIN_EXE_aralo"))
         .args(["search", library, "world hello"])
+        .env("ARALO_STATE", &state)
         .env("ARALO_MODEL", model)
         .output()
         .unwrap();
     assert!(from_environment.status.success(), "{from_environment:?}");
 
     // A folder that is not a model is an error that says what is missing.
-    let broken = aralo(&["search", library, "hello", "--model", library]);
+    let broken = aralo_in(&state, &["search", library, "hello", "--model", library]);
     assert_eq!(broken.status.code(), Some(2), "{broken:?}");
     assert!(
         String::from_utf8_lossy(&broken.stderr).contains("tokenizer.json"),

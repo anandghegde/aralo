@@ -194,6 +194,13 @@ pub struct AiProfiles {
     settings: AiSettings,
 }
 
+impl AiProfiles {
+    /// The settings themselves, for the library to follow the switch.
+    pub(crate) fn settings(&self) -> &AiSettings {
+        &self.settings
+    }
+}
+
 impl std::fmt::Debug for AiProfiles {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AiProfiles").finish_non_exhaustive()

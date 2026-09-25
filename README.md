@@ -17,8 +17,8 @@ tool that expands snippets in an imaginary text field. The Mac app is a first
 slice you build yourself: a menu bar agent that expands plain-text snippets
 and walks you through the permissions on first run. AI is under way (M4):
 the gateway, the first adapter, the AI settings, commands on selected text,
-AI blocks inside snippets, AI actions in the snippet editor and search by
-meaning exist. Expect
+AI blocks inside snippets, AI actions in the snippet editor, search by
+meaning and the master switch that turns all of it off exist. Expect
 everything to change, including the file format, which is at version 0.
 
 ## Privacy, as build properties
@@ -37,6 +37,7 @@ one is a property of the build that CI checks, not a policy.
 | Local-only mode means no network | One network guard constructs every HTTP client and refuses non-loopback addresses | Enforced today |
 | API keys live only in the system keychain | Never in a file, never in the library folder | Enforced today |
 | Model output cannot act | It is inserted as literal text and never parsed for placeholders | Enforced today |
+| AI is off until you switch it on, and off means off | No model is asked anything and no model loads, the embedding model included. A test tries every way in with the switch off and watches a socket, the keychain and the model | Enforced today |
 | Search by meaning runs on your Mac | The embedding model ships inside the app and is never downloaded at runtime. CI holds `aralo-embed` to a dependency allow-list with no networking crate in it | Enforced today |
 
 You can verify "not a keylogger" by reading one crate:
@@ -140,10 +141,11 @@ cargo run -p aralo-cli -- search /tmp/aralo-imported '%delay'
 
 With the embedding model, it finds snippets by what they mean as well. The
 model is fetched from Hugging Face once, checked against recorded checksums,
-and never contacted again:
+and never contacted again. It is a model, so it loads only while AI is on:
 
 ```sh
 make model
+cargo run -p aralo-cli -- ai on
 cargo run -p aralo-cli -- search fixtures/search/library "money back" \
   --model models/potion-base-8M
 ```
@@ -408,9 +410,19 @@ embedding model that ships inside the app: a snippet embeds in about 25 µs,
 the library is embedded in the background and kept in the index, and nothing
 leaves the machine. Snippets found by meaning come after the ones your words
 found, marked as such. `make model` fetches the model, checked against
-recorded checksums; `aralo search --model models/potion-base-8M` uses it from
-the terminal. See [search by meaning](docs/architecture.md#search-by-meaning)
+recorded checksums; with AI on, `aralo search --model models/potion-base-8M`
+uses it from the terminal. See [search by meaning](docs/architecture.md#search-by-meaning)
 and [ADR-0016](docs/adr/0016-static-embeddings.md).
+
+The AI master switch governs all of it (task 4.10). AI is off until you
+switch it on in Settings or with `aralo ai on`, and while it is off no model is
+asked anything and no model loads: the embedding model search by meaning uses
+is dropped the moment AI goes off and loaded again when it comes back on.
+Local-only mode keeps requests on this Mac and leaves the embedding model
+alone, since it never leaves the machine. Under every answer, the panels say
+what was sent and to whom; a click lists each kind the request could carry,
+with the bytes that went or "nothing to send". See
+[the master switch](docs/architecture.md#the-master-switch).
 
 Six spikes are still owed in M0; S5, the embedding runtime, is answered by
 ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).

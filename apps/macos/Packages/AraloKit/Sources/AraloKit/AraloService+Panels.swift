@@ -124,8 +124,9 @@ extension AraloService {
     }
 
     /// Answers AI blocks and the editor's actions with the AI settings,
-    /// opened the first time either asks: until then Aralo reads neither
-    /// profiles.toml nor the keychain.
+    /// opened the first time either asks, unless search by meaning opened
+    /// them at start to follow the switch. The keychain is read only when a
+    /// model is asked something.
     var aiRunner: DeferredAIRunner {
         DeferredAIRunner { [weak self] in
             guard let self else { throw AiBridgeError.Failed(message: "Aralo is closing.") }

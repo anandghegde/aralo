@@ -12,8 +12,10 @@
 //! - **the indexer.** One thread owns the only connection that writes to the
 //!   index, so a rebuild cannot collide with a save. Readers get a second
 //!   connection and never wait for it. When the runtime has an embedding
-//!   model, the same thread loads it, embeds what the index has no vector
-//!   for, and hands search the library's meaning ([`crate::meaning`]).
+//!   model and AI is on, the same thread loads it, embeds what the index has
+//!   no vector for, and hands search the library's meaning
+//!   ([`crate::meaning`]). The model follows the AI switch
+//!   ([`Runtime::use_model`]): off, it is dropped and never loaded.
 //!
 //! Every time the folder is read, the conflict copies a sync client left in it
 //! are merged against their bases in the index, and the ones that merge
@@ -26,8 +28,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
@@ -36,6 +39,7 @@ use aralo_engine::Snapshot;
 use aralo_library::{Changes, Index, Indexed, Query, Recent, Stats, Watch, DEFAULT_DEBOUNCE};
 use aralo_snippet::SnippetId;
 
+use crate::ai::{AiSettings, Refusal};
 use crate::meaning::Plan;
 use crate::merge::{ConflictSides, Discard, Resolution, SetAside};
 use crate::{state, Core, CoreError, SearchHit};
@@ -96,11 +100,6 @@ pub struct RuntimeOptions {
     /// ([`state::set_aside_path`]); a machine that will not say where that is
     /// leaves conflict copies unmerged.
     pub discard: Option<Arc<dyn Discard>>,
-    /// The folder of the embedding model to search by meaning with, which
-    /// the app ships inside itself. `None` searches by words alone. It is
-    /// loaded on the indexer thread, so opening the library does not wait
-    /// for it.
-    pub model: Option<PathBuf>,
 }
 
 impl Default for RuntimeOptions {
@@ -110,7 +109,6 @@ impl Default for RuntimeOptions {
             watch: true,
             debounce: DEFAULT_DEBOUNCE,
             discard: None,
-            model: None,
         }
     }
 }
@@ -136,6 +134,14 @@ pub struct Runtime {
     index_error: Option<String>,
     /// Why search cannot go by meaning, when it was asked to and cannot.
     meaning_error: Arc<Mutex<Option<String>>>,
+    /// Whether the embedding model may be loaded and used: the AI switch, as
+    /// the indexer sees it. Off until [`Runtime::use_model`] says otherwise.
+    meaning_gate: Arc<AtomicBool>,
+    /// The model [`Runtime::use_model`] named, loaded whenever the switch
+    /// goes on.
+    model_folder: Arc<Mutex<Option<PathBuf>>>,
+    /// Whether this runtime already follows an AI switch.
+    following: AtomicBool,
 }
 
 impl Runtime {
@@ -170,14 +176,14 @@ impl Runtime {
         // library is what matters and it is already loaded, so the runtime
         // carries on without one and says why when asked.
         let meaning_error = Arc::new(Mutex::new(None));
+        let meaning_gate = Arc::new(AtomicBool::new(false));
         let path = options.index.or_else(|| state::index_path(&root));
-        let model = options.model;
         let opened = path.map(|path| {
             open_index(
                 &path,
                 &core,
                 &listener,
-                model.clone(),
+                Arc::clone(&meaning_gate),
                 Arc::clone(&meaning_error),
             )
         });
@@ -190,10 +196,6 @@ impl Runtime {
                 Some("this machine will not say where the user's home folder is".to_owned()),
             ),
         };
-        if indexer.is_none() && model.is_some() {
-            *lock(&meaning_error) =
-                Some("search by meaning needs the index, and there is none".to_owned());
-        }
 
         // Copies that arrived while Aralo was not running. The indexer's first
         // sync may already be under way; it leaves the base of a snippet with
@@ -257,6 +259,9 @@ impl Runtime {
             listener,
             index_error,
             meaning_error,
+            meaning_gate,
+            model_folder: Arc::new(Mutex::new(None)),
+            following: AtomicBool::new(false),
         };
         if !merged.is_empty() {
             runtime.announce(LibraryChange::Merged { copies: merged });
@@ -389,20 +394,34 @@ impl Runtime {
         self.index_error.as_deref()
     }
 
-    /// Searches by meaning with the model in `folder` from now on. It is
-    /// loaded on the indexer thread, and the library embedded there; until
-    /// that is done, search goes by words. [`Runtime::meaning_error`] says
-    /// why when it does not work out.
-    pub fn use_model(&self, folder: PathBuf) {
-        match &self.indexer {
-            Some(indexer) => {
-                let _ = indexer.jobs.send(Job::Model(folder));
-            }
-            None => {
-                *lock(&self.meaning_error) =
-                    Some("search by meaning needs the index, and there is none".to_owned());
-            }
+    /// Searches by meaning with the model in `folder` whenever AI is on, and
+    /// follows the switch in `ai` from now on (plan 4.10).
+    ///
+    /// While AI is on, the model is loaded on the indexer thread and the
+    /// library embedded there; until that is done, search goes by words.
+    /// While it is off, the model is never loaded: turning the switch off
+    /// stops search using it at once and drops it from memory, and turning
+    /// it on loads it again. [`Runtime::meaning_error`] says why search is
+    /// going by words.
+    pub fn use_model(&self, folder: PathBuf, ai: &AiSettings) {
+        let Some(indexer) = &self.indexer else {
+            *lock(&self.meaning_error) =
+                Some("search by meaning needs the index, and there is none".to_owned());
+            return;
+        };
+        *lock(&self.model_folder) = Some(folder);
+        let follow = Follow {
+            gate: Arc::clone(&self.meaning_gate),
+            jobs: Arc::downgrade(&indexer.jobs),
+            core: Arc::downgrade(&self.core),
+            folder: Arc::clone(&self.model_folder),
+            meaning_error: Arc::clone(&self.meaning_error),
+        };
+        if !self.following.swap(true, Ordering::SeqCst) {
+            let watcher = follow.clone();
+            ai.watch_switches(move |switches| watcher.set(switches.enabled));
         }
+        follow.set(ai.switches_in_force().enabled);
     }
 
     /// Why search is going by words alone although a model was named: the
@@ -483,7 +502,7 @@ fn open_index(
     path: &Path,
     core: &Arc<RwLock<Core>>,
     listener: &Arc<dyn LibraryListener>,
-    model: Option<PathBuf>,
+    meaning_gate: Arc<AtomicBool>,
     meaning_error: Arc<Mutex<Option<String>>>,
 ) -> Result<(Arc<Mutex<Index>>, Indexer), CoreError> {
     let writer = Index::open(path)?;
@@ -492,7 +511,7 @@ fn open_index(
         writer,
         Arc::clone(core),
         Arc::clone(listener),
-        model,
+        meaning_gate,
         meaning_error,
     )?;
     Ok((Arc::new(Mutex::new(reader)), indexer))
@@ -500,7 +519,9 @@ fn open_index(
 
 /// The thread that owns the index's writing connection.
 struct Indexer {
-    jobs: Sender<Job>,
+    /// Held here and nowhere else strongly: an AI switch the runtime follows
+    /// holds it weakly, so dropping the runtime still ends the thread.
+    jobs: Arc<Sender<Job>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -512,8 +533,11 @@ enum Job {
         id: SnippetId,
         at: SystemTime,
     },
-    /// Load the embedding model in this folder and search by meaning with it.
+    /// Load the embedding model in this folder and search by meaning with it,
+    /// if AI is still on.
     Model(PathBuf),
+    /// AI went off: drop the model and search by words.
+    Unload,
     /// Reply on this channel once everything queued before it is done.
     Flush(Sender<()>),
 }
@@ -523,7 +547,7 @@ impl Indexer {
         mut index: Index,
         core: Arc<RwLock<Core>>,
         listener: Arc<dyn LibraryListener>,
-        model: Option<PathBuf>,
+        meaning_gate: Arc<AtomicBool>,
         meaning_error: Arc<Mutex<Option<String>>>,
     ) -> Result<Self, CoreError> {
         let (jobs, queue) = mpsc::channel();
@@ -534,31 +558,23 @@ impl Indexer {
                     // The library on disk moved on while Aralo was not running,
                     // so the first thing the index does is catch up with it.
                     sync(&mut index, &core, &listener);
-                    // Then the model, which is the slow part of starting, and
-                    // a vector for whatever changed since the last run.
-                    let mut embedder = None;
-                    if let Some(folder) = model {
-                        load(&folder, &mut index, &core, &mut embedder, &meaning_error);
-                    }
-                    work(
-                        &mut index,
-                        &core,
-                        &queue,
-                        &listener,
-                        &mut embedder,
-                        &meaning_error,
-                    );
+                    let mut embedding = Embedding {
+                        embedder: None,
+                        gate: meaning_gate,
+                        error: meaning_error,
+                    };
+                    work(&mut index, &core, &queue, &listener, &mut embedding);
                 }
             })
             .map_err(|source| CoreError::Thread { source })?;
         Ok(Self {
-            jobs,
+            jobs: Arc::new(jobs),
             thread: Some(thread),
         })
     }
 
     fn sender(&self) -> Sender<Job> {
-        self.jobs.clone()
+        self.jobs.as_ref().clone()
     }
 }
 
@@ -577,7 +593,7 @@ impl Drop for Indexer {
         // Dropping the last sender is what ends the loop; the thread is joined
         // so the connection closes with its last write finished.
         let (dead, _) = mpsc::channel();
-        drop(std::mem::replace(&mut self.jobs, dead));
+        drop(std::mem::replace(&mut self.jobs, Arc::new(dead)));
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -589,18 +605,16 @@ fn work(
     core: &RwLock<Core>,
     queue: &Receiver<Job>,
     listener: &Arc<dyn LibraryListener>,
-    embedder: &mut Option<Embedder>,
-    meaning_error: &Mutex<Option<String>>,
+    embedding: &mut Embedding,
 ) {
     while let Ok(job) = queue.recv() {
         match job {
             Job::Sync => {
                 sync(index, core, listener);
-                if let Some(embedder) = embedder {
-                    embedder.catch_up(index, core);
-                }
+                embedding.catch_up(index, core);
             }
-            Job::Model(folder) => load(&folder, index, core, embedder, meaning_error),
+            Job::Model(folder) => embedding.load(&folder, index, core),
+            Job::Unload => embedding.unload(core),
             Job::Expansion { id, at } => {
                 // A count that does not get written is a count, not a snippet.
                 let _ = index.record_expansion(id, at);
@@ -639,26 +653,87 @@ fn sync(index: &mut Index, core: &RwLock<Core>, listener: &Arc<dyn LibraryListen
     listener.changed(change, &read(core));
 }
 
-/// Loads a model and embeds the library with it, or says why not. A model
-/// that will not load leaves search going by words, and the one before it, if
-/// there was one, is dropped: the shell asked for this one.
-fn load(
-    folder: &Path,
-    index: &mut Index,
-    core: &RwLock<Core>,
-    embedder: &mut Option<Embedder>,
-    meaning_error: &Mutex<Option<String>>,
-) {
-    match Embedder::open(folder, index) {
-        Ok(mut loaded) => {
-            loaded.catch_up(index, core);
-            *embedder = Some(loaded);
-            *lock(meaning_error) = None;
+/// What the indexer thread knows about search by meaning: the model, when one
+/// is loaded, and the AI switch it answers to.
+struct Embedding {
+    embedder: Option<Embedder>,
+    gate: Arc<AtomicBool>,
+    error: Arc<Mutex<Option<String>>>,
+}
+
+impl Embedding {
+    fn allowed(&self) -> bool {
+        self.gate.load(Ordering::SeqCst)
+    }
+
+    /// Loads a model and embeds the library with it, or says why not. A
+    /// model that will not load leaves search going by words, and the one
+    /// before it, if there was one, is dropped: the shell asked for this one.
+    /// Nothing is read while AI is off, however the job got here.
+    fn load(&mut self, folder: &Path, index: &mut Index, core: &RwLock<Core>) {
+        if !self.allowed() {
+            self.unload(core);
+            return;
         }
-        Err(error) => {
-            *embedder = None;
-            read(core).set_meaning(None);
-            *lock(meaning_error) = Some(error);
+        match Embedder::open(folder, index) {
+            Ok(mut loaded) => {
+                loaded.catch_up(index, core, &self.gate);
+                self.embedder = Some(loaded);
+                *lock(&self.error) = None;
+            }
+            Err(error) => {
+                self.embedder = None;
+                read(core).set_meaning(None);
+                *lock(&self.error) = Some(error);
+            }
+        }
+    }
+
+    /// Drops the model and what search had of it.
+    fn unload(&mut self, core: &RwLock<Core>) {
+        self.embedder = None;
+        read(core).set_meaning(None);
+        if !self.allowed() {
+            *lock(&self.error) = Some(Refusal::Off.to_string());
+        }
+    }
+
+    fn catch_up(&mut self, index: &mut Index, core: &RwLock<Core>) {
+        if let Some(embedder) = &mut self.embedder {
+            embedder.catch_up(index, core, &self.gate);
+        }
+    }
+}
+
+/// The AI switch, as a runtime follows it: what [`Runtime::use_model`]
+/// registers with the AI settings. Everything it holds of the runtime is weak
+/// or shared, so the settings outliving the runtime keeps nothing running.
+#[derive(Clone)]
+struct Follow {
+    gate: Arc<AtomicBool>,
+    jobs: Weak<Sender<Job>>,
+    core: Weak<RwLock<Core>>,
+    folder: Arc<Mutex<Option<PathBuf>>>,
+    meaning_error: Arc<Mutex<Option<String>>>,
+}
+
+impl Follow {
+    fn set(&self, enabled: bool) {
+        self.gate.store(enabled, Ordering::SeqCst);
+        if enabled {
+            let folder = lock(&self.folder).clone();
+            if let (Some(jobs), Some(folder)) = (self.jobs.upgrade(), folder) {
+                let _ = jobs.send(Job::Model(folder));
+            }
+            return;
+        }
+        // Search stops using the model now, not when the indexer gets to it.
+        if let Some(core) = self.core.upgrade() {
+            read(&core).set_meaning(None);
+        }
+        *lock(&self.meaning_error) = Some(Refusal::Off.to_string());
+        if let Some(jobs) = self.jobs.upgrade() {
+            let _ = jobs.send(Job::Unload);
         }
     }
 }
@@ -696,7 +771,7 @@ impl Embedder {
     /// Embeds what has no vector yet, keeps it, forgets what the library no
     /// longer holds, and hands search the result. The library's lock is held
     /// to see what is there, not while embedding.
-    fn catch_up(&mut self, index: &mut Index, core: &RwLock<Core>) {
+    fn catch_up(&mut self, index: &mut Index, core: &RwLock<Core>, gate: &AtomicBool) {
         let plan = Plan::of(read(core).library(), |hash| self.known.contains_key(hash));
         if plan.is_settled() && self.published.as_ref() == Some(plan.snippets()) {
             return;
@@ -720,6 +795,11 @@ impl Embedder {
             let _ = index.keep_vectors(self.model.id(), &keep);
         }
         let meaning = plan.assemble(Arc::clone(&self.model), &self.known);
+        // The switch may have gone off while this was embedding; then the
+        // unload queued behind this job drops the model.
+        if !gate.load(Ordering::SeqCst) {
+            return;
+        }
         read(core).set_meaning(Some(Arc::new(meaning)));
         self.published = Some(plan.into_snippets());
     }

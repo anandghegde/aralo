@@ -100,6 +100,10 @@ transformer spends on a few dozen.
 - **Nothing in `aralo-embed` can reach the network.** Its whole dependency
   closure is an allow-list in `scripts/check-deps.sh`, beside the engine's
   and the template's, and no crate on it opens a socket.
+- **The model follows the AI switch.** It is a model like any other, so it
+  loads only while AI is on and is dropped when AI goes off (plan 4.10), and
+  search by meaning is off until the user switches AI on. Local-only mode
+  does not stop it.
 - **Vectors are kept, keyed by content hash and model.** The `vectors` table
   was reserved for this in M2. A model is known by its name and a hash of its
   files, so a new model never reads an old one's vectors, and the old ones

@@ -267,10 +267,7 @@ struct FormView: View {
                       systemImage: "exclamationmark.triangle")
                     .font(.callout)
             }
-            let sent = sentSummary(block.sent, profile: block.profile, model: block.model)
-            if !sent.isEmpty {
-                Text(sent).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            ManifestLabel(ContextManifest(block.sent, profile: block.profile, model: block.model))
         }
     }
 

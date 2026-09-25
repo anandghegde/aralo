@@ -1682,12 +1682,19 @@ impl Core {
     }
 
     /// Searches by meaning as well as by words, with the embedding model in
-    /// `folder`: `tokenizer.json`, `model.safetensors` and `config.json`. The
-    /// app passes the one it ships inside itself. It loads and embeds the
-    /// library in the background; `search` goes by words until then, and
-    /// nothing leaves the machine at any point (PRD A4).
-    pub fn use_model(&self, folder: String) {
-        self.shared.runtime.use_model(PathBuf::from(folder));
+    /// `folder`: `tokenizer.json`, `model.safetensors` and `config.json`,
+    /// whenever the AI switch in `ai` is on (plan 4.10). The app passes the
+    /// model it ships inside itself and its one set of AI settings.
+    ///
+    /// With AI on, the model loads and the library is embedded in the
+    /// background; `search` goes by words until then, and nothing leaves the
+    /// machine at any point (PRD A4). With AI off, the model is never loaded,
+    /// and switching AI off drops it: the switch is followed from now on,
+    /// through `AiProfiles.set_switches` and `reload`.
+    pub fn use_model(&self, folder: String, ai: Arc<AiProfiles>) {
+        self.shared
+            .runtime
+            .use_model(PathBuf::from(folder), ai.settings());
     }
 
     /// Why search is going by words alone although a model was given: it

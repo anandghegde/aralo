@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use aralo_core::{
     slashed, Core, ExportOptions, Field, Format, ImportOptions, ImportReport, Issue, MacroPolicy,
-    Model, Outcome, Query, SearchHit, Simulator,
+    Outcome, Query, SearchHit, Simulator,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -53,7 +53,8 @@ enum Command {
         query: Option<String>,
         /// The embedding model's folder, to find snippets by what they mean
         /// as well: "money back" finds the refund reply. `ARALO_MODEL` when
-        /// left out. Nothing leaves the machine.
+        /// left out. Loaded only while AI is on (`aralo ai on`); nothing
+        /// leaves the machine.
         #[arg(long)]
         model: Option<PathBuf>,
         /// Only this group and the groups inside it, `Work/Email` style
@@ -305,7 +306,9 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
             let core = Core::open_read_only(&library)?;
             let model = model.or_else(|| std::env::var_os("ARALO_MODEL").map(PathBuf::from));
             if let Some(folder) = model {
-                core.use_model(Arc::new(Model::open(&folder)?));
+                if let Some(model) = ai::embedding_model(&folder)? {
+                    core.use_model(Arc::new(model));
+                }
             }
             let hits = core.search(&Query {
                 text: query.unwrap_or_default(),
