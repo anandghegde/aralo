@@ -70,6 +70,8 @@ const WRONG_KEY: &str = "aralo-conformance-wrong-key";
 const MAX_DETAIL: usize = 300;
 /// What the model wrote, quoted in a failure, is cut to this many.
 const MAX_QUOTE: usize = 80;
+/// How many times the system prompt check asks before it fails.
+const SYSTEM_PROMPT_TRIES: usize = 3;
 
 const COUNT_TO_TEN: &str =
     "Write the numbers from one to ten in words, separated by spaces, and nothing else.";
@@ -513,30 +515,60 @@ impl Runner<'_> {
         ))
     }
 
+    /// Asks up to [`SYSTEM_PROMPT_TRIES`] times. A small model sampling at
+    /// the endpoint's own temperature can garble the word it was given (a
+    /// 0.5B model once wrote "PIECE"), while one that never saw the system
+    /// prompt has no reason to write it at all, so a second try tells a
+    /// sampling slip from a prompt that did not arrive.
     async fn system_prompt(&self) -> Result<CheckResult, Refusal> {
         let started = Instant::now();
-        let asked = self
-            .ask(self.request(PINEAPPLE_SYSTEM, PINEAPPLE_USER, MAX_TOKENS))
-            .await;
-        let (verdict, detail) = match asked {
-            Err(AiError::Refused(refusal)) => return Err(refusal),
-            Err(error) => (Verdict::Fail, error.to_string()),
-            Ok(answer) if has(&normalised(&answer.text), "pineapple") => (
-                Verdict::Pass,
-                "the model answered as the system prompt asked".to_owned(),
-            ),
-            Ok(answer) => (
-                Verdict::Fail,
-                format!(
-                    "the model did not do what the system prompt asked: it wrote \u{201c}{}\u{201d}",
-                    clip(answer.text.trim(), MAX_QUOTE)
-                ),
-            ),
-        };
+        let mut wrote = Vec::new();
+        for attempt in 1..=SYSTEM_PROMPT_TRIES {
+            let asked = self
+                .ask(self.request(PINEAPPLE_SYSTEM, PINEAPPLE_USER, MAX_TOKENS))
+                .await;
+            let answer = match asked {
+                Err(AiError::Refused(refusal)) => return Err(refusal),
+                Err(error) => {
+                    return Ok(result(
+                        ProtocolCheck::SystemPrompt,
+                        Verdict::Fail,
+                        error.to_string(),
+                        started,
+                    ))
+                }
+                Ok(answer) => answer,
+            };
+            if has(&normalised(&answer.text), "pineapple") {
+                let detail = if attempt == 1 {
+                    "the model answered as the system prompt asked".to_owned()
+                } else {
+                    format!(
+                        "the model answered as the system prompt asked at try {attempt} of \
+                         {SYSTEM_PROMPT_TRIES}, after writing {}",
+                        wrote.join(", ")
+                    )
+                };
+                return Ok(result(
+                    ProtocolCheck::SystemPrompt,
+                    Verdict::Pass,
+                    detail,
+                    started,
+                ));
+            }
+            wrote.push(format!(
+                "\u{201c}{}\u{201d}",
+                clip(answer.text.trim(), MAX_QUOTE / SYSTEM_PROMPT_TRIES)
+            ));
+        }
         Ok(result(
             ProtocolCheck::SystemPrompt,
-            verdict,
-            detail,
+            Verdict::Fail,
+            format!(
+                "the model did not do what the system prompt asked in {SYSTEM_PROMPT_TRIES} \
+                 tries: it wrote {}",
+                wrote.join(", ")
+            ),
             started,
         ))
     }

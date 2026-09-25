@@ -35,7 +35,7 @@ the report, so a failure says exactly what broke:
 | --- | --- | --- |
 | `models` | yes | `GET /models` lists at least one model |
 | `stream` | yes | an answer arrives in more than one piece and ends with a stop reason |
-| `system_prompt` | yes | the model does what the system prompt asks, which the user message never mentions |
+| `system_prompt` | yes | the model does what the system prompt asks, which the user message never mentions, in one of three tries |
 | `cancel` | yes | a stream dropped after its first piece leaves the endpoint answering the next request |
 | `unknown_model` | yes | a model the endpoint does not have is refused with a 4xx Aralo can read |
 | `wrong_key` | yes | a wrong key is refused with a 4xx Aralo can read |

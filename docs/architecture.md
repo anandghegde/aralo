@@ -1037,7 +1037,7 @@ failure says what broke:
 | --- | --- | --- |
 | `models` | yes | `GET /models` lists at least one model |
 | `stream` | yes | an answer arrives in more than one piece and ends with a stop reason |
-| `system_prompt` | yes | the model does what the system prompt asks, which the user message never mentions |
+| `system_prompt` | yes | the model does what the system prompt asks, which the user message never mentions, in one of three tries |
 | `cancel` | yes | a stream dropped after its first piece leaves the endpoint answering the next request |
 | `unknown_model` | yes | a model the endpoint does not have is refused with a 4xx Aralo can read |
 | `wrong_key` | yes | a wrong key is refused with a 4xx Aralo can read |
@@ -1047,7 +1047,10 @@ failure says what broke:
 An error check is skipped when there is nothing to check: no key to replace
 with a wrong one, or a local server that serves the model it has loaded
 whatever the name. Temperature is left to the endpoint, as the probe leaves
-it.
+it, which is why the system prompt check asks up to three times: a small model
+sampling at its own temperature can garble the one word it was given (a 0.5B
+model on llama.cpp wrote "PIECE"), while a model that never saw the prompt has
+no reason to write it at all.
 
 **The evaluation set**, `conformance/evaluation.toml`, compiled in, runs the
 editor's own actions (`start_authoring`, the code the editor's menu runs) on

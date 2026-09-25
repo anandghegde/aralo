@@ -14,6 +14,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -110,6 +111,9 @@ enum Fault {
     Whole,
     /// The model never reads the system prompt.
     IgnoresSystem,
+    /// The model garbles the system prompt's word the first time it is
+    /// asked, as a small one sampling at its own temperature can.
+    GarblesSystemOnce,
     NoModelsRoute,
     /// Any model name is served.
     AnyModel,
@@ -143,6 +147,8 @@ struct Behaviour {
     framing: Framing,
     fault: Fault,
     key: Option<&'static str>,
+    /// How many times the system prompt check has asked.
+    system_asked: Arc<AtomicUsize>,
 }
 
 impl Mock {
@@ -155,6 +161,7 @@ impl Mock {
             framing,
             fault,
             key: Some(KEY),
+            system_asked: Arc::new(AtomicUsize::new(0)),
         };
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -342,7 +349,12 @@ fn chat(
     let answer = if json_mode {
         "{\"ok\": true}".to_owned()
     } else if system.contains("PINEAPPLE") && behaviour.fault != Fault::IgnoresSystem {
-        "PINEAPPLE".to_owned()
+        let asked = behaviour.system_asked.fetch_add(1, Ordering::SeqCst);
+        if behaviour.fault == Fault::GarblesSystemOnce && asked == 0 {
+            "PIECE".to_owned()
+        } else {
+            "PINEAPPLE".to_owned()
+        }
     } else {
         answer_to(&user)
     };
@@ -639,6 +651,15 @@ async fn a_broken_endpoint_fails_naming_the_check_that_caught_it() {
         assert_eq!(failures, expected, "{fault:?}");
     }
 
+    let (report, _mock) = run("openai.sse", Fault::IgnoresSystem).await;
+    let system = report.check(ProtocolCheck::SystemPrompt).unwrap();
+    assert_eq!(
+        system.detail,
+        "the model did not do what the system prompt asked in 3 tries: it wrote \u{201c}Hello! \
+         How can I help?\u{201d}, \u{201c}Hello! How can I help?\u{201d}, \u{201c}Hello! How can I \
+         help?\u{201d}"
+    );
+
     let (report, _mock) = run("openai.sse", Fault::Whole).await;
     let stream = report.check(ProtocolCheck::Stream).unwrap();
     assert_eq!(stream.detail, "the answer came back whole, not in pieces");
@@ -661,6 +682,16 @@ async fn an_endpoint_that_answers_what_it_should_refuse_is_skipped_not_failed() 
     assert_eq!(check.verdict, Verdict::Skip);
     assert!(check.detail.contains("answered anyway"), "{}", check.detail);
     assert!(report.passed, "{}", verdicts(&report));
+
+    // A word garbled once is a slip of sampling; asked again, the model
+    // shows it read the system prompt.
+    let (report, _mock) = run("ollama.sse", Fault::GarblesSystemOnce).await;
+    let check = report.check(ProtocolCheck::SystemPrompt).unwrap();
+    assert_eq!(check.verdict, Verdict::Pass);
+    assert_eq!(
+        check.detail,
+        "the model answered as the system prompt asked at try 2 of 3, after writing \u{201c}PIECE\u{201d}"
+    );
 
     let (report, _mock) = run("ollama.sse", Fault::AnyKey).await;
     let check = report.check(ProtocolCheck::WrongKey).unwrap();
