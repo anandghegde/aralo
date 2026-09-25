@@ -1047,10 +1047,11 @@ failure says what broke:
 An error check is skipped when there is nothing to check: no key to replace
 with a wrong one, or a local server that serves the model it has loaded
 whatever the name. Temperature is left to the endpoint, as the probe leaves
-it, which is why the system prompt check asks up to three times: a small model
-sampling at its own temperature can garble the one word it was given (a 0.5B
-model on llama.cpp wrote "PIECE"), while a model that never saw the prompt has
-no reason to write it at all.
+it. So the system prompt check asks for a common word, "banana", which a
+tokenizer keeps whole, and asks up to three times: asked for PINEAPPLE, a 0.5B
+model on llama.cpp wrote "PIECE", "PEACHY" and "PIELEAPPLE". A model sampling
+at its own temperature can garble a word, while one that never saw the prompt
+has no reason to write it at all.
 
 **The evaluation set**, `conformance/evaluation.toml`, compiled in, runs the
 editor's own actions (`start_authoring`, the code the editor's menu runs) on

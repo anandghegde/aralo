@@ -78,9 +78,13 @@ const COUNT_TO_TEN: &str =
 const COUNT_LONG: &str =
     "Write the numbers from one to two hundred in words, one on each line, and nothing else.";
 const REPLY_OK: &str = "Reply with the single word: ok";
-const PINEAPPLE_SYSTEM: &str =
-    "Whatever the user writes, reply with the single word PINEAPPLE and nothing else.";
-const PINEAPPLE_USER: &str = "Hello.";
+/// The word the system prompt asks for. A common word, which a tokenizer
+/// keeps whole: asked for PINEAPPLE, which it cuts into several rare pieces,
+/// a 0.5B model on llama.cpp wrote "PEACHY" and "PIELEAPPLE".
+const SYSTEM_WORD: &str = "banana";
+const SYSTEM_PROMPT: &str =
+    "Whatever the user writes, reply with the single word banana and nothing else.";
+const SYSTEM_PROMPT_USER: &str = "Hello.";
 
 /// One protocol check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -515,17 +519,17 @@ impl Runner<'_> {
         ))
     }
 
-    /// Asks up to [`SYSTEM_PROMPT_TRIES`] times. A small model sampling at
-    /// the endpoint's own temperature can garble the word it was given (a
-    /// 0.5B model once wrote "PIECE"), while one that never saw the system
-    /// prompt has no reason to write it at all, so a second try tells a
-    /// sampling slip from a prompt that did not arrive.
+    /// Asks for [`SYSTEM_WORD`] up to [`SYSTEM_PROMPT_TRIES`] times. A small
+    /// model sampling at the endpoint's own temperature can garble the word it
+    /// was given, while one that never saw the system prompt has no reason to
+    /// write it at all, so another try tells a slip of sampling from a prompt
+    /// that did not arrive.
     async fn system_prompt(&self) -> Result<CheckResult, Refusal> {
         let started = Instant::now();
         let mut wrote = Vec::new();
         for attempt in 1..=SYSTEM_PROMPT_TRIES {
             let asked = self
-                .ask(self.request(PINEAPPLE_SYSTEM, PINEAPPLE_USER, MAX_TOKENS))
+                .ask(self.request(SYSTEM_PROMPT, SYSTEM_PROMPT_USER, MAX_TOKENS))
                 .await;
             let answer = match asked {
                 Err(AiError::Refused(refusal)) => return Err(refusal),
@@ -539,7 +543,7 @@ impl Runner<'_> {
                 }
                 Ok(answer) => answer,
             };
-            if has(&normalised(&answer.text), "pineapple") {
+            if has(&normalised(&answer.text), SYSTEM_WORD) {
                 let detail = if attempt == 1 {
                     "the model answered as the system prompt asked".to_owned()
                 } else {

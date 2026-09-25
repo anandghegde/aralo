@@ -303,7 +303,7 @@ fn search_with_a_model_finds_a_snippet_by_what_it_means_while_ai_is_on() {
     );
 }
 
-/// A model server on this machine that streams "one two three PINEAPPLE" to
+/// A model server on this machine that streams "one two three banana" to
 /// every chat for `m`, refuses any other model, and lists `m`.
 fn tiny_server() -> String {
     use std::io::{BufRead, BufReader, Read, Write};
@@ -341,7 +341,7 @@ fn tiny_server() -> String {
                 )
             } else {
                 let mut events = String::new();
-                for piece in ["one", " two", " three", " PINEAPPLE"] {
+                for piece in ["one", " two", " three", " banana"] {
                     events.push_str(&format!(
                         "data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"{piece}\"}}}}]}}\n\n"
                     ));

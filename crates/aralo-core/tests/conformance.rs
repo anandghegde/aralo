@@ -348,12 +348,12 @@ fn chat(
     }
     let answer = if json_mode {
         "{\"ok\": true}".to_owned()
-    } else if system.contains("PINEAPPLE") && behaviour.fault != Fault::IgnoresSystem {
+    } else if system.contains("single word banana") && behaviour.fault != Fault::IgnoresSystem {
         let asked = behaviour.system_asked.fetch_add(1, Ordering::SeqCst);
         if behaviour.fault == Fault::GarblesSystemOnce && asked == 0 {
             "PIECE".to_owned()
         } else {
-            "PINEAPPLE".to_owned()
+            "banana".to_owned()
         }
     } else {
         answer_to(&user)
