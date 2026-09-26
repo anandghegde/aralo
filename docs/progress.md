@@ -87,11 +87,11 @@ afterwards. Their "Done when" was not re-checked when the row was written.
 | --- | --- | --- | --- | --- |
 | 5.1 | Merge bases, conflict copies, three-way merge, resolver | Landed | 4dee08e | Conflict copies and the resolver landed in M2. Saving over a file that changed while it was open, and merge bases that a machine's own saves no longer move, landed in the commit that marks this row Landed. Done when checked by `crates/aralo-core/tests/two_macs.rs`: two runtimes on two folders, a copy named by each of seven providers, a clean merge on both and a true conflict showing both versions |
 | 5.2 | Library location picker and move; iCloud and Dropbox smoke tests | Not started | | |
-| 5.3 | Section 9 tests, data-flow.md, threat-model.md | Not started | | |
+| 5.3 | Section 9 tests, data-flow.md, threat-model.md | Partial | bc08d63 | Every section 9 row is mapped to a test in [threat-model.md](threat-model.md). Not coverable yet: P9 script approvals and P3 encrypted library (v1), signed data tables, signing, notarisation and the SBOM (5.5) |
 | 5.4 | Full onboarding | Not started | | The first-run flow from 1.9 is the start of it |
 | 5.5 | Release workflow: signing, notarisation, DMG, Sparkle | Not started | | Needs Apple Developer credentials |
 | 5.6 | Homebrew cask and documentation site | Not started | | Depends on 5.5 |
-| 5.7 | Local counters and Copy diagnostics | Not started | | |
+| 5.7 | Local counters and Copy diagnostics | Landed | 4982ace | Done when checked by `crates/aralo-ffi/tests/diagnostics.rs`. The report's excluded-apps line stays empty until the app has a user exclusion list |
 | 5.8 | Performance pass | Not started | | Needs three Macs |
 | 5.9 | Accessibility pass | Not started | | |
 | 5.10 | Beta operations | Not started | | Not code |

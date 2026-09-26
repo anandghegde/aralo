@@ -120,6 +120,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         menu.addItem(command("Open Library Folder", #selector(openLibrary)))
         menu.addItem(command("Reload Library", #selector(reloadLibrary)))
+        if service.library != nil {
+            let copy = command("Copy Diagnostics", #selector(copyDiagnostics))
+            copy.toolTip = "Counts and settings for a bug report. No snippet, typed text or key."
+            menu.addItem(copy)
+        }
     }
 
     private var headline: String {
@@ -152,6 +157,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func togglePause() { service.setPaused(!service.isPaused) }
     @objc private func reloadLibrary() { service.reloadLibrary() }
+    @objc private func copyDiagnostics() { service.copyDiagnostics() }
     @objc private func openLibrary() { NSWorkspace.shared.open(service.libraryURL) }
     @objc private func setUp() { onSetUp?() }
     @objc private func showLibrary() { onShowLibrary?() }

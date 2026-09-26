@@ -15,14 +15,29 @@ public final class EventTap: @unchecked Sendable {
 
     public typealias Handler = @Sendable (TapEvent) -> Bool
 
+    /// What happened to the tap itself, for the local counters.
+    public enum Health: Sendable {
+        /// The system switched the tap off because a callback took too long.
+        case timedOut
+        /// The system switched the tap off for user input.
+        case disabledByUserInput
+        /// The tap was switched back on.
+        case reenabled
+    }
+
+    public typealias HealthHandler = @Sendable (Health) -> Void
+
     private let handler: Handler
+    /// Called on the tap thread, so it must be as quick as `handler`.
+    private let onHealth: HealthHandler?
     private let lock = NSLock()
     private var port: CFMachPort?
     private var runLoop: CFRunLoop?
     private var reenables = 0
 
-    public init(handler: @escaping Handler) {
+    public init(handler: @escaping Handler, onHealth: HealthHandler? = nil) {
         self.handler = handler
+        self.onHealth = onHealth
     }
 
     /// How often the system disabled the tap and it was switched back on. A
@@ -93,11 +108,13 @@ public final class EventTap: @unchecked Sendable {
         guard let port = lock.withLock({ port }), !CGEvent.tapIsEnabled(tap: port) else { return }
         CGEvent.tapEnable(tap: port, enable: true)
         lock.withLock { reenables += 1 }
+        onHealth?(.reenabled)
     }
 
     fileprivate func receive(type: CGEventType, event: CGEvent) -> Bool {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            onHealth?(type == .tapDisabledByTimeout ? .timedOut : .disabledByUserInput)
             reenableIfNeeded()
             return false
         case .keyDown:

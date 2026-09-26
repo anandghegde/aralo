@@ -434,3 +434,24 @@ fn conformance_runs_against_a_profile_and_its_reports_make_the_table() {
         "{table}"
     );
 }
+
+#[test]
+fn diagnostics_prints_counts_and_nothing_from_the_library() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("state");
+    let library = folder.path().join("zqx-library");
+    std::fs::create_dir_all(library.join("zqx-group")).unwrap();
+    std::fs::write(
+        library.join("zqx-group/zqx-file.md"),
+        "---\nlabel: zqx-label\nabbr: \";zqx\"\n---\nzqx-body\n",
+    )
+    .unwrap();
+
+    let output = aralo_in(&state, &["diagnostics", library.to_str().unwrap()]);
+    assert!(output.status.success(), "{output:?}");
+    let report = stdout(&output);
+    assert!(report.starts_with("Aralo diagnostics\n"), "{report}");
+    assert!(report.contains("  snippets: 1\n"), "{report}");
+    assert!(report.contains("  expansion.matched: 0\n"), "{report}");
+    assert!(!report.to_lowercase().contains("zqx"), "{report}");
+}

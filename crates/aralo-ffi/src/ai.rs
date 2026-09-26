@@ -20,6 +20,7 @@ use aralo_core::ai::{
     Capabilities, Check, Command, CommandRun, ContextKind, KeyChange, LocalServer, ManifestEntry,
     ProfileDraft, ProfileField, SavedProfile, Secret, StopReason,
 };
+use aralo_core::counters::{AiUse, Counters, ErrorKind, Provider};
 use aralo_core::diff::{self, Change};
 use aralo_core::snippet::SnippetId;
 use tokio::sync::watch;
@@ -192,12 +193,58 @@ pub struct AiProviderPreset {
 #[derive(uniffi::Object)]
 pub struct AiProfiles {
     settings: AiSettings,
+    /// The local counters in the folder the settings are in, which on a Mac
+    /// is the one the library's are in: one file for both.
+    counters: Arc<Counters>,
 }
 
 impl AiProfiles {
     /// The settings themselves, for the library to follow the switch.
     pub(crate) fn settings(&self) -> &AiSettings {
         &self.settings
+    }
+
+    /// What a run is counted under: the kind of provider its profile names.
+    fn tally(&self, profile: &str, used_for: AiUse) -> Tally {
+        let provider = self
+            .settings
+            .profile(profile)
+            .ok()
+            .map(|saved| Provider::of(&saved.profile));
+        if let Some(provider) = provider {
+            self.counters.ai_call(provider, used_for);
+        }
+        Tally {
+            counters: Arc::clone(&self.counters),
+            provider,
+        }
+    }
+
+    /// Counts a run that failed before it started, and hands the error on.
+    /// It is filed under the profile it would have run on, `profile` or the
+    /// default one, when there is such a profile.
+    fn refused(&self, error: AiSettingsError, profile: Option<&str>) -> AiBridgeError {
+        let saved = match profile {
+            Some(name) => self.settings.profile(name).ok(),
+            None => self.settings.default_profile().ok().flatten(),
+        };
+        let provider = saved.map(|saved| Provider::of(&saved.profile));
+        self.counters.ai_error(provider, ErrorKind::of_ai(&error));
+        error.into()
+    }
+}
+
+/// Where a run's failure is counted.
+#[derive(Debug)]
+struct Tally {
+    counters: Arc<Counters>,
+    provider: Option<Provider>,
+}
+
+impl Tally {
+    fn failed(&self, error: &AiSettingsError) {
+        self.counters
+            .ai_error(self.provider, ErrorKind::of_ai(error));
     }
 }
 
@@ -219,13 +266,18 @@ impl AiProfiles {
                 message: "cannot find Aralo's state folder".into(),
             })?,
         };
+        let path: std::path::PathBuf = path;
+        let counters = Counters::shared(
+            path.parent()
+                .filter(|folder| !folder.as_os_str().is_empty()),
+        );
         let settings = match keys {
             KeyStorage::Keychain => AiSettings::open(path)?,
             KeyStorage::Memory => {
                 AiSettings::open_with_secrets(path, Arc::new(settings::MemorySecretStore::new()))?
             }
         };
-        Ok(Arc::new(Self { settings }))
+        Ok(Arc::new(Self { settings, counters }))
     }
 
     /// Reads the file again, after an edit made outside the app.
@@ -328,8 +380,13 @@ impl AiProfiles {
         selection: String,
     ) -> Result<Arc<AiCommandRun>, AiBridgeError> {
         let command = Command::try_from(command)?;
-        let run = self.settings.run_command(&command, &selection).await?;
-        Ok(Arc::new(AiCommandRun::new(run)))
+        let run = self
+            .settings
+            .run_command(&command, &selection)
+            .await
+            .map_err(|error| self.refused(error, command.profile.as_deref()))?;
+        let tally = self.tally(run.profile(), AiUse::Command);
+        Ok(Arc::new(AiCommandRun::new(run, tally)))
     }
 
     /// Asks a model for one `{{ai}}` block of a session that is on its AI
@@ -352,8 +409,13 @@ impl AiProfiles {
             .ok_or_else(|| AiBridgeError::NotFound {
                 message: "that expansion has no such AI block, or it has ended".into(),
             })?;
-        let run = self.settings.run_block(&request).await?;
-        Ok(Arc::new(AiBlockRun::new(run)))
+        let run = self
+            .settings
+            .run_block(&request)
+            .await
+            .map_err(|error| self.refused(error, request.profile.as_deref()))?;
+        let tally = self.tally(run.profile(), AiUse::Block);
+        Ok(Arc::new(AiBlockRun::new(run, tally)))
     }
 
     /// Runs an editor action on `text`: the selection in the body, or the
@@ -366,8 +428,13 @@ impl AiProfiles {
         text: String,
     ) -> Result<Arc<AiAuthoringRun>, AiBridgeError> {
         let action = Authoring::from(action);
-        let run = self.settings.run_authoring(&action, &text).await?;
-        Ok(Arc::new(AiAuthoringRun::new(run)))
+        let run = self
+            .settings
+            .run_authoring(&action, &text)
+            .await
+            .map_err(|error| self.refused(error, None))?;
+        let tally = self.tally(run.profile(), AiUse::Authoring);
+        Ok(Arc::new(AiAuthoringRun::new(run, tally)))
     }
 }
 
@@ -601,6 +668,7 @@ struct Streamed<R> {
     cancel: watch::Sender<bool>,
     text: Mutex<String>,
     cut_short: Mutex<bool>,
+    tally: Tally,
 }
 
 /// What a command run and a block run have in common.
@@ -640,8 +708,9 @@ impl Answering for BlockRun {
 }
 
 impl<R: Answering> Streamed<R> {
-    fn new(run: R) -> Self {
+    fn new(run: R, tally: Tally) -> Self {
         Self {
+            tally,
             run: tokio::sync::Mutex::new(Some(run)),
             cancel: watch::channel(false).0,
             text: Mutex::default(),
@@ -675,7 +744,9 @@ impl<R: Answering> Streamed<R> {
             }
             Some(Err(error)) => {
                 *slot = None;
-                Err(AiSettingsError::from(error).into())
+                let error = AiSettingsError::from(error);
+                self.tally.failed(&error);
+                Err(error.into())
             }
             None => {
                 *self
@@ -742,13 +813,13 @@ impl std::fmt::Debug for AiCommandRun {
 }
 
 impl AiCommandRun {
-    fn new(run: CommandRun) -> Self {
+    fn new(run: CommandRun, tally: Tally) -> Self {
         Self {
             profile: run.profile().to_owned(),
             model: run.model().to_owned(),
             sent: sent(run.manifest()),
             selection: run.selection().to_owned(),
-            stream: Streamed::new(run),
+            stream: Streamed::new(run, tally),
         }
     }
 }
@@ -824,13 +895,13 @@ impl std::fmt::Debug for AiBlockRun {
 }
 
 impl AiBlockRun {
-    fn new(run: BlockRun) -> Self {
+    fn new(run: BlockRun, tally: Tally) -> Self {
         Self {
             block: u32::try_from(run.block()).unwrap_or(u32::MAX),
             profile: run.profile().to_owned(),
             model: run.model().to_owned(),
             sent: sent(run.manifest()),
-            stream: Streamed::new(run),
+            stream: Streamed::new(run, tally),
         }
     }
 }
@@ -975,14 +1046,14 @@ impl std::fmt::Debug for AiAuthoringRun {
 }
 
 impl AiAuthoringRun {
-    fn new(run: AuthoringRun) -> Self {
+    fn new(run: AuthoringRun, tally: Tally) -> Self {
         Self {
             action: run.action().clone(),
             profile: run.profile().to_owned(),
             model: run.model().to_owned(),
             sent: sent(run.manifest()),
             original: run.original().to_owned(),
-            stream: Streamed::new(run),
+            stream: Streamed::new(run, tally),
         }
     }
 }

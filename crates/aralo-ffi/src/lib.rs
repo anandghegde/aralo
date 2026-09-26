@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
 use aralo_core::compat;
+use aralo_core::counters::{Count, Counters, ErrorKind};
 use aralo_core::engine as matcher;
 use aralo_core::snippet::{CaseMode, SnippetId, SnippetKind, TriggerMode};
 use aralo_core::{
@@ -35,8 +36,10 @@ use aralo_core::{
 };
 
 mod ai;
+mod diagnostics;
 
 pub use ai::*;
+pub use diagnostics::*;
 
 uniffi::setup_scaffolding!();
 
@@ -255,6 +258,9 @@ pub struct ExpansionSession {
     /// bring another app forward while the panel is up; the text still goes in
     /// the way the app it was started for wants it.
     profile: InjectionProfile,
+    /// Where a cancel is counted. `None` for the editor's test field, which
+    /// is not the user typing.
+    counters: Option<Arc<Counters>>,
 }
 
 // Like the engine, never prints what was typed, and a session holds answers.
@@ -382,11 +388,13 @@ impl ExpansionSession {
         session: aralo_core::Session,
         snippet_id: String,
         profile: InjectionProfile,
+        counters: Option<Arc<Counters>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             session: Mutex::new(Some(session)),
             snippet_id,
             profile,
+            counters,
         })
     }
 
@@ -550,12 +558,17 @@ impl ExpansionSession {
     /// session.
     pub fn cancel(&self) -> Vec<PlanStep> {
         match self.held().take() {
-            Some(session) => session
-                .cancel()
-                .steps
-                .into_iter()
-                .map(PlanStep::from)
-                .collect(),
+            Some(session) => {
+                if let Some(counters) = &self.counters {
+                    counters.add(Count::SessionCancelled);
+                }
+                session
+                    .cancel()
+                    .steps
+                    .into_iter()
+                    .map(PlanStep::from)
+                    .collect()
+            }
             None => Vec::new(),
         }
     }
@@ -631,6 +644,7 @@ impl DraftTrial {
                     *session,
                     id,
                     self.shared.compat().profile_for("").into(),
+                    None,
                 ),
             },
         }
@@ -806,6 +820,8 @@ pub struct LibraryDiagnostic {
 struct Shared {
     runtime: Runtime,
     compat: RwLock<CompatTable>,
+    /// The local counters (plan 5.7), kept beside the index.
+    counters: Arc<Counters>,
 }
 
 impl Shared {
@@ -819,10 +835,19 @@ impl Shared {
 struct Events {
     matcher: Arc<Mutex<matcher::Engine>>,
     shell: Option<Arc<dyn CoreEvents>>,
+    counters: Arc<Counters>,
 }
 
 impl LibraryListener for Events {
     fn changed(&self, change: LibraryChange, library: &aralo_core::Core) {
+        match &change {
+            LibraryChange::Outside { .. } => self.counters.add(Count::OutsideChanges),
+            LibraryChange::Failed { .. } => self.counters.error(ErrorKind::LibraryReadFailed),
+            LibraryChange::Merged { copies } => self
+                .counters
+                .add_n(Count::ConflictsMerged, copies.len() as u64),
+            _ => {}
+        }
         // The snapshot first, and whether or not anyone is listening: a shell
         // that shows nothing still expands what the folder says.
         if !matches!(change, LibraryChange::Indexed { .. }) {
@@ -892,6 +917,7 @@ impl Engine {
                 Some(c) => matcher::KeyEvent::Char(c),
                 None => {
                     self.matcher().reset(matcher::ResetReason::UnmappableInput);
+                    self.shared.counters.add(Count::ResetUnmappableInput);
                     return KeyAction::Pass;
                 }
             },
@@ -909,6 +935,7 @@ impl Engine {
                 case,
                 trailing,
             } => {
+                let started = std::time::Instant::now();
                 let expand = self.shared.runtime.read(|core| {
                     core.expand(MatchInfo {
                         snippet_id,
@@ -919,6 +946,7 @@ impl Engine {
                     })
                 });
                 let id = SnippetId::from_u128(snippet_id.0).to_string();
+                self.count_match(&expand, started);
                 match expand {
                     Some(aralo_core::Expand::Ready(expansion)) => KeyAction::Expand {
                         snippet_id: id,
@@ -933,7 +961,12 @@ impl Engine {
                         profile: self.profile(),
                     },
                     Some(aralo_core::Expand::Session(session)) => KeyAction::StartSession {
-                        session: ExpansionSession::new(*session, id.clone(), self.profile()),
+                        session: ExpansionSession::new(
+                            *session,
+                            id.clone(),
+                            self.profile(),
+                            Some(Arc::clone(&self.shared.counters)),
+                        ),
                         snippet_id: id,
                         consume,
                     },
@@ -945,15 +978,19 @@ impl Engine {
                 delete_count,
                 retype,
                 method,
-            } => KeyAction::UndoExpansion {
-                delete_count,
-                retype,
-                method: match method {
-                    matcher::InsertMethod::Typed => InsertMethod::Typed,
-                    matcher::InsertMethod::Pasted => InsertMethod::Pasted,
-                },
-                profile: self.profile(),
-            },
+            } => {
+                self.shared.counters.add(Count::Undone);
+                self.shared.counters.undone_in(&self.front_app().bundle_id);
+                KeyAction::UndoExpansion {
+                    delete_count,
+                    retype,
+                    method: match method {
+                        matcher::InsertMethod::Typed => InsertMethod::Typed,
+                        matcher::InsertMethod::Pasted => InsertMethod::Pasted,
+                    },
+                    profile: self.profile(),
+                }
+            }
         }
     }
 
@@ -971,7 +1008,14 @@ impl Engine {
     /// the front app, so the shell may call this the moment it has brought that
     /// app forward, without waiting for the system to say so.
     pub fn insert(&self, snippet_id: String, into_app: String) -> InsertOutcome {
-        let refused = |reason| InsertOutcome::Refused { reason };
+        let refused = |reason| {
+            self.shared.counters.add(match reason {
+                InsertRefusal::Paused => Count::RefusedPaused,
+                InsertRefusal::ExcludedApp => Count::RefusedExcludedApp,
+                InsertRefusal::SnippetGone => Count::RefusedSnippetGone,
+            });
+            InsertOutcome::Refused { reason }
+        };
         let Ok(id) = snippet_id.parse::<SnippetId>() else {
             return refused(InsertRefusal::SnippetGone);
         };
@@ -993,6 +1037,7 @@ impl Engine {
         // the core is concerned, so that an undo of this insertion follows that
         // app's row of the table rather than Aralo's own window's.
         let profile = self.shared.compat().profile_for(&into_app);
+        self.shared.counters.add(Count::Picked);
         *self.front_app() = FrontApp {
             bundle_id: into_app,
             profile,
@@ -1010,7 +1055,12 @@ impl Engine {
                 profile: profile.into(),
             },
             aralo_core::Expand::Session(session) => InsertOutcome::StartSession {
-                session: ExpansionSession::new(*session, id.to_string(), profile.into()),
+                session: ExpansionSession::new(
+                    *session,
+                    id.to_string(),
+                    profile.into(),
+                    Some(Arc::clone(&self.shared.counters)),
+                ),
                 snippet_id: id.to_string(),
             },
         }
@@ -1024,6 +1074,13 @@ impl Engine {
             return;
         };
         self.shared.runtime.record_expansion(id);
+        self.shared.counters.add(match method {
+            InsertMethod::Typed => Count::InsertedTyped,
+            InsertMethod::Pasted => Count::InsertedPasted,
+        });
+        self.shared
+            .counters
+            .expanded_in(&self.front_app().bundle_id);
         self.matcher().expansion_done(matcher::ExpansionRecord {
             snippet_id: matcher::SnippetId(id.as_u128()),
             delete_count,
@@ -1035,6 +1092,17 @@ impl Engine {
     }
 
     pub fn reset(&self, reason: ResetReason) {
+        self.shared.counters.add(match reason {
+            ResetReason::MouseDown => Count::ResetMouseDown,
+            ResetReason::Navigation => Count::ResetNavigation,
+            ResetReason::Shortcut => Count::ResetShortcut,
+            ResetReason::AppSwitch => Count::ResetAppSwitch,
+            ResetReason::FocusChange => Count::ResetFocusChange,
+            ResetReason::SecureInput => Count::ResetSecureInput,
+            ResetReason::InputMethod => Count::ResetInputMethod,
+            ResetReason::UnmappableInput => Count::ResetUnmappableInput,
+            ResetReason::Manual => Count::ResetManual,
+        });
         self.matcher().reset(match reason {
             ResetReason::MouseDown => matcher::ResetReason::MouseDown,
             ResetReason::Navigation => matcher::ResetReason::Navigation,
@@ -1142,11 +1210,13 @@ impl Core {
         let root = PathBuf::from(path);
         let library = aralo_core::Core::open(&root)?;
         let matcher = Arc::new(Mutex::new(library.engine()));
+        let cache = cache.map(PathBuf::from);
+        let counters = Counters::shared(cache.as_deref());
         let listener = Arc::new(Events {
             matcher: Arc::clone(&matcher),
             shell: events,
+            counters: Arc::clone(&counters),
         });
-        let cache = cache.map(PathBuf::from);
         let options = RuntimeOptions {
             index: cache
                 .as_deref()
@@ -1164,6 +1234,9 @@ impl Core {
             ..RuntimeOptions::default()
         };
         let runtime = Runtime::with_core(library, options, listener)?;
+        if runtime.index_error().is_some() {
+            counters.error(ErrorKind::IndexUnavailable);
+        }
         let compat = CompatTable::bundled();
         let front_app = FrontApp {
             bundle_id: String::new(),
@@ -1172,6 +1245,7 @@ impl Core {
         let shared = Arc::new(Shared {
             runtime,
             compat: RwLock::new(compat),
+            counters,
         });
         let engine = Arc::new(Engine {
             matcher,
@@ -1200,7 +1274,9 @@ impl Core {
     /// trying an app's settings without rebuilding the core. A file that does
     /// not parse changes nothing.
     pub fn load_compat_table(&self, path: String) -> Result<(), BridgeError> {
-        let table = read_compat_table(&path)?;
+        let table = read_compat_table(&path).inspect_err(|_| {
+            self.shared.counters.error(ErrorKind::CompatTableRejected);
+        })?;
         *self
             .shared
             .compat
@@ -1801,8 +1877,10 @@ impl Core {
         let report = self
             .shared
             .runtime
-            .edit(|core| core.import(&source, &settings))?;
+            .edit(|core| core.import(&source, &settings))
+            .inspect_err(|_| self.shared.counters.error(ErrorKind::ImportFailed))?;
         let mut summary = ImportSummary::from(&report);
+        self.shared.count_import(&summary);
         if !summary.dry_run {
             // The library has been read again by now, so every file the import
             // wrote is a snippet with an ID.

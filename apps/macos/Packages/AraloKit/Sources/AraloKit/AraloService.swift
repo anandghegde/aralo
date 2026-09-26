@@ -295,7 +295,9 @@ public final class AraloService {
         controller.setSessionHandler { [weak self] session in
             Task { @MainActor in self?.sessionStarted(session) }
         }
-        let tap = EventTap { controller.handle($0) }
+        let tap = EventTap(handler: { controller.handle($0) }, onHealth: { [core] health in
+            core.recordShellEvent(event: health.shellEvent)
+        })
         // Creating the tap is the real test. macOS refuses it until the user
         // has granted access, and gives no callback when they do, so keep asking.
         guard Permissions.status.accessibility, (try? tap.start()) != nil else {
@@ -310,7 +312,10 @@ public final class AraloService {
         permissionTimer?.invalidate()
         // The same clock now watches for the grant being taken away.
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stopTapIfRevoked() }
+            MainActor.assumeIsolated {
+                self?.core?.saveCountersIfDue()
+                self?.stopTapIfRevoked()
+            }
         }
         self.tap = tap
         self.controller = controller
@@ -323,7 +328,8 @@ public final class AraloService {
         frontApp.start()
         self.frontApp = frontApp
 
-        let secureInput = SecureInputMonitor(resetting: engine) { [weak self] _ in
+        let secureInput = SecureInputMonitor(resetting: engine) { [weak self] isOn in
+            if isOn { core.recordShellEvent(event: .secureInputOn) }
             self?.refreshState()
         }
         secureInput.start()
@@ -335,6 +341,7 @@ public final class AraloService {
     /// one can stall the keyboard. So take it down and go back to waiting.
     private func stopTapIfRevoked() {
         guard let tap, !Permissions.status.accessibility else { return }
+        core?.recordShellEvent(event: .permissionRevoked)
         core?.engine().reset(reason: .manual)
         tap.stop()
         self.tap = nil
