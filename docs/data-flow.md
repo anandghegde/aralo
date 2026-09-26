@@ -87,7 +87,7 @@ resolved address when connecting, and the update check is off.
 | `api.deepseek.com` | A profile made from the DeepSeek preset | The same |
 | `api.together.xyz` | A profile made from the Together preset | The same |
 | Any address the user types | A profile the user made by hand | The same |
-| `github.com` | Sparkle's update check: `releases/latest/download/appcast.xml` once a day, and the DMG of a new version when the user accepts it. Never in local-only mode (`UpdatePolicy`), and never from a build without a real update key, which is every build but a release. Planned: the signed data tables, from the same releases (not built) | The app's version and macOS version, in Sparkle's request. Nothing about the user's snippets |
+| `github.com` | Sparkle's update check: `releases/latest/download/appcast.xml` once a day, and the DMG of a new version when the user accepts it. Never in local-only mode (`UpdatePolicy`), and never from a build without a real update key, which is every build but a release. The signed compatibility table: `releases/latest/download/apps.toml.sig` and `apps.toml`, by the core through the AI network guard, each time Sparkle is allowed to check. So never in local-only mode, never when automatic checks are off, and never from a build without a real data-table key or update key | The app's version and macOS version, in Sparkle's request. For the tables, two plain GETs with `User-Agent: Aralo` and nothing else: no body, no cookie, no identifier |
 | `release-assets.githubusercontent.com` | GitHub answers a release download with a redirect to its file storage, and Sparkle follows it | The same requests as to `github.com` |
 | `objects.githubusercontent.com` | The same, for the older form of that redirect | The same |
 

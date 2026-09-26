@@ -36,9 +36,11 @@ use aralo_core::{
 };
 
 mod ai;
+mod data_tables;
 mod diagnostics;
 
 pub use ai::*;
+pub use data_tables::*;
 pub use diagnostics::*;
 
 uniffi::setup_scaffolding!();
@@ -823,6 +825,8 @@ struct Shared {
     /// no one waits for a move.
     runtime: RwLock<Arc<Runtime>>,
     compat: RwLock<CompatTable>,
+    /// Where the table came from, and the last signed download.
+    tables: Mutex<data_tables::TableState>,
     /// The local counters (plan 5.7), kept beside the index.
     counters: Arc<Counters>,
     /// What a runtime is started with, kept to start the next one.
@@ -1299,7 +1303,7 @@ impl Core {
         if runtime.index_error().is_some() {
             counters.error(ErrorKind::IndexUnavailable);
         }
-        let compat = CompatTable::bundled();
+        let (compat, tables) = data_tables::starting_table(start.cache.as_deref());
         let front_app = FrontApp {
             bundle_id: String::new(),
             profile: compat.defaults(),
@@ -1307,6 +1311,7 @@ impl Core {
         let shared = Arc::new(Shared {
             runtime: RwLock::new(Arc::new(runtime)),
             compat: RwLock::new(compat),
+            tables: Mutex::new(tables),
             counters,
             start,
             model: Mutex::new(None),
@@ -1347,6 +1352,13 @@ impl Core {
             .compat
             .write()
             .unwrap_or_else(PoisonError::into_inner) = table;
+        data_tables::loaded_from_file(
+            &mut self
+                .shared
+                .tables
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
         self.engine.refresh_profile();
         Ok(())
     }

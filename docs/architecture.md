@@ -337,8 +337,43 @@ plan's own rule that terminals and remote desktops are typed into. Spikes S1
 and S6 replace them with measurements,
 taken with [the injection matrix](#the-injection-matrix). To
 try a table without rebuilding, start the app with `ARALO_COMPAT` set to a
-file path; the bridge call is `Core.load_compat_table(path)`. Later the table
-will also arrive as an Ed25519-signed download (plan section 4.4).
+file path; the bridge call is `Core.load_compat_table(path)`. The table also
+arrives as an Ed25519-signed download (plan section 4.4), described next.
+
+### Signed table downloads
+
+`aralo_core::data_update` fetches the compatibility table from the latest
+GitHub release: `apps.toml.sig` (128 hex digits, from `scripts/sign-data.sh`)
+and then `apps.toml`. The shell asks for it with
+`Core.refresh_compat_table(ai)` from Sparkle's `mayPerform` hook, so it runs
+exactly when an update check is allowed: never in local-only mode, never
+when automatic checks are off, and never in a build without the update key.
+The AI master switch does not govern it; it is not an AI request.
+
+- **One network path.** The request goes through the AI settings' network
+  guard, the only HTTP client, with no proxy and no redirects. GitHub
+  redirects release downloads, so `data_update` follows them itself, five at
+  most, and each address must be https on port 443 to `github.com`,
+  `release-assets.githubusercontent.com` or `objects.githubusercontent.com`,
+  never an IP address. Both files are size-limited while they stream.
+- **Signature first.** The bytes are checked against the key built from
+  `data/keys/data-tables.pub` before they are decoded, parsed or saved. While
+  that file is the placeholder `unset`, the refresh returns `NotChecked`
+  before any request; nothing unverified is ever accepted.
+- **No rollback.** `apps.toml` carries `revision`, inside the signed bytes.
+  A download must have a higher revision than the table in use (and the
+  bundled one); an equal revision is `UpToDate`, a lower one refused.
+- **Atomic cache.** An accepted download is saved as
+  `<cache>/data-tables/apps.toml.signed`: the signature line, then the exact
+  bytes, in one file replaced with `aralo_library::write_atomic`, so the pair
+  can never tear. At start, `open_library` uses it only if it checks again
+  and its revision is above the bundled one; otherwise the bundled table is
+  used and the reason is kept in `Core.compat_table_status().cache_problem`.
+- A table loaded with `load_compat_table` stays in use after a download; the
+  download is used from the next start.
+
+Only the compatibility table is covered. The quirks table the plan names
+does not exist yet.
 
 ## The injection matrix
 

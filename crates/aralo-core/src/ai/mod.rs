@@ -275,6 +275,14 @@ impl AiSettings {
         &self.gateway
     }
 
+    /// What the gateway sends through: the network guard, or a test's
+    /// transport. The signed table download goes through it too
+    /// ([`crate::data_update`]), so local-only mode stops it at the socket as
+    /// it stops a model.
+    pub fn transport(&self) -> Arc<dyn Transport> {
+        Arc::clone(&self.transport)
+    }
+
     /// Reads the file again, for a change made outside this process, and
     /// applies its switches.
     pub fn reload(&self) -> Result<(), AiSettingsError> {

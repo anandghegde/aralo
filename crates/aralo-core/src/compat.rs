@@ -108,6 +108,7 @@ pub enum CompatError {
 /// The parsed table.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompatTable {
+    revision: u32,
     defaults: InjectionProfile,
     apps: Vec<AppEntry>,
 }
@@ -162,7 +163,20 @@ impl CompatTable {
                 profile,
             });
         }
-        Ok(Self { defaults, apps })
+        Ok(Self {
+            revision: file.revision,
+            defaults,
+            apps,
+        })
+    }
+
+    /// Which edition of the table this is. Every change to
+    /// `data/compat/apps.toml` raises it by one. A downloaded table replaces
+    /// the one in use only when its revision is higher, so an older signed
+    /// table cannot be played back over a newer one ([`crate::data_update`]).
+    /// A table that leaves it out is revision 0.
+    pub fn revision(&self) -> u32 {
+        self.revision
     }
 
     /// The profile for an app, or the defaults for one the table does not
@@ -189,6 +203,8 @@ impl CompatTable {
 #[serde(deny_unknown_fields)]
 struct File {
     version: u32,
+    #[serde(default)]
+    revision: u32,
     #[serde(default)]
     defaults: Overrides,
     #[serde(default)]

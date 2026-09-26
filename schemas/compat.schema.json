@@ -13,6 +13,13 @@
       "type": "integer",
       "const": 0
     },
+    "revision": {
+      "description": "This edition of the table, raised by one in every change to the file. A downloaded table replaces the one in use only when its revision is higher, so an older signed table cannot replace a newer one. Left out, it is 0.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "default": 0
+    },
     "defaults": {
       "description": "What every app gets unless its entry says otherwise. A setting left out here takes the value built into the core, which is the `default` given for it below.",
       "$ref": "#/$defs/settings",

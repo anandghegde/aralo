@@ -14,6 +14,7 @@ pub mod ai;
 pub mod clock;
 pub mod compat;
 pub mod counters;
+pub mod data_update;
 pub mod diff;
 mod edit;
 mod field;

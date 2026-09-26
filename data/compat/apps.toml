@@ -25,7 +25,13 @@
 #   delete            backspace  one Backspace per character of the abbreviation
 #                     select     Shift+Left over the abbreviation, then one Backspace
 
+# `version` is the file format. `revision` is this edition of the table: raise
+# it by one in every change to this file. A downloaded table replaces the one
+# in use only when its revision is higher, so an older signed table can never
+# be played back over a newer one (docs/architecture.md, "Signed table
+# downloads"). A change that forgets to raise it is simply not downloaded.
 version = 0
+revision = 1
 
 [defaults]
 insert = "auto"
