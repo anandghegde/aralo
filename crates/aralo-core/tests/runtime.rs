@@ -110,7 +110,7 @@ fn draft(label: &str, abbr: &str, body: &str) -> Draft {
 
 #[test]
 fn a_file_someone_else_writes_is_read_and_reported() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, heard) = runtime(folder.path());
     let root = runtime.root();
     assert_eq!(runtime.snapshot().len(), 0);
@@ -131,7 +131,7 @@ fn a_file_someone_else_writes_is_read_and_reported() {
 
 #[test]
 fn aralo_does_not_hear_its_own_writes() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, heard) = runtime(folder.path());
 
     let id = runtime
@@ -162,7 +162,7 @@ fn aralo_does_not_hear_its_own_writes() {
 
 #[test]
 fn a_folder_that_someone_moves_away_leaves_the_library_that_loaded() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, heard) = runtime(folder.path());
     runtime
         .edit(|core| core.create_snippet(&[], &draft("Best regards", "br", "Best")))
@@ -182,7 +182,7 @@ fn a_folder_that_someone_moves_away_leaves_the_library_that_loaded() {
 
 #[test]
 fn the_index_follows_the_library_without_being_asked() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, heard) = runtime(folder.path());
     runtime.flush();
 
@@ -209,7 +209,7 @@ fn the_index_follows_the_library_without_being_asked() {
 
 #[test]
 fn an_expansion_is_counted_without_the_injector_waiting() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, _heard) = runtime(folder.path());
     let id = runtime
         .edit(|core| core.create_snippet(&[], &draft("Best regards", "br", "Best")))
@@ -230,7 +230,7 @@ fn an_expansion_is_counted_without_the_injector_waiting() {
 
 #[test]
 fn what_was_counted_last_time_is_still_there_next_time() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let id = {
         let (runtime, _heard) = runtime(folder.path());
         let id = runtime
@@ -249,7 +249,7 @@ fn what_was_counted_last_time_is_still_there_next_time() {
 
 #[test]
 fn reading_the_index_does_not_wait_for_the_indexer() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, _heard) = runtime(folder.path());
     for n in 0..200 {
         runtime
@@ -280,7 +280,7 @@ fn reading_the_index_does_not_wait_for_the_indexer() {
 
 #[test]
 fn a_library_whose_index_will_not_open_still_watches_and_expands() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let heard = Heard::default();
     let core = Core::open_without_starter(&folder.path().join("Aralo")).unwrap();
     let options = RuntimeOptions {
@@ -336,7 +336,7 @@ fn a_library_whose_index_will_not_open_still_watches_and_expands() {
 
 #[test]
 fn search_and_snapshot_see_an_edit_the_moment_it_returns() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, _heard) = runtime(folder.path());
     runtime
         .edit(|core| {
@@ -353,7 +353,7 @@ fn search_and_snapshot_see_an_edit_the_moment_it_returns() {
 
 #[test]
 fn dropping_the_runtime_stops_both_threads() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let (runtime, heard) = runtime(folder.path());
     runtime
         .edit(|core| core.create_snippet(&[], &draft("Best regards", "br", "Best")))

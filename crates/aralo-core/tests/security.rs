@@ -90,14 +90,14 @@ impl ByteStream for Body {
 /// as the app keeps them apart, with AI on and one remote profile whose key
 /// is `key`.
 struct Setup {
-    folder: tempfile::TempDir,
+    folder: aralo_testkit::TempDir,
     endpoint: Arc<FakeEndpoint>,
     settings: AiSettings,
 }
 
 impl Setup {
     fn new(answer: &str, key: &str) -> Self {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let state = folder.path().join("state");
         std::fs::create_dir_all(&state).unwrap();
         let endpoint = Arc::new(FakeEndpoint {

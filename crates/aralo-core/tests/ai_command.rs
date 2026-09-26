@@ -54,13 +54,13 @@ impl ByteStream for Body {
 }
 
 struct Setup {
-    _folder: tempfile::TempDir,
+    _folder: aralo_testkit::TempDir,
     endpoint: Arc<FakeEndpoint>,
     settings: AiSettings,
 }
 
 fn setup(enabled: bool, with_profile: bool) -> Setup {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let endpoint = Arc::new(FakeEndpoint {
         answer: "They're going home.",
         sent: Mutex::default(),
@@ -227,7 +227,7 @@ async fn what_stops_a_command_stops_it_before_anything_is_sent() {
 
 #[test]
 fn the_library_adds_commands_and_can_replace_a_built_in_one() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("Aralo");
     Core::open_without_starter(&root).unwrap();
     let builtin = proofread();

@@ -42,12 +42,12 @@ impl LibraryListener for Quiet {
 struct Mac {
     root: PathBuf,
     runtime: Runtime,
-    _folders: tempfile::TempDir,
+    _folders: aralo_testkit::TempDir,
 }
 
 impl Mac {
     fn new() -> Self {
-        let folders = tempfile::tempdir().unwrap();
+        let folders = aralo_testkit::tempdir().unwrap();
         let root = folders.path().join("Aralo");
         fs::create_dir_all(root.join("Work")).unwrap();
         fs::write(root.join("Work/sig.md"), SIGNATURE).unwrap();

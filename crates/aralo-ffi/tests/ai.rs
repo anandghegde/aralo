@@ -5,8 +5,8 @@ use aralo_ffi::{
     AiSwitches, KeyStorage,
 };
 
-fn open() -> (tempfile::TempDir, std::sync::Arc<AiProfiles>) {
-    let folder = tempfile::tempdir().unwrap();
+fn open() -> (aralo_testkit::TempDir, std::sync::Arc<AiProfiles>) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let path = folder.path().join("profiles.toml");
     let profiles = AiProfiles::open(Some(path.display().to_string()), KeyStorage::Memory).unwrap();
     (folder, profiles)
@@ -241,7 +241,7 @@ mod commands {
     }
 
     fn proofread() -> AiCommand {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let core = Core::open_library(
             folder.path().join("Aralo").to_string_lossy().into_owned(),
             Some(folder.path().join("cache").to_string_lossy().into_owned()),
@@ -412,8 +412,8 @@ mod blocks {
 
     /// A library holding one snippet, the file `text`, and a session for it
     /// picked from the palette.
-    fn session(text: &str) -> (tempfile::TempDir, Arc<Core>, Arc<ExpansionSession>) {
-        let folder = tempfile::tempdir().unwrap();
+    fn session(text: &str) -> (aralo_testkit::TempDir, Arc<Core>, Arc<ExpansionSession>) {
+        let folder = aralo_testkit::tempdir().unwrap();
         let root = folder.path().join("Aralo");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("reply.md"), text).unwrap();

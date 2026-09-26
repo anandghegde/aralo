@@ -202,7 +202,7 @@ async fn ask_everything(settings: &AiSettings, socket: &Socket, core: &Core) -> 
 
 #[tokio::test]
 async fn with_the_switch_off_no_model_loads_and_no_model_call_is_possible() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let socket = Socket::start();
     let keys = Arc::new(CountingKeys::default());
     let settings =
@@ -302,7 +302,7 @@ async fn with_the_switch_off_no_model_loads_and_no_model_call_is_possible() {
 
 #[test]
 fn a_switch_flipped_by_another_process_is_followed_on_reload() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let path = folder.path().join("profiles.toml");
     let settings =
         AiSettings::open_with_secrets(&path, Arc::new(MemorySecretStore::new())).unwrap();
@@ -342,7 +342,7 @@ fn a_switch_flipped_by_another_process_is_followed_on_reload() {
 
 #[test]
 fn a_file_rewritten_with_the_same_switches_changes_nothing() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let settings = AiSettings::open_with_secrets(
         folder.path().join("profiles.toml"),
         Arc::new(MemorySecretStore::new()),

@@ -49,7 +49,7 @@ fn search(library: &Library, query: &Query) -> Vec<Hit> {
 
 #[test]
 fn an_empty_query_returns_every_snippet() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(&library, &Query::default());
     assert_eq!(hits.len(), 4);
@@ -63,7 +63,7 @@ fn an_empty_query_returns_every_snippet() {
 
 #[test]
 fn the_abbreviation_you_typed_in_full_comes_first() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(&library, &Query::new(";ty"));
     assert_eq!(hits[0].field, Field::Abbreviation);
@@ -73,7 +73,7 @@ fn the_abbreviation_you_typed_in_full_comes_first() {
 
 #[test]
 fn a_label_is_matched_fuzzily() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(&library, &Query::new("bregs"));
     assert_eq!(names(&library, &hits), ["Best regards"]);
@@ -83,7 +83,7 @@ fn a_label_is_matched_fuzzily() {
 
 #[test]
 fn the_characters_that_matched_come_back_for_highlighting() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(&library, &Query::new("invoice"));
     let hit = &hits[0];
@@ -99,7 +99,7 @@ fn the_characters_that_matched_come_back_for_highlighting() {
 
 #[test]
 fn a_snippet_with_no_label_is_listed_under_its_abbreviation() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     library(root);
     write(
@@ -128,7 +128,7 @@ fn a_snippet_with_no_label_is_listed_under_its_abbreviation() {
 /// because "a search of the library finds every one". This is that search.
 #[test]
 fn a_macro_left_in_a_body_is_found_by_searching_for_it() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(&library, &Query::new("%key:tab%"));
     assert_eq!(hits.len(), 1);
@@ -139,7 +139,7 @@ fn a_macro_left_in_a_body_is_found_by_searching_for_it() {
 
 #[test]
 fn a_body_is_matched_literally_and_not_fuzzily() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     // Every one of these letters is in "Invoice %key:tab% due on %d", in
     // order. A fuzzy body search would call that a hit; a literal one does not.
@@ -148,7 +148,7 @@ fn a_body_is_matched_literally_and_not_fuzzily() {
 
 #[test]
 fn an_abbreviation_hit_outranks_a_body_hit() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     library(root);
     write(
@@ -166,7 +166,7 @@ fn an_abbreviation_hit_outranks_a_body_hit() {
 
 #[test]
 fn a_tag_and_a_group_are_searched_too() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
 
     let hits = search(&library, &Query::new("sign-off"));
@@ -180,7 +180,7 @@ fn a_tag_and_a_group_are_searched_too() {
 
 #[test]
 fn a_group_filter_keeps_the_group_and_what_is_inside_it() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let in_work = Query {
         group: Some(vec!["work".into()]),
@@ -203,7 +203,7 @@ fn a_group_filter_keeps_the_group_and_what_is_inside_it() {
 
 #[test]
 fn a_tag_filter_and_the_enabled_filter_narrow_the_search() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
 
     let tagged = Query {
@@ -226,7 +226,7 @@ fn a_tag_filter_and_the_enabled_filter_narrow_the_search() {
 
 #[test]
 fn a_limit_cuts_the_list_after_ranking() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let hits = search(
         &library,
@@ -240,14 +240,14 @@ fn a_limit_cuts_the_list_after_ranking() {
 
 #[test]
 fn a_query_that_matches_nothing_returns_nothing() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     assert!(search(&library, &Query::new("zzzzqqqq")).is_empty());
 }
 
 #[test]
 fn one_snippet_is_reported_once_however_many_fields_match() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     // "Best regards" is the label, the body and near enough the abbreviation.
     let hits = search(&library, &Query::new("regards"));
@@ -269,7 +269,7 @@ fn id_of(library: &Library, name: &str) -> aralo_snippet::SnippetId {
 
 #[test]
 fn a_snippet_found_by_meaning_comes_after_every_literal_hit() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let similar = [
         (id_of(&library, "Invoice line"), 0.8),
@@ -289,7 +289,7 @@ fn a_snippet_found_by_meaning_comes_after_every_literal_hit() {
 
 #[test]
 fn a_snippet_found_by_meaning_goes_through_the_filters() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let similar = [
         (id_of(&library, "Thanks"), 0.9),
@@ -315,7 +315,7 @@ fn a_snippet_found_by_meaning_goes_through_the_filters() {
 
 #[test]
 fn an_empty_query_means_nothing() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let similar = [(id_of(&library, "Thanks"), 0.9)];
     let hits = Searcher::new().search_with_meaning(&library, &Query::default(), &similar);
@@ -325,7 +325,7 @@ fn an_empty_query_means_nothing() {
 
 #[test]
 fn only_the_first_few_meaning_hits_are_shown() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     for number in 0..8 {
         write(
             folder.path(),
@@ -345,7 +345,7 @@ fn only_the_first_few_meaning_hits_are_shown() {
 
 #[test]
 fn what_a_snippet_means_leaves_its_placeholders_out() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(
         folder.path(),
         "refund.md",

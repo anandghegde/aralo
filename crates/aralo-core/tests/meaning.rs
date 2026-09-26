@@ -59,7 +59,7 @@ fn names(hits: &[SearchHit]) -> Vec<(&str, Field)> {
 
 #[test]
 fn a_core_given_a_model_finds_a_snippet_by_what_it_means() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     library(folder.path());
     let core = Core::open_read_only(folder.path()).unwrap();
     assert!(core.search(&Query::new("world hello")).is_empty());
@@ -117,7 +117,7 @@ fn stored_vectors(folder: &Path) -> usize {
 
 #[test]
 fn a_runtime_embeds_on_its_indexer_and_keeps_the_vectors() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
     let ai = ai_on(folder.path());
     let runtime = runtime(folder.path());
@@ -153,7 +153,7 @@ fn a_runtime_embeds_on_its_indexer_and_keeps_the_vectors() {
 
 #[test]
 fn a_model_can_be_given_to_a_runtime_that_is_already_running() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
     let runtime = runtime(folder.path());
     runtime.flush();
@@ -167,7 +167,7 @@ fn a_model_can_be_given_to_a_runtime_that_is_already_running() {
 
 #[test]
 fn a_model_that_will_not_load_leaves_search_to_the_words() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     library(&folder.path().join("Aralo"));
     let ai = ai_on(folder.path());
     let runtime = runtime(folder.path());

@@ -27,8 +27,8 @@ fn moment() -> CivilTime {
 
 /// A library holding `snippets` as (label, abbreviation, body), with the clock
 /// stopped so a `{{date}}` is the same answer tomorrow.
-fn library(snippets: &[(&str, &str, &str)]) -> (tempfile::TempDir, Core, Vec<SnippetId>) {
-    let folder = tempfile::tempdir().unwrap();
+fn library(snippets: &[(&str, &str, &str)]) -> (aralo_testkit::TempDir, Core, Vec<SnippetId>) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let mut core = Core::open_without_starter(&folder.path().join("Aralo")).unwrap();
     let ids = snippets
         .iter()
@@ -49,7 +49,7 @@ fn library(snippets: &[(&str, &str, &str)]) -> (tempfile::TempDir, Core, Vec<Sni
 }
 
 /// One snippet, which is what most of these need.
-fn one(abbr: &str, body: &str) -> (tempfile::TempDir, Core, SnippetId) {
+fn one(abbr: &str, body: &str) -> (aralo_testkit::TempDir, Core, SnippetId) {
     let (folder, core, ids) = library(&[("The snippet", abbr, body)]);
     (folder, core, ids[0])
 }

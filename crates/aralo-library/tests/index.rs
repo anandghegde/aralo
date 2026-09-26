@@ -53,7 +53,7 @@ fn indexed(library: &Library) -> Index {
 
 #[test]
 fn an_incremental_sync_lands_where_a_rebuild_lands() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
 
     let mut incremental = Index::open_in_memory().unwrap();
@@ -88,7 +88,7 @@ fn an_incremental_sync_lands_where_a_rebuild_lands() {
 
 #[test]
 fn a_sync_writes_only_what_moved() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let mut index = Index::open_in_memory().unwrap();
 
@@ -116,7 +116,7 @@ fn a_sync_writes_only_what_moved() {
 
 #[test]
 fn a_file_with_no_id_is_not_reindexed_on_every_load() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(
         folder.path(),
         "Personal/no-label.md",
@@ -135,7 +135,7 @@ fn a_file_with_no_id_is_not_reindexed_on_every_load() {
 
 #[test]
 fn moving_a_snippet_keeps_its_content_hash() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let index = indexed(&library);
     let before = hash_of(&index, "Work/best-regards.md");
@@ -168,7 +168,7 @@ fn hash_of(index: &Index, path: &str) -> String {
 
 #[test]
 fn search_finds_a_snippet_by_any_of_its_words() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let index = indexed(&library);
 
@@ -195,7 +195,7 @@ fn search_finds_a_snippet_by_any_of_its_words() {
 
 #[test]
 fn what_the_user_types_is_never_read_as_fts_syntax() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let index = indexed(&library);
 
@@ -209,7 +209,7 @@ fn what_the_user_types_is_never_read_as_fts_syntax() {
 
 #[test]
 fn a_rebuild_keeps_the_counts_it_cannot_recompute() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let mut index = indexed(&library);
 
@@ -237,7 +237,7 @@ fn a_rebuild_keeps_the_counts_it_cannot_recompute() {
 
 #[test]
 fn the_group_tree_follows_the_folders() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let index = indexed(&library);
 
@@ -262,7 +262,7 @@ fn the_group_tree_follows_the_folders() {
 
 #[test]
 fn a_group_that_is_switched_off_switches_off_the_groups_inside_it() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     library(root);
     write(
@@ -304,11 +304,11 @@ enabled: false
 
 #[test]
 fn an_index_reopened_on_disk_is_the_one_that_was_written() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     // The index never lives inside the library folder; a SQLite file in a
     // synced folder is asking for corruption.
-    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = aralo_testkit::tempdir().unwrap();
     let path = elsewhere.path().join("state/index.sqlite3");
 
     let rows = {
@@ -348,7 +348,7 @@ fn ten_thousand(root: &Path) -> Library {
 /// does, and a second pass over an unchanged folder writes nothing at all.
 #[test]
 fn ten_thousand_snippets_index_and_then_stay_put() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = ten_thousand(folder.path());
 
     let mut index = Index::open_in_memory().unwrap();
@@ -380,7 +380,7 @@ fn a_cold_index_does_not_hold_up_an_expansion() {
 
     use aralo_engine::{Engine, KeyEvent, KeyVerdict};
 
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = ten_thousand(folder.path());
     let (snapshot, rejected) = library.snapshot();
     assert!(rejected.is_empty());
@@ -411,7 +411,7 @@ fn a_cold_index_does_not_hold_up_an_expansion() {
 
 #[test]
 fn a_merge_base_is_the_last_settled_version_and_waits_out_a_conflict() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     let library = library(root);
     let mut index = indexed(&library);
@@ -453,9 +453,9 @@ fn a_merge_base_is_the_last_settled_version_and_waits_out_a_conflict() {
 
 #[test]
 fn a_save_made_here_is_not_a_base_even_after_a_restart() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
-    let cache = tempfile::tempdir().unwrap();
+    let cache = aralo_testkit::tempdir().unwrap();
     let at = cache.path().join("index.sqlite3");
     let library = library(root);
     let mut index = Index::open(&at).unwrap();
@@ -521,7 +521,7 @@ fn vectors_are_kept_per_model_and_pruned_to_what_is_asked_for() {
 
 #[test]
 fn a_rebuild_keeps_the_vectors() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = library(folder.path());
     let mut index = Index::open_in_memory().unwrap();
     index.rebuild(&library).unwrap();

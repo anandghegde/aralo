@@ -150,7 +150,7 @@ fn proofread(core: &Core) -> AiCommand {
 
 #[tokio::test]
 async fn the_report_holds_no_snippet_context_typed_text_or_key() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let core = library(folder.path());
     let engine = core.engine();
 

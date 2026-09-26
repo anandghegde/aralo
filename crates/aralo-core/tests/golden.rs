@@ -173,7 +173,7 @@ fn transcript(path: &Path, fixture: &Fixture) -> String {
 /// One case in one locale: what the field holds afterwards, what an editor
 /// would have previewed, and what Aralo had to say about the body.
 fn run(case: &Case, locale: &str) -> String {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mut core = Core::open_without_starter(&folder.path().join("Aralo")).unwrap();
     let id = core
         .create_snippet(&[], &draft("Case", &case.abbr, &case.body))

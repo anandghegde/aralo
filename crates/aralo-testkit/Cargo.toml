@@ -1,0 +1,15 @@
+[package]
+name = "aralo-testkit"
+description = "Test helpers shared by the workspace's tests. A dev-dependency only; never shipped."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

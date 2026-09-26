@@ -10,8 +10,8 @@ use aralo_core::engine::KeyEvent;
 use aralo_core::snippet::TriggerMode;
 use aralo_core::{CivilTime, Core, Draft, FixedClock, Trial, TrialKey};
 
-fn library() -> (tempfile::TempDir, Core) {
-    let folder = tempfile::tempdir().unwrap();
+fn library() -> (aralo_testkit::TempDir, Core) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let core = Core::open_without_starter(&folder.path().join("Aralo"))
         .unwrap()
         .with_clock(Arc::new(FixedClock(CivilTime::new(2026, 3, 9, 14, 5, 7))))

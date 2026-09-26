@@ -93,7 +93,7 @@ fn nothing_but(receiver: &Receiver<Changes>, late: &[&str]) {
 
 #[test]
 fn an_edit_from_outside_aralo_is_reported() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "Work/note.md", &snippet("note", "First"));
     let (_watch, changes) = start(folder.path(), OwnWrites::new());
 
@@ -106,7 +106,7 @@ fn an_edit_from_outside_aralo_is_reported() {
 
 #[test]
 fn a_new_file_and_a_deleted_one_are_both_reported() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "old.md", &snippet("old", "Here"));
     let (_watch, changes) = start(folder.path(), OwnWrites::new());
 
@@ -117,7 +117,7 @@ fn a_new_file_and_a_deleted_one_are_both_reported() {
 
 #[test]
 fn a_group_file_says_so() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "Work/note.md", &snippet("note", "First"));
     let (_watch, changes) = start(folder.path(), OwnWrites::new());
 
@@ -139,7 +139,7 @@ fn a_group_file_says_so() {
 
 #[test]
 fn a_save_by_aralo_is_not_reported_but_an_edit_beside_it_is() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "Work/mine.md", &snippet("mine", "First"));
     write(folder.path(), "Work/theirs.md", &snippet("theirs", "First"));
     let library = Library::load(folder.path()).unwrap();
@@ -165,7 +165,7 @@ fn a_save_by_aralo_is_not_reported_but_an_edit_beside_it_is() {
 
 #[test]
 fn an_edit_that_lands_on_top_of_a_save_is_still_reported() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "note.md", &snippet("note", "First"));
     let library = Library::load(folder.path()).unwrap();
     let (_watch, changes) = start(folder.path(), library.writes().clone());
@@ -182,7 +182,7 @@ fn an_edit_that_lands_on_top_of_a_save_is_still_reported() {
 
 #[test]
 fn files_the_loader_ignores_are_not_reported() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     write(folder.path(), "Work/note.md", &snippet("note", "First"));
     let (_watch, changes) = start(folder.path(), OwnWrites::new());
 

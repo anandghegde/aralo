@@ -108,9 +108,9 @@ name = "aralo-cli"
 version = "0.0.1"
 dependencies = [
  "aralo-core",
+ "aralo-testkit",
  "clap",
  "serde_json",
- "tempfile",
  "tokio",
 ]
 
@@ -126,13 +126,13 @@ dependencies = [
  "aralo-providers",
  "aralo-snippet",
  "aralo-template",
+ "aralo-testkit",
  "blake3",
  "chrono",
  "keyring",
  "serde",
  "serde_json",
  "similar",
- "tempfile",
  "thiserror",
  "tokio",
  "toml",
@@ -167,8 +167,8 @@ version = "0.0.1"
 dependencies = [
  "aralo-core",
  "aralo-engine",
+ "aralo-testkit",
  "serde_json",
- "tempfile",
  "thiserror",
  "tokio",
  "uniffi",
@@ -181,12 +181,12 @@ dependencies = [
  "aralo-library",
  "aralo-snippet",
  "aralo-template",
+ "aralo-testkit",
  "csv",
  "plist",
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "tempfile",
  "thiserror",
 ]
 
@@ -196,13 +196,13 @@ version = "0.0.1"
 dependencies = [
  "aralo-engine",
  "aralo-snippet",
+ "aralo-testkit",
  "blake3",
  "diffy",
  "notify",
  "nucleo-matcher",
  "rusqlite",
  "serde_yaml_ng",
- "tempfile",
  "thiserror",
 ]
 
@@ -236,6 +236,13 @@ version = "0.0.1"
 dependencies = [
  "proptest",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "aralo-testkit"
+version = "0.0.1"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

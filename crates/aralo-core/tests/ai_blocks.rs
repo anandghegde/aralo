@@ -67,7 +67,7 @@ impl ByteStream for Body {
 }
 
 struct Setup {
-    folder: tempfile::TempDir,
+    folder: aralo_testkit::TempDir,
     endpoint: Arc<FakeEndpoint>,
     settings: AiSettings,
 }
@@ -87,7 +87,7 @@ fn setup(answer: &str) -> Setup {
 }
 
 fn setup_with(answer: &str, enabled: bool, base_url: &str) -> Setup {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let endpoint = Arc::new(FakeEndpoint {
         answer: answer.to_owned(),
         sent: Mutex::default(),

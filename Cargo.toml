@@ -29,6 +29,8 @@ aralo-providers = { path = "crates/aralo-providers" }
 aralo-import = { path = "crates/aralo-import" }
 aralo-script = { path = "crates/aralo-script" }
 aralo-core = { path = "crates/aralo-core" }
+# Test helpers; a dev-dependency only.
+aralo-testkit = { path = "crates/aralo-testkit" }
 
 blake3 = { version = "1.8", default-features = false, features = ["std"] }
 # The clock, for the core only. `clock` brings the system time zone;

@@ -33,7 +33,7 @@ fn the_embedded_starter_is_the_folder_in_the_repository() {
 
 #[test]
 fn a_new_library_gets_the_starter_and_expands_at_once() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("Aralo");
     let core = Core::open(&root).unwrap();
     assert_eq!(core.starter_files_written(), STARTER_FILES.len());
@@ -52,7 +52,7 @@ fn a_new_library_gets_the_starter_and_expands_at_once() {
 
 #[test]
 fn the_starter_is_written_once_and_never_over_the_users_files() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     Core::open(root).unwrap();
     fs::remove_file(root.join("Basics/thanks.md")).unwrap();
@@ -69,7 +69,7 @@ fn the_starter_is_written_once_and_never_over_the_users_files() {
 
 #[test]
 fn an_existing_folder_of_snippets_gets_a_manifest_and_nothing_else() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     fs::write(root.join("sig.md"), "---\nabbr: ;sig\n---\nBest,\nSam").unwrap();
 
@@ -84,14 +84,14 @@ fn an_existing_folder_of_snippets_gets_a_manifest_and_nothing_else() {
 
 #[test]
 fn open_read_only_writes_nothing() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     Core::open_read_only(folder.path()).unwrap();
     assert!(files_under(folder.path()).is_empty());
 }
 
 #[test]
 fn undo_puts_back_exactly_what_was_typed() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let core = Core::open(folder.path()).unwrap();
     let mut field = Simulator::new(&core, APP);
     field.type_str("so ;shrug").key(KeyEvent::Undo);
@@ -105,7 +105,7 @@ fn undo_puts_back_exactly_what_was_typed() {
 
 #[test]
 fn return_and_tab_go_back_as_keys_and_are_not_undoable() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let core = Core::open(folder.path()).unwrap();
     let mut field = Simulator::new(&core, APP);
     field.type_str("omw\n").key(KeyEvent::Undo);
@@ -114,7 +114,7 @@ fn return_and_tab_go_back_as_keys_and_are_not_undoable() {
 
 #[test]
 fn reload_picks_up_edits_and_keeps_the_old_library_when_the_folder_goes() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("lib");
     let mut core = Core::open(&root).unwrap();
     fs::write(root.join("new.md"), "---\nabbr: ;new\n---\nfresh").unwrap();

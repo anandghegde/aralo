@@ -531,7 +531,7 @@ fn options(evaluation: bool) -> ConformanceOptions {
 }
 
 async fn run(transcript: &str, fault: Fault) -> (ConformanceReport, Mock) {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mock = Mock::start(transcript, fault);
     let settings = settings(folder.path());
     save(&settings, "Mock", &mock.base_url, Some(KEY));
@@ -566,7 +566,7 @@ async fn every_recorded_framing_passes_every_check_and_the_evaluation_set() {
         "ollama.sse",
         "surplus-reasoning.sse",
     ] {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let mock = Mock::start(transcript, Fault::None);
         let settings = settings(folder.path());
         save(&settings, "Mock", &mock.base_url, Some(KEY));
@@ -706,7 +706,7 @@ async fn an_endpoint_that_answers_what_it_should_refuse_is_skipped_not_failed() 
 
 #[tokio::test]
 async fn a_profile_with_no_key_skips_the_wrong_key_check() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mock = Mock::start("ollama.sse", Fault::AnyKey);
     let settings = settings(folder.path());
     save(&settings, "Local", &mock.base_url, None);
@@ -725,7 +725,7 @@ async fn a_profile_with_no_key_skips_the_wrong_key_check() {
 
 #[tokio::test]
 async fn a_key_given_for_the_run_is_sent_and_saved_nowhere() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mock = Mock::start("openai.sse", Fault::None);
     let settings = settings(folder.path());
     save(&settings, "Mock", &mock.base_url, None);
@@ -752,7 +752,7 @@ async fn a_key_given_for_the_run_is_sent_and_saved_nowhere() {
 
 #[tokio::test]
 async fn a_run_is_refused_before_anything_is_sent() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mock = Mock::start("openai.sse", Fault::None);
     let settings = settings(folder.path());
     save(&settings, "Mock", &mock.base_url, Some(KEY));
@@ -829,7 +829,7 @@ fn median(mut times: Vec<Duration>) -> Duration {
 
 #[tokio::test]
 async fn aralo_adds_under_30_ms_to_the_first_token() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let mock = Mock::start("openai.sse", Fault::None);
     let settings = settings(folder.path());
     save(&settings, "Mock", &mock.base_url, Some(KEY));

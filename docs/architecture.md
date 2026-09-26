@@ -921,8 +921,13 @@ history.
 tests with `HOME`, `ARALO_STATE` and `TMPDIR` in a scratch folder. It then
 looks for the test canary, and for anything shaped like a real provider key,
 in every file the run wrote there and in every repository file it changed.
-It fails if it finds one. `crates/aralo-core/tests/ai_settings.rs` checks the
-same from the inside. The canary must reach the transport only as the
+It fails if it finds one. Tests make their temporary folders with
+`aralo_testkit::tempdir()`, and the script sets `ARALO_KEEP_TEMP` so those
+folders stay on disk until it has read them; it removes the scratch folder
+afterwards. It also fails if it read fewer than 5,000 files, because a scan
+that reads almost nothing proves nothing. A full run writes about 22,000.
+`crates/aralo-core/tests/ai_settings.rs` checks the same from the inside. The
+canary must reach the transport only as the
 `Authorization` header, and must never appear in the file, in `Debug` output
 or in an error.
 
@@ -1280,6 +1285,7 @@ is the exception: its crates may depend on each other.
 | 2 | `aralo-core` | Open a library, build a plan, the compatibility table, in-memory simulator, import, export, search by words and by meaning, editing, the runtime that watches, indexes and embeds, and the AI settings with keys in the keychain |
 | 1 | `aralo-library`, `aralo-ai`, `aralo-embed`, `aralo-providers`, `aralo-import`, `aralo-script` | `aralo-library` loads, resolves inheritance, writes atomically, watches, indexes and searches. `aralo-import` reads four formats and writes three. `aralo-ai` has the gateway and the network guard. `aralo-embed` runs the embedding model and scans vectors, with no network in its dependencies. `aralo-providers` has the `openai_compat` adapter and local-server detection. `aralo-script` is empty |
 | 0 | `aralo-engine`, `aralo-snippet`, `aralo-template` | Implemented, evaluator included: dates and times in 15 locales, the clipboard, forms, nested snippets, cursor stops and AI blocks, whose answers it is handed |
+| 0 | `aralo-testkit` | Test helpers, a dev-dependency only: `tempdir()`, which keeps the folder for the key-leak scan when `ARALO_KEEP_TEMP` is set |
 
 The rule covers every dependency kind, including dev and build dependencies.
 A new crate must be added to the table in the script before CI passes.

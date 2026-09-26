@@ -48,11 +48,12 @@ EMBED_CRATE="aralo-embed"
 EMBED_ALLOWED="arrayvec blake3 cfg-if constant_time_eq cpufeatures itoa libc memchr proc-macro2 quote serde serde_core serde_derive serde_json syn thiserror thiserror-impl tinyvec unicode-ident unicode-normalization unicode-properties zmij"
 
 # Layering. Every workspace member must appear in exactly one layer.
-#   layer 0  pure base: no internal dependencies at all
+#   layer 0  pure base: no internal dependencies at all (aralo-testkit is a
+#            dev-dependency only, and has none either)
 #   layer 1  may depend on layers 0 and 1
 #   layer 2  may depend on layers 0 and 1
 #   layer 3  may depend on layers 0 to 2, never on each other
-LAYER_0="aralo-engine aralo-snippet aralo-template"
+LAYER_0="aralo-engine aralo-snippet aralo-template aralo-testkit"
 LAYER_1="aralo-library aralo-ai aralo-embed aralo-providers aralo-import aralo-script"
 LAYER_2="aralo-core"
 LAYER_3="aralo-ffi aralo-cli"
@@ -239,10 +240,18 @@ for pid in sorted(members, key=lambda item: packages[item]["name"]):
         # that points upwards couples the crates just as a normal one does.
         if dep["name"] not in member_names or dep.get("path") is None:
             continue
+        kind = dep.get("kind") or "normal"
+        if dep["name"] == "aralo-testkit" and kind != "dev":
+            # The test helpers can keep test folders on disk; they never reach
+            # a shipped binary.
+            fail(
+                "crate graph: `%s` has a %s dependency on `aralo-testkit`, which "
+                "may only be a dev-dependency." % (pkg["name"], kind)
+            )
+            continue
         other = layer_of.get(dep["name"])
         if other is None or may_depend(own, other):
             continue
-        kind = dep.get("kind") or "normal"
         if own == 0:
             rule = "layer 0 is the pure base and has no internal dependencies"
         elif own == other:

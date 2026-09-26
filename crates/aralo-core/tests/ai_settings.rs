@@ -114,14 +114,14 @@ impl ByteStream for Body {
 }
 
 struct Setup {
-    folder: tempfile::TempDir,
+    folder: aralo_testkit::TempDir,
     secrets: Arc<MemorySecretStore>,
     endpoint: Arc<FakeEndpoint>,
     settings: AiSettings,
 }
 
 fn setup(enabled: bool) -> Setup {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let secrets = Arc::new(MemorySecretStore::new());
     let endpoint = FakeEndpoint::new(Some(CANARY));
     let settings = AiSettings::with_transport(
@@ -512,7 +512,7 @@ async fn a_probe_result_is_kept_until_something_it_depended_on_changes() {
 
 #[tokio::test]
 async fn a_probe_that_fails_to_chat_says_so_per_capability() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let secrets = Arc::new(MemorySecretStore::new());
     let endpoint = FakeEndpoint::new(Some("sk-some-other-key-0123456789abcdef"));
     let settings = AiSettings::with_transport(
@@ -539,7 +539,7 @@ async fn a_probe_that_fails_to_chat_says_so_per_capability() {
 
 #[test]
 fn a_file_that_does_not_parse_is_reported_and_left_alone() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let path = folder.path().join("profiles.toml");
     std::fs::write(&path, format!("enabled = true\napi_key = \"{CANARY}\"\n")).unwrap();
     let error = AiSettings::with_transport(
@@ -552,6 +552,10 @@ fn a_file_that_does_not_parse_is_reported_and_left_alone() {
     assert!(message.contains("line 2"), "{message}");
     assert!(!message.contains(CANARY), "{message}");
     assert!(std::fs::read_to_string(&path).unwrap().contains(CANARY));
+    // The file stands for one a person typed a key into by hand. It goes once
+    // the test is done, so the key-leak scan, which keeps test folders, finds
+    // no canary that Aralo did not write.
+    std::fs::remove_file(&path).unwrap();
 }
 
 /// The key-leak scan (PRD P13).

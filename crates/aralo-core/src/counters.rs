@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn counts_add_up_and_survive_a_restart() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join(COUNTERS_FILE);
         {
             let counters = Counters::open(&path);
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn a_damaged_file_starts_the_counts_again() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join(COUNTERS_FILE);
         std::fs::write(&path, "{ not json").unwrap();
         let counters = Counters::open(&path);
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn nothing_is_written_until_something_changed() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join(COUNTERS_FILE);
         let counters = Counters::open(&path);
         counters.save().unwrap();
@@ -699,11 +699,11 @@ mod tests {
 
     #[test]
     fn one_folder_has_one_set_of_counters_while_anyone_holds_it() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let first = Counters::shared(Some(folder.path()));
         let second = Counters::shared(Some(folder.path()));
         assert!(Arc::ptr_eq(&first, &second));
-        let other = tempfile::tempdir().unwrap();
+        let other = aralo_testkit::tempdir().unwrap();
         assert!(!Arc::ptr_eq(&first, &Counters::shared(Some(other.path()))));
 
         first.add(Count::Matched);

@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn a_write_is_claimed_once_and_only_for_its_own_bytes() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         fs::write(&path, b"saved by aralo").unwrap();
 
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn an_edit_that_lands_on_top_of_a_save_is_not_claimed() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         let writes = OwnWrites::new();
 
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn a_superseded_save_does_not_claim_a_later_event() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         let writes = OwnWrites::new();
 
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_never_claimed_for_a_write() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("gone.md");
         let writes = OwnWrites::new();
         writes.record(&path, b"anything");
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn a_removal_aralo_made_is_claimed_once() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         fs::write(&path, b"going").unwrap();
 
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn a_file_put_back_where_aralo_deleted_one_is_someone_elses() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         let writes = OwnWrites::new();
 

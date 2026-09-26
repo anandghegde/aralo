@@ -191,7 +191,7 @@ mod tests {
                 }),
             }],
         };
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("nested").join("profiles.toml");
         file.write(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_ai_off_with_no_profiles() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         assert_eq!(
             ProfilesFile::read(&folder.path().join("profiles.toml")).unwrap(),
             ProfilesFile::default()
@@ -212,7 +212,7 @@ mod tests {
     fn a_key_field_is_refused_rather_than_ignored() {
         let text = "[[profile]]\nname = \"x\"\nadapter = \"openai_compat\"\n\
                     base_url = \"https://x.test/v1\"\ndefault_model = \"m\"\napi_key = \"sk-1\"\n";
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("profiles.toml");
         std::fs::write(&path, text).unwrap();
         let error = ProfilesFile::read(&path).unwrap_err();

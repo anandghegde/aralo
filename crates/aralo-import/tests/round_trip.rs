@@ -15,7 +15,7 @@ use aralo_snippet::{CaseMode, SnippetId, SnippetKind, TriggerMode};
 
 #[test]
 fn every_format_comes_back_with_the_same_snippets() {
-    let source = tempfile::tempdir().unwrap();
+    let source = aralo_testkit::tempdir().unwrap();
     let library = filled(source.path());
     let before = snippets(&library);
     assert_eq!(before.len(), 6);
@@ -30,7 +30,7 @@ fn every_format_comes_back_with_the_same_snippets() {
         )
         .unwrap();
 
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         Library::create(folder.path(), None).unwrap();
         let empty = Library::load(folder.path()).unwrap();
         let report = import_bytes(&bytes, format, &empty, &ImportOptions::default()).unwrap();
@@ -43,7 +43,7 @@ fn every_format_comes_back_with_the_same_snippets() {
 
 #[test]
 fn a_group_exports_and_comes_back_on_its_own() {
-    let source = tempfile::tempdir().unwrap();
+    let source = aralo_testkit::tempdir().unwrap();
     let library = filled(source.path());
     let bytes = export(
         &library,
@@ -54,7 +54,7 @@ fn a_group_exports_and_comes_back_on_its_own() {
     )
     .unwrap();
 
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     Library::create(folder.path(), None).unwrap();
     let empty = Library::load(folder.path()).unwrap();
     import_bytes(&bytes, Format::Json, &empty, &ImportOptions::default()).unwrap();

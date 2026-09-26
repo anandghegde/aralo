@@ -92,6 +92,7 @@ reasons are in [docs/adr/](docs/adr/README.md).
 | `aralo-embed` | Embedding runtime, vector scan | A static model's tokenizer and encoder, held to the reference implementation, and the vector scan |
 | `aralo-import` | Importers, the import report, export to JSON, YAML and CSV | TextExpander, CSV, JSON and YAML in; JSON, YAML and CSV out |
 | `aralo-script` | Script sandbox | Empty, v1 |
+| `aralo-testkit` | Test helpers, a dev-dependency only | A temporary folder the key-leak scan can keep |
 
 Dependencies point one way. `aralo-engine`, `aralo-snippet` and
 `aralo-template` are the pure base. `aralo-core` composes. `aralo-ffi` and

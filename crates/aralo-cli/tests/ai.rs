@@ -22,7 +22,7 @@ fn stderr(output: &Output) -> String {
 
 #[test]
 fn a_profile_from_a_preset_is_saved_without_a_key_and_says_where_to_get_one() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let empty = aralo(state.path(), &["ai", "status"]);
     assert!(empty.status.success(), "{}", stderr(&empty));
     assert!(stdout(&empty).contains("AI: off"), "{}", stdout(&empty));
@@ -79,7 +79,7 @@ fn a_profile_from_a_preset_is_saved_without_a_key_and_says_where_to_get_one() {
 
 #[test]
 fn nothing_is_sent_while_ai_is_off_and_local_only_refuses_a_remote_endpoint() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     aralo(state.path(), &["ai", "add", "--preset", "openai"]);
     for args in [
         &["ai", "test"][..],
@@ -113,7 +113,7 @@ fn nothing_is_sent_while_ai_is_off_and_local_only_refuses_a_remote_endpoint() {
 
 #[test]
 fn a_key_is_never_an_argument_and_never_goes_in_a_header() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let as_argument = aralo(
         state.path(),
         &["ai", "add", "--preset", "openai", "--key", "sk-abc"],
@@ -160,7 +160,7 @@ fn a_key_is_never_an_argument_and_never_goes_in_a_header() {
 
 #[test]
 fn presets_list_where_to_make_a_key() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let text = stdout(&aralo(state.path(), &["ai", "presets"]));
     assert!(text.contains("openrouter"), "{text}");
     assert!(
@@ -172,7 +172,7 @@ fn presets_list_where_to_make_a_key() {
 
 #[test]
 fn commands_list_the_built_in_ones_and_a_librarys_and_run_only_with_ai_on() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let listed = aralo(state.path(), &["ai", "command", "list"]);
     assert!(listed.status.success(), "{}", stderr(&listed));
     let text = stdout(&listed);
@@ -282,7 +282,7 @@ fn serve_once(answer: &'static str) -> String {
 
 #[test]
 fn an_ai_block_puts_in_its_fallback_and_says_so_until_a_model_is_asked() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let library = library_with_a_block(state.path());
     let library = library.to_str().unwrap();
 
@@ -309,7 +309,7 @@ fn an_ai_block_puts_in_its_fallback_and_says_so_until_a_model_is_asked() {
 
 #[test]
 fn with_ai_on_a_block_is_answered_by_a_model_on_this_machine() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let library = library_with_a_block(state.path());
     let address = serve_once("\nThank you, it is on its way!\n");
     for args in [
@@ -346,7 +346,7 @@ fn with_ai_on_a_block_is_answered_by_a_model_on_this_machine() {
 fn an_editor_action_rewrites_standard_input_and_names_the_placeholders_it_changed() {
     use std::io::Write as _;
 
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let address = serve_once("```\nHello {{clipboard}}, see you soon!\n```");
     for args in [
         vec![
@@ -391,7 +391,7 @@ fn an_editor_action_rewrites_standard_input_and_names_the_placeholders_it_change
 
 #[test]
 fn an_editor_action_does_not_run_while_ai_is_off() {
-    let state = tempfile::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let off = aralo(state.path(), &["ai", "write", "draft", "--label", "Thanks"]);
     assert_eq!(off.status.code(), Some(2), "{}", stdout(&off));
     assert!(

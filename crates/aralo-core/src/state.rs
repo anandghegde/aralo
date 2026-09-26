@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn two_libraries_of_one_name_get_two_indexes() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let first = folder.path().join("one/Aralo");
         let second = folder.path().join("two/Aralo");
         std::fs::create_dir_all(&first).unwrap();

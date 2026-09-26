@@ -11,8 +11,8 @@ use std::path::Path;
 use aralo_core::snippet::{SnippetFile, SnippetKind, TriggerMode};
 use aralo_core::{Core, Draft, Problem};
 
-fn library() -> (tempfile::TempDir, Core) {
-    let folder = tempfile::tempdir().unwrap();
+fn library() -> (aralo_testkit::TempDir, Core) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("Aralo");
     let core = Core::open_without_starter(&root).unwrap();
     (folder, core)

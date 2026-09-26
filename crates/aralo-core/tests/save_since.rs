@@ -14,8 +14,8 @@ use aralo_core::{Core, Draft, Saved};
 const SIGNATURE: &str = "---\nid: 01J0000000000000000000000A\nlabel: Signature\nabbr: [sig]\n\
                          future_key: keep me\n---\nBest,\nSam\n\nSent from Aralo\n";
 
-fn library() -> (tempfile::TempDir, Core) {
-    let folder = tempfile::tempdir().unwrap();
+fn library() -> (aralo_testkit::TempDir, Core) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("Aralo");
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("sig.md"), SIGNATURE).unwrap();

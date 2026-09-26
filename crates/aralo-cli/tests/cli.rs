@@ -33,7 +33,7 @@ const ONE_GROUP: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 
 #[test]
 fn init_then_type_expands_the_starter_snippets() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("lib");
     let library = library.to_str().unwrap();
 
@@ -54,7 +54,7 @@ fn validate_fails_only_for_broken_files() {
     assert!(ok.status.success(), "{}", stdout(&ok));
     assert!(stdout(&ok).contains("README.md: note:"));
 
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     std::fs::write(folder.path().join("bad.md"), "---\nabbr: [x\n---\n").unwrap();
     let bad = aralo(&["validate", folder.path().to_str().unwrap()]);
     assert_eq!(bad.status.code(), Some(1), "{}", stdout(&bad));
@@ -66,7 +66,7 @@ fn validate_fails_only_for_broken_files() {
 
 #[test]
 fn import_then_expand_then_export_round_trips() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let source = folder.path().join("work.textexpander");
     std::fs::write(&source, ONE_GROUP).unwrap();
     let library = folder.path().join("lib");
@@ -109,7 +109,7 @@ fn import_then_expand_then_export_round_trips() {
 
 #[test]
 fn a_dry_run_writes_nothing_and_json_is_the_same_report() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let source = folder.path().join("work.textexpander");
     std::fs::write(&source, ONE_GROUP).unwrap();
     let library = folder.path().join("lib");
@@ -140,7 +140,7 @@ fn a_dry_run_writes_nothing_and_json_is_the_same_report() {
 
 #[test]
 fn export_needs_to_know_the_format_it_cannot_guess() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("lib");
     let library = library.to_str().unwrap();
     aralo(&["init", library]);
@@ -170,7 +170,7 @@ fn export_needs_to_know_the_format_it_cannot_guess() {
 
 #[test]
 fn search_finds_a_snippet_by_name_and_by_what_is_in_its_body() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("lib");
     let library = library.to_str().unwrap();
     aralo(&["init", library]);
@@ -195,7 +195,7 @@ fn search_finds_a_snippet_by_name_and_by_what_is_in_its_body() {
 
 #[test]
 fn search_finds_a_macro_no_importer_could_convert() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("lib");
     let source = folder.path().join("one-group.textexpander");
     std::fs::write(&source, ONE_GROUP).unwrap();
@@ -213,7 +213,7 @@ fn search_finds_a_macro_no_importer_could_convert() {
 
 #[test]
 fn search_narrows_by_group_limit_and_the_enabled_flag() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("lib");
     let library = library.to_str().unwrap();
     aralo(&["init", library]);
@@ -244,7 +244,7 @@ fn aralo_in(state: &Path, args: &[&str]) -> Output {
 
 #[test]
 fn search_with_a_model_finds_a_snippet_by_what_it_means_while_ai_is_on() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let state = folder.path().join("state");
     let library = folder.path().join("lib");
     std::fs::create_dir_all(&library).unwrap();
@@ -365,7 +365,7 @@ fn tiny_server() -> String {
 
 #[test]
 fn conformance_runs_against_a_profile_and_its_reports_make_the_table() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let state = folder.path().join("state");
     let server = tiny_server();
     let added = aralo_in(
@@ -437,7 +437,7 @@ fn conformance_runs_against_a_profile_and_its_reports_make_the_table() {
 
 #[test]
 fn diagnostics_prints_counts_and_nothing_from_the_library() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let state = folder.path().join("state");
     let library = folder.path().join("zqx-library");
     std::fs::create_dir_all(library.join("zqx-group")).unwrap();

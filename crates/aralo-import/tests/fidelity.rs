@@ -88,7 +88,7 @@ fn the_corpus_imports_at_ninety_five_percent_or_better() {
 /// Imports one source into a library of its own and hands back the report and
 /// the library as JSON.
 fn import(source: &Path) -> (ImportReport, serde_json::Value) {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     Library::create(root, None).unwrap();
     let library = Library::load(root).unwrap();

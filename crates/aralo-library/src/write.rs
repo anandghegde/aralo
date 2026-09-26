@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn replaces_the_target_and_leaves_no_temporary_file() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("note.md");
         write_atomic(&path, b"one").unwrap();
         write_atomic(&path, b"two").unwrap();
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn a_failed_write_leaves_the_old_contents() {
-        let folder = tempfile::tempdir().unwrap();
+        let folder = aralo_testkit::tempdir().unwrap();
         let path = folder.path().join("missing-folder").join("note.md");
         assert!(write_atomic(&path, b"x").is_err());
         assert!(!path.exists());

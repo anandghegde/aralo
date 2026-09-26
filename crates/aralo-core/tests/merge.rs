@@ -46,8 +46,8 @@ fn files_in(folder: &Path) -> Vec<String> {
 
 #[test]
 fn a_clean_merge_is_written_over_the_original_and_the_copy_set_aside() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "Work/sig.md", &snippet("Email signature", BASE_BODY));
     write(
@@ -82,8 +82,8 @@ fn a_clean_merge_is_written_over_the_original_and_the_copy_set_aside() {
 
 #[test]
 fn a_clash_leaves_both_files_and_says_so() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "sig.md", &snippet("Mine", BASE_BODY));
     write(root, "sig 2.md", &snippet("Theirs", BASE_BODY));
@@ -104,8 +104,8 @@ fn a_clash_leaves_both_files_and_says_so() {
 
 #[test]
 fn without_a_base_a_copy_that_only_repeats_the_original_still_goes() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "sig.md", &snippet("Signature", BASE_BODY));
     write(root, "sig (1).md", &snippet("Signature", BASE_BODY));
@@ -131,7 +131,7 @@ fn clashing(root: &Path) -> Core {
 
 #[test]
 fn a_clash_shows_both_sides_the_base_and_what_they_changed_differently() {
-    let library = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
     let core = clashing(library.path());
     let base = parse(&snippet("Signature", BASE_BODY));
 
@@ -154,13 +154,13 @@ fn a_clash_shows_both_sides_the_base_and_what_they_changed_differently() {
 
 #[test]
 fn a_file_that_is_not_a_waiting_copy_is_not_a_conflict() {
-    let library = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
     let mut core = clashing(library.path());
     assert!(matches!(
         core.conflict(Path::new("sig.md"), |_| None),
         Err(CoreError::NoSuchConflict(_))
     ));
-    let aside = tempfile::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     assert!(matches!(
         core.resolve_conflict(
             Path::new("elsewhere.md"),
@@ -173,8 +173,8 @@ fn a_file_that_is_not_a_waiting_copy_is_not_a_conflict() {
 
 #[test]
 fn keeping_the_original_discards_the_copy_and_leaves_the_original_alone() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     let mut core = clashing(root);
 
@@ -196,8 +196,8 @@ fn keeping_the_original_discards_the_copy_and_leaves_the_original_alone() {
 
 #[test]
 fn keeping_the_copy_writes_it_into_the_original_file() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     let mut core = clashing(root);
 
@@ -218,8 +218,8 @@ fn keeping_the_copy_writes_it_into_the_original_file() {
 
 #[test]
 fn a_version_the_user_wrote_is_kept_under_the_snippets_own_id() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     let mut core = clashing(root);
 
@@ -241,8 +241,8 @@ fn a_version_the_user_wrote_is_kept_under_the_snippets_own_id() {
 
 #[test]
 fn a_written_version_that_is_not_a_snippet_changes_nothing() {
-    let library = tempfile::tempdir().unwrap();
-    let aside = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let aside = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     let mut core = clashing(root);
 
@@ -260,8 +260,8 @@ fn a_written_version_that_is_not_a_snippet_changes_nothing() {
 
 #[test]
 fn the_runtime_resolves_a_clash_with_the_base_it_keeps() {
-    let library = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "sig.md", &snippet("Signature", BASE_BODY));
     let bin = Arc::new(Bin(
@@ -333,8 +333,8 @@ fn until(what: &str, condition: impl Fn() -> bool) {
 
 #[test]
 fn the_runtime_merges_a_copy_that_arrives_against_the_version_it_last_saw() {
-    let library = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "Work/sig.md", &snippet("Signature", BASE_BODY));
 
@@ -399,8 +399,8 @@ fn the_runtime_merges_a_copy_that_arrives_against_the_version_it_last_saw() {
 
 #[test]
 fn copies_waiting_when_the_runtime_opens_are_merged_before_it_returns() {
-    let library = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "sig.md", &snippet("Signature", BASE_BODY));
     write(
@@ -426,8 +426,8 @@ fn copies_waiting_when_the_runtime_opens_are_merged_before_it_returns() {
 
 #[test]
 fn the_watcher_merges_a_copy_it_sees_arrive() {
-    let library = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
+    let library = aralo_testkit::tempdir().unwrap();
+    let state = aralo_testkit::tempdir().unwrap();
     let root = library.path();
     write(root, "sig.md", &snippet("Signature", BASE_BODY));
 

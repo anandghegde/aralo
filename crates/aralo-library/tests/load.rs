@@ -41,7 +41,7 @@ const ID_B: &str = "01J8ZK3V5Q8W6T9X2N4R7M0ABD";
 
 #[test]
 fn settings_inherit_from_snippet_to_group_to_parent_to_built_in() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     write(
         root,
@@ -91,7 +91,7 @@ fn settings_inherit_from_snippet_to_group_to_parent_to_built_in() {
 
 #[test]
 fn a_disabled_group_switches_off_everything_beneath_it() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     write(root, "Off/_group.yaml", "enabled: false\n");
     write(root, "Off/Inner/_group.yaml", "enabled: true\n");
@@ -115,7 +115,7 @@ fn a_disabled_group_switches_off_everything_beneath_it() {
 
 #[test]
 fn one_bad_file_never_takes_the_library_down() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     write(
         root,
@@ -181,7 +181,7 @@ fn one_bad_file_never_takes_the_library_down() {
 
 #[test]
 fn a_missing_folder_is_an_error_and_a_newer_format_is_refused() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     assert!(Library::load(&folder.path().join("nope")).is_err());
 
     write(folder.path(), "aralo.yaml", "format: 9999\n");
@@ -190,7 +190,7 @@ fn a_missing_folder_is_an_error_and_a_newer_format_is_refused() {
 
 #[test]
 fn create_writes_a_manifest_once_and_write_snippet_round_trips() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path().join("My Library");
     assert!(Library::create(&root, Some("Mine".into())).unwrap());
     let manifest = fs::read_to_string(root.join("aralo.yaml")).unwrap();
@@ -248,7 +248,7 @@ fn the_starter_library_loads_cleanly_and_expands() {
 
 #[test]
 fn a_sync_clients_copy_is_paired_with_its_original_not_loaded_beside_it() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let root = folder.path();
     let snippet = |body: &str| format!("---\nid: {ID_A}\nabbr: [;sig]\n---\n{body}");
     write(root, "Work/sig.md", &snippet("ours"));

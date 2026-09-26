@@ -203,15 +203,15 @@ fn type_str(engine: &aralo_ffi::Engine, text: &str) -> Vec<KeyAction> {
         .collect()
 }
 
-fn open() -> (tempfile::TempDir, Arc<Core>) {
+fn open() -> (aralo_testkit::TempDir, Arc<Core>) {
     let (folder, core, _) = listening();
     (folder, core)
 }
 
 /// The same, with a shell attached, and with the cache inside the temporary
 /// folder so that a test run never touches the one on the machine.
-fn listening() -> (tempfile::TempDir, Arc<Core>, Shell) {
-    let folder = tempfile::tempdir().unwrap();
+fn listening() -> (aralo_testkit::TempDir, Arc<Core>, Shell) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let shell = Shell::default();
     let core = Core::open_library(
         folder.path().join("Aralo").to_string_lossy().into_owned(),
@@ -608,7 +608,7 @@ fn the_tables_apps_are_listed_for_the_matrix() {
         .unwrap();
     assert_eq!(terminal.profile.insert, InsertChoice::Type);
 
-    let folder = tempfile::tempdir().unwrap();
+    let folder = aralo_testkit::tempdir().unwrap();
     let path = folder.path().join("apps.toml");
     std::fs::write(&path, "version = 0\n[defaults]\ninsert = \"paste\"\n").unwrap();
     let path = path.to_string_lossy().into_owned();
@@ -1165,8 +1165,8 @@ const SIG_ID: &str = "01J8ZK3V5Q8W6T9X2N4R7M0ABC";
 
 /// A library where both machines renamed one snippet, opened with `bin` as its
 /// Trash. With no base yet, nothing about the two can merge.
-fn clashing(bin: &Bin) -> (tempfile::TempDir, Arc<Core>) {
-    let folder = tempfile::tempdir().unwrap();
+fn clashing(bin: &Bin) -> (aralo_testkit::TempDir, Arc<Core>) {
+    let folder = aralo_testkit::tempdir().unwrap();
     let library = folder.path().join("Aralo");
     std::fs::create_dir_all(&library).unwrap();
     let sig =
@@ -1185,7 +1185,7 @@ fn clashing(bin: &Bin) -> (tempfile::TempDir, Arc<Core>) {
 
 #[test]
 fn a_conflict_is_shown_and_resolved_into_the_shells_trash() {
-    let trash = tempfile::tempdir().unwrap();
+    let trash = aralo_testkit::tempdir().unwrap();
     let bin = Bin {
         folder: trash.path().to_owned(),
         taken: Arc::default(),
@@ -1220,7 +1220,7 @@ fn a_conflict_is_shown_and_resolved_into_the_shells_trash() {
 
 #[test]
 fn a_trash_that_refuses_leaves_the_conflict_waiting() {
-    let trash = tempfile::tempdir().unwrap();
+    let trash = aralo_testkit::tempdir().unwrap();
     let bin = Bin {
         folder: trash.path().to_owned(),
         taken: Arc::default(),
