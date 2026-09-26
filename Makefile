@@ -16,7 +16,7 @@ APP       := $(DERIVED)/Build/Products/Debug/Aralo.app
 # `make app SIGN_IDENTITY="My Self-Signed Cert"`.
 SIGN_IDENTITY ?= -
 
-.PHONY: help bootstrap xcframework xcframework-debug project model app run test test-swift lint lint-swift check \
+.PHONY: help bootstrap xcframework xcframework-debug project model app test-app run test test-swift lint lint-swift check \
 	compatibility matrix latency clean
 
 help: ## List the targets
@@ -41,6 +41,10 @@ app: $(GENERATED) model project ## Build Aralo.app (Debug, signed ad hoc), with 
 	xcodebuild -project $(PROJECT) -scheme Aralo -configuration Debug \
 		-derivedDataPath $(DERIVED) -quiet CODE_SIGN_IDENTITY="$(SIGN_IDENTITY)" build
 	@echo "Built $(APP)"
+
+test-app: $(GENERATED) model project ## Tests inside the app: the accessibility audit of every panel
+	xcodebuild -project $(PROJECT) -scheme Aralo -configuration Debug \
+		-derivedDataPath $(DERIVED) -quiet CODE_SIGN_IDENTITY="$(SIGN_IDENTITY)" test
 
 run: app ## Build and launch the app
 	open $(APP)

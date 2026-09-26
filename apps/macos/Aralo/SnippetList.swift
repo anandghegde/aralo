@@ -90,6 +90,8 @@ private struct SnippetRowView: View {
         }
         .opacity(row.enabled ? 1 : 0.45)
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(row.enabled ? "" : "Switched off")
     }
 
     /// What the row says underneath the label: where the search matched, or

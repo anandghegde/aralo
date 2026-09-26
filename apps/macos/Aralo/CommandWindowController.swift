@@ -127,7 +127,7 @@ private final class CommandPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-private struct CommandView: View {
+struct CommandView: View {
     @Bindable var store: CommandStore
     let replace: () -> Void
     let escape: () -> Void
@@ -160,7 +160,7 @@ private struct CommandView: View {
 
     private var search: some View {
         HStack(spacing: 10) {
-            Image(systemName: "sparkles").foregroundStyle(.secondary)
+            Image(systemName: "sparkles").foregroundStyle(.secondary).accessibilityHidden(true)
             TextField("Transform the selection", text: $store.query)
                 .textFieldStyle(.plain)
                 .font(.title2)
@@ -186,6 +186,12 @@ private struct CommandView: View {
                 ForEach(store.rows, id: \.id) { command in
                     CommandRow(command: command, isSelected: command.id == store.highlighted)
                         .contentShape(.rect)
+                        // VoiceOver reads the row as one button, and pressing
+                        // it runs the command as a double click would.
+                        .accessibilityAction {
+                            store.select(command.id)
+                            store.runHighlighted()
+                        }
                         .onTapGesture(count: 2) {
                             store.select(command.id)
                             store.runHighlighted()
@@ -216,7 +222,7 @@ private struct CommandView: View {
             Text(store.running?.label ?? "").font(.title3.weight(.semibold))
             Spacer()
             if store.phase == .running {
-                ProgressView().controlSize(.small)
+                ProgressView().controlSize(.small).accessibilityLabel("Running")
             }
         }
         .padding(.horizontal, 16)
@@ -229,6 +235,7 @@ private struct CommandView: View {
             message(reason, detail: "Press R to try again, or Escape to close.")
         case .answered where store.isEditing:
             TextEditor(text: $store.draft)
+                .accessibilityLabel("Answer")
                 .font(.body)
                 .focused($editing)
                 .padding(12)
@@ -300,6 +307,7 @@ private struct CommandView: View {
 private struct CommandRow: View {
     let command: AiCommand
     let isSelected: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         HStack(spacing: 8) {
@@ -313,9 +321,20 @@ private struct CommandRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(isSelected ? Color.accentColor.opacity(0.85) : .clear, in: .rect(cornerRadius: 6))
+        .background(isSelected ? SelectedRow.fill(contrast) : .clear, in: .rect(cornerRadius: 6))
         .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         .padding(.horizontal, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// The highlight behind the chosen row of the palette and the command panel.
+/// With Increase Contrast on it is solid, so white text on it keeps its
+/// contrast whatever is behind the panel.
+enum SelectedRow {
+    static func fill(_ contrast: ColorSchemeContrast) -> Color {
+        contrast == .increased ? .accentColor : .accentColor.opacity(0.85)
     }
 }
 

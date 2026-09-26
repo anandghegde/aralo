@@ -1246,3 +1246,24 @@ fn a_trash_that_refuses_leaves_the_conflict_waiting() {
     assert!(unreadable.is_err());
     assert_eq!(core.conflicts().len(), 1);
 }
+
+#[test]
+fn the_first_run_can_tell_the_starter_snippets_from_the_users_own() {
+    let (folder, core) = open();
+    assert!(
+        core.starter_files_written() > 0,
+        "a new folder gets the starter set"
+    );
+    drop(core);
+
+    // The same folder again: everything in it is the user's now.
+    let again = Core::open_library(
+        folder.path().join("Aralo").to_string_lossy().into_owned(),
+        Some(folder.path().join("cache").to_string_lossy().into_owned()),
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(again.starter_files_written(), 0);
+    assert!(!again.snippets().is_empty());
+}

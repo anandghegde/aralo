@@ -47,6 +47,7 @@ struct SnippetEditorView: View {
     private func conflictBanner(copy: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.arrow.triangle.2.circlepath").foregroundStyle(.orange)
+                .accessibilityHidden(true)
             Text(
                 "Sync left another version of this snippet, and the two changed the same thing. "
                     + "This one expands until you choose."
@@ -82,6 +83,7 @@ struct SnippetEditorView: View {
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
+                            .accessibilityLabel("Remove Abbreviation")
                             .buttonStyle(.borderless)
                             .help("Remove this abbreviation")
                         }
@@ -134,6 +136,7 @@ struct SnippetEditorView: View {
             ForEach(Array(store.problems.enumerated()), id: \.offset) { _, problem in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        .accessibilityLabel("Problem")
                     Text(problem.message)
                     if let other = problem.conflictsWith {
                         Button("Show It") {
