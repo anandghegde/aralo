@@ -23,6 +23,8 @@ final class OnboardingModel {
     @ObservationIgnored var onImport: (() -> Void)?
     /// Opens the AI tab of Settings. The flow never turns AI on itself.
     @ObservationIgnored var onSetUpAI: (() -> Void)?
+    /// Opens the Library tab of Settings, where the folder is chosen or moved.
+    @ObservationIgnored var onChooseLibrary: (() -> Void)?
 
     init(service: AraloService, startingAt step: OnboardingStep, returning: Bool = false) {
         self.service = service
@@ -75,6 +77,7 @@ final class OnboardingModel {
 
     func importSnippets() { onImport?() }
     func setUpAI() { onSetUpAI?() }
+    func chooseLibrary() { onChooseLibrary?() }
     func showLibraryInFinder() { NSWorkspace.shared.activateFileViewerSelecting([library.folder]) }
 
     /// The first click shows the system prompt. macOS shows it only once, so
@@ -99,6 +102,11 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     var onSetUpAI: (() -> Void)? {
         get { model.onSetUpAI }
         set { model.onSetUpAI = newValue }
+    }
+
+    var onChooseLibrary: (() -> Void)? {
+        get { model.onChooseLibrary }
+        set { model.onChooseLibrary = newValue }
     }
 
     init(service: AraloService, startingAt step: OnboardingStep, returning: Bool = false) {
@@ -228,6 +236,10 @@ struct OnboardingView: View {
                 a Git repository to have the same snippets on every Mac.
                 """)
                 .foregroundStyle(.secondary)
+            HStack {
+                Button("Move or Choose Folder…") { model.chooseLibrary() }
+                Text("in Settings › Library, now or later.").foregroundStyle(.secondary)
+            }
             Divider()
             Text("Coming from another app? Bring its snippets in from an export.")
             Button("Import Snippets…") { model.importSnippets() }

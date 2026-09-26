@@ -61,9 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return controller
     }
 
-    /// Settings, made the first time they are asked for. The AI settings open
-    /// then too: until that, nothing reads profiles.toml or the keychain.
-    private func showSettings() {
+    /// Settings, made the first time they are asked for, on `tab` when one is
+    /// named. The AI settings open then too: until that, nothing reads
+    /// profiles.toml or the keychain.
+    private func showSettings(tab: SettingsWindowController.Tab? = nil) {
         if settings == nil {
             do {
                 // The service's instance, which the command panel runs with.
@@ -79,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
         }
-        settings?.show()
+        settings?.show(tab: tab)
     }
 
     /// The search palette, made the first time the hot key is pressed. It is
@@ -119,7 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboarding?.close()
         let controller = OnboardingWindowController(service: service, startingAt: step, returning: completed)
         controller.onImport = { [weak self] in self?.libraryWindow()?.chooseImport() }
-        controller.onSetUpAI = { [weak self] in self?.showSettings() }
+        controller.onSetUpAI = { [weak self] in self?.showSettings(tab: .aiProfiles) }
+        controller.onChooseLibrary = { [weak self] in self?.showSettings(tab: .library) }
         onboarding = controller
         controller.show()
     }
