@@ -142,6 +142,10 @@ enum Command {
     /// exit 1 if a required check fails. `table` makes the compatibility
     /// table from reports.
     Conformance(conformance::Conformance),
+    /// Print the diagnostics report: versions, the library's size, the AI
+    /// settings in outline and the local counters. It holds no snippet, typed
+    /// text, context, file name or key, so it can be pasted into an issue.
+    Diagnostics { library: PathBuf },
 }
 
 /// The formats an import reads. TextExpander is read-only: Aralo does not
@@ -251,6 +255,19 @@ fn run(command: Command) -> Result<ExitCode, Failure> {
     match command {
         Command::Ai { command } => ai::run(command),
         Command::Conformance(conformance) => conformance::run(conformance),
+        Command::Diagnostics { library } => {
+            let core = Core::open_read_only(&library)?;
+            let mut report = aralo_core::DiagnosticReport::new(&aralo_core::ShellFacts::default());
+            report.library(&core);
+            if let Some(path) = aralo_core::ai::profiles_path() {
+                if let Ok(settings) = aralo_core::ai::AiSettings::open(path) {
+                    report.ai(&settings);
+                }
+            }
+            report.counters(&aralo_core::Counters::shared(None).tallies());
+            print!("{}", report.render());
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Init { library } => {
             let core = Core::open(&library)?;
             println!(

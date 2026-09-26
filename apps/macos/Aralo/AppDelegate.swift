@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showOnboarding(fromMenu: false)
     }
 
+    /// The counters are saved a minute after they change; this saves the
+    /// last minute.
+    func applicationWillTerminate(_ notification: Notification) {
+        service.saveCounters()
+    }
+
     /// The snippet window, made the first time it is asked for. It is kept
     /// afterwards so that reopening it lands on the same selection.
     private func showLibrary() {

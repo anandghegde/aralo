@@ -79,6 +79,9 @@ extension AraloService {
         Task { @MainActor in
             let selection = await capture.read()
             isReadingSelection = false
+            if case .failure(let failure) = selection, failure != .nothingSelected {
+                core.recordShellEvent(event: .selectionUnreadable)
+            }
             // The tap may have gone down while the app was copying.
             guard self.controller != nil else { return }
             commands?.close()

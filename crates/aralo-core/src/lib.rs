@@ -13,11 +13,13 @@
 pub mod ai;
 pub mod clock;
 pub mod compat;
+pub mod counters;
 pub mod diff;
 mod edit;
 mod field;
 mod meaning;
 mod merge;
+pub mod report;
 mod runtime;
 mod session;
 mod simulate;
@@ -54,9 +56,11 @@ pub use aralo_template::{
 };
 pub use clock::{FixedClock, SystemClock as SystemTimeClock};
 pub use compat::{CompatError, CompatTable, InjectionProfile};
+pub use counters::{Counters, Tallies};
 pub use edit::{Draft, DraftIssue, Problem};
 pub use meaning::{Meaning, MIN_SIMILARITY};
 pub use merge::{ConflictSides, Discard, MergeReport, Resolution, SetAside};
+pub use report::{DiagnosticReport, ShellFacts};
 pub use runtime::{LibraryChange, LibraryListener, Runtime, RuntimeOptions};
 pub use session::{Expand, Session, SessionStep};
 pub use simulate::Simulator;
