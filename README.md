@@ -465,6 +465,8 @@ ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).
 | --- | --- |
 | [docs/format/](docs/format/README.md) | The library and snippet file format, placeholders, matching rules |
 | [docs/architecture.md](docs/architecture.md) | Process model, threads, the keystroke path, the bridge, privacy invariants |
+| [docs/data-flow.md](docs/data-flow.md) | What Aralo reads, where it keeps it, and every host it can contact |
+| [docs/threat-model.md](docs/threat-model.md) | Assets, adversaries, trust boundaries, and the test behind each defence |
 | [docs/compatibility.md](docs/compatibility.md) | Which AI endpoints pass the conformance suite, check by check |
 | [docs/adr/](docs/adr/README.md) | Decision records |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, the rules CI enforces, sign-off |

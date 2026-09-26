@@ -11,6 +11,13 @@
 #   e. Timeless template  aralo-template reads no clock (ADR-0014).
 #   f. One HTTP door      `reqwest` is named only inside the network guard
 #                         (ADR-0007).
+#   g. Offline shell      the Mac app's Swift code opens no connection of its
+#                         own: every request goes through the guard (PRD P6,
+#                         P7).
+#   h. No logs            no crate depends on a logging crate, and the Mac
+#                         app's Swift code writes no log (plan section 9).
+#   i. Hardened runtime   the app is built with the hardened runtime and asks
+#                         for no entitlement (plan section 9).
 #
 # Needs: bash 3.2 or later, cargo, python3 (standard library only). No jq.
 # Usage: scripts/check-deps.sh        Exit status 0 = every check passed.
@@ -323,6 +330,78 @@ else
         echo "$hits" | sed 's/^/        /' >&2
     else
         pass "one HTTP door: \`reqwest\` is named only in $GUARD_SRC"
+    fi
+fi
+
+# --- g + h: the Mac app's Swift code ------------------------------------------------
+# The shell reaches a model only through the bridge, so the guard is its only
+# way out too. Tests are left out: they may print a measurement.
+
+SWIFT_SRC="apps/macos"
+
+# Prints `path:line:text` for every non-comment line of a Swift source outside
+# a test folder that matches the extended regular expression $1.
+scan_swift() {
+    grep -rnE --include='*.swift' --exclude-dir='*Tests' --exclude-dir='.build' \
+        --exclude-dir='Generated' -- "$1" "$SWIFT_SRC" 2>/dev/null \
+        | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
+        || true
+}
+
+if [ ! -d "$SWIFT_SRC" ]; then
+    fail "offline shell: directory $SWIFT_SRC not found"
+else
+    hits="$(scan_swift '(URLSession|NSURLConnection|NWConnection|NWListener|CFStream|CFSocket|WKWebView|Network\.framework|^import Network$)')"
+    if [ -n "$hits" ]; then
+        fail "offline shell: the Mac app opens a connection of its own. Requests go through the network guard in the core (ADR-0007):"
+        echo "$hits" | sed 's/^/        /' >&2
+    else
+        pass "offline shell: $SWIFT_SRC opens no connection of its own"
+    fi
+
+    hits="$(scan_swift '(^|[^A-Za-z0-9_.])(NSLog|os_log|print|debugPrint|dump)\(|Logger\(|import os(\.log)?$')"
+    if [ -n "$hits" ]; then
+        fail "no logs: the Mac app writes a log or prints. A log field may never hold a keystroke, a snippet, context or model output (plan section 9); until there is a field allow-list there is no log:"
+        echo "$hits" | sed 's/^/        /' >&2
+    else
+        pass "no logs: $SWIFT_SRC writes no log"
+    fi
+fi
+
+# A dependency named in any crate's manifest, of any kind. Transitive users of
+# `log` (reqwest, notify) are not counted: nothing installs a logger, so what
+# they log goes nowhere.
+hits="$(grep -nE '^[[:space:]]*(log|tracing|tracing-subscriber|tracing-appender|env_logger|simplelog|fern|slog|log4rs|flexi_logger|oslog)[[:space:]]*[=.]' \
+    Cargo.toml crates/*/Cargo.toml || true)"
+if [ -n "$hits" ]; then
+    fail "no logs: a crate depends on a logging crate. Logging needs a field allow-list first (plan section 9):"
+    echo "$hits" | sed 's/^/        /' >&2
+else
+    pass "no logs: no crate depends on a logging crate"
+fi
+
+# --- i: hardened runtime -------------------------------------------------------------
+# No JIT, unsigned-memory or library-validation exception: there is no JIT and
+# no third-party dynamic library. An entitlements file is where one would go.
+
+PROJECT_SPEC="apps/macos/project.yml"
+if [ ! -f "$PROJECT_SPEC" ]; then
+    fail "hardened runtime: $PROJECT_SPEC not found"
+else
+    problems=""
+    grep -qE '^[[:space:]]*ENABLE_HARDENED_RUNTIME:[[:space:]]*YES[[:space:]]*$' "$PROJECT_SPEC" \
+        || problems="$problems ENABLE_HARDENED_RUNTIME is not YES;"
+    if grep -qE 'CODE_SIGN_ENTITLEMENTS|entitlements' "$PROJECT_SPEC"; then
+        problems="$problems it names an entitlements file;"
+    fi
+    entitlements="$(find apps -name '*.entitlements' -not -path '*/.build/*' 2>/dev/null || true)"
+    if [ -n "$entitlements" ]; then
+        problems="$problems entitlements files exist: $(echo "$entitlements" | tr '\n' ' ');"
+    fi
+    if [ -n "$problems" ]; then
+        fail "hardened runtime: $PROJECT_SPEC:$problems the app runs hardened and asks for no exception (plan section 9)"
+    else
+        pass "hardened runtime: the app is hardened and asks for no entitlement"
     fi
 fi
 
