@@ -323,8 +323,7 @@ public final class AraloService {
         frontApp.start()
         self.frontApp = frontApp
 
-        let secureInput = SecureInputMonitor { [weak self] isOn in
-            if isOn { engine.reset(reason: .secureInput) }
+        let secureInput = SecureInputMonitor(resetting: engine) { [weak self] _ in
             self?.refreshState()
         }
         secureInput.start()

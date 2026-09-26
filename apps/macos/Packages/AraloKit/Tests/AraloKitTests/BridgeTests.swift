@@ -139,6 +139,29 @@ final class BridgeTests: XCTestCase {
         XCTAssertTrue(sink.keys.isEmpty)
     }
 
+    /// A password field turns secure input on. The monitor the app runs sees
+    /// the system's own flag, and what was typed before it finishes nothing.
+    @MainActor
+    func testSecureInputGoingOnForgetsWhatWasTyped() throws {
+        try XCTSkipIf(IsSecureEventInputEnabled(), "something on this machine holds secure input")
+        var heard: [Bool] = []
+        let monitor = SecureInputMonitor(resetting: core.engine()) { heard.append($0) }
+        type("t")
+        XCTAssertFalse(core.engine().holdsNoKeystrokes())
+
+        // What NSSecureTextField does when it takes the keyboard.
+        XCTAssertEqual(EnableSecureEventInput(), noErr)
+        defer { DisableSecureEventInput() }
+        XCTAssertTrue(IsSecureEventInputEnabled())
+        monitor.start(interval: 60)
+        monitor.stop()
+
+        XCTAssertEqual(heard, [true])
+        XCTAssertTrue(core.engine().holdsNoKeystrokes())
+        type("y ")
+        XCTAssertTrue(sink.keys.isEmpty)
+    }
+
     func testPausedMeansEveryKeyPasses() {
         core.engine().setPaused(paused: true)
         XCTAssertEqual(type("ty "), "ty ")

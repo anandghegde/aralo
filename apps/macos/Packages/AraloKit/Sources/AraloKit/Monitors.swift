@@ -1,4 +1,5 @@
 import AppKit
+import AraloBridge
 import Carbon.HIToolbox
 
 /// Polls secure input. While a password field holds it, key events stop
@@ -55,6 +56,18 @@ public final class SecureInputMonitor {
         if now != last {
             last = now
             onChange(now)
+        }
+    }
+}
+
+public extension SecureInputMonitor {
+    /// The monitor the app runs. Secure input going on resets the engine
+    /// before anything else hears of it, so nothing typed before a password
+    /// field took the keyboard can finish an abbreviation after it (PRD P2).
+    convenience init(resetting engine: EngineProtocol, then: @escaping @MainActor (Bool) -> Void) {
+        self.init { isOn in
+            if isOn { engine.reset(reason: .secureInput) }
+            then(isOn)
         }
     }
 }

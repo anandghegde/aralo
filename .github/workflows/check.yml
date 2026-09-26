@@ -75,7 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - name: Engine purity, crate layering, no unsafe in aralo-ffi, silent engine
+      - name: Engine purity, crate layering, no unsafe in aralo-ffi, silent engine, offline shell, no logs, hardened runtime
         run: scripts/check-deps.sh
       - name: Schemas are valid JSON
         run: |
@@ -87,6 +87,18 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  # Why: PRD P13. The workspace's tests run with HOME, ARALO_STATE and TMPDIR in a scratch folder, and then no
+  # file the run wrote may hold the canary key or anything shaped like a provider key (plan section 9).
+  key-leak-scan:
+    name: key-leak-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: No key in any file a full test run wrote
+        run: scripts/key-leak-scan.sh
 
   # Why: the browser extension compiles these two crates to WebAssembly; build them now so that path never rots.
   wasm:
