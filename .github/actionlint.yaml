@@ -1,0 +1,7 @@
+# actionlint's configuration: `actionlint .github/workflows/*.yml`.
+self-hosted-runner:
+  # The Mac set aside for the injection matrix (.github/workflows/matrix.yml),
+  # which takes over its keyboard. GitHub knows nothing of this label; the
+  # runner registered on that Mac carries it.
+  labels:
+    - aralo-matrix

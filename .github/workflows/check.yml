@@ -166,7 +166,7 @@ jobs:
         if: matrix.server == 'Ollama'
         run: |
           docker run --detach --name model-server --publish 127.0.0.1:11434:11434 ollama/ollama:0.11.4
-          for attempt in $(seq 60); do curl -fsS http://127.0.0.1:11434/api/version && break; sleep 1; done
+          for _ in $(seq 60); do curl -fsS http://127.0.0.1:11434/api/version && break; sleep 1; done
           echo
           docker exec model-server ollama pull "${{ matrix.model }}"
       # llama.cpp publishes its server image under build numbers only; the log records which one ran.
@@ -178,7 +178,7 @@ jobs:
             --hf-repo Qwen/Qwen2.5-0.5B-Instruct-GGUF --hf-file qwen2.5-0.5b-instruct-q4_k_m.gguf \
             --alias "${{ matrix.model }}" --host 0.0.0.0 --port 8080 --ctx-size 8192
           # /health answers 200 once the model is downloaded and loaded.
-          for attempt in $(seq 300); do curl -fsS http://127.0.0.1:8080/health && break; sleep 2; done
+          for _ in $(seq 300); do curl -fsS http://127.0.0.1:8080/health && break; sleep 2; done
           echo
           curl -fsS http://127.0.0.1:8080/props | python3 -c 'import json, sys; print(json.load(sys.stdin).get("build_info", ""))' || true
       - name: Run the conformance suite
