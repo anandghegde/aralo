@@ -552,12 +552,27 @@ fn copy_file(from: &Path, to: &Path) -> Result<(), MoveError> {
         path: to.to_owned(),
         source,
     })?;
-    fs::File::open(to)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| MoveError::Write {
-            path: to.to_owned(),
-            source,
-        })
+    sync_file(to).map_err(|source| MoveError::Write {
+        path: to.to_owned(),
+        source,
+    })
+}
+
+/// Flushes a file to the disk. Windows flushes only a handle open for
+/// writing; a copy of a read-only file cannot be opened so, and is left to
+/// the system.
+#[cfg(windows)]
+fn sync_file(path: &Path) -> io::Result<()> {
+    match fs::OpenOptions::new().write(true).open(path) {
+        Ok(file) => file.sync_all(),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(not(windows))]
+fn sync_file(path: &Path) -> io::Result<()> {
+    fs::File::open(path)?.sync_all()
 }
 
 #[cfg(unix)]
