@@ -81,6 +81,7 @@ struct AISettingsView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel("Add a Provider")
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .help("Add a provider")
@@ -89,6 +90,7 @@ struct AISettingsView: View {
                 } label: {
                     Image(systemName: "minus")
                 }
+                .accessibilityLabel("Delete Profile")
                 .buttonStyle(.borderless)
                 .disabled(store.editor?.originalName == nil)
                 .help("Delete the selected profile and its key")
@@ -114,9 +116,11 @@ struct AISettingsView: View {
                 Text("Default").font(.caption2).foregroundStyle(.secondary)
             }
             if !store.allowed(profile) {
+                // SwiftUI would read this symbol as "Stop".
                 Image(systemName: "nosign")
                     .foregroundStyle(.secondary)
                     .help(store.switches.enabled ? "Only model servers on this Mac are allowed" : "AI is off")
+                    .accessibilityLabel(store.switches.enabled ? "Not allowed: not on this Mac" : "AI is off")
             }
         }
     }
@@ -124,7 +128,7 @@ struct AISettingsView: View {
     @ViewBuilder
     private var localServers: some View {
         if store.busy == .detecting {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).accessibilityLabel("Looking for model servers")
         } else if let servers = store.localServers {
             if servers.isEmpty {
                 Text("No model server is running on this Mac.")
@@ -185,7 +189,7 @@ private struct ProfileEditorView: View {
             HStack {
                 TextField("Model", text: editor.model)
                 if !store.models.isEmpty {
-                    Picker("", selection: editor.model) {
+                    Picker("Model from the List", selection: editor.model) {
                         ForEach(store.models, id: \.self) { Text($0).tag($0) }
                     }
                     .labelsHidden()
@@ -197,12 +201,14 @@ private struct ProfileEditorView: View {
             problem(for: .model, in: editor.wrappedValue)
             LabeledContent("Headers") {
                 TextEditor(text: editor.headers)
+                    .accessibilityLabel("Headers")
                     .font(.body.monospaced())
                     .frame(height: 44)
                     .overlay(alignment: .topLeading) {
                         if editor.wrappedValue.headers.isEmpty {
                             Text("X-Title: Aralo").foregroundStyle(.tertiary).padding(.leading, 5)
                                 .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                     }
             }
@@ -242,6 +248,7 @@ private struct ProfileEditorView: View {
                 .disabled(store.busy != nil)
             if store.busy == .testing || store.busy == .listingModels {
                 ProgressView().controlSize(.small)
+                    .accessibilityLabel(store.busy == .testing ? "Testing the connection" : "Listing models")
             }
             connection
             Spacer()
@@ -290,7 +297,7 @@ private struct ProfileEditorView: View {
                     Text("What this endpoint can do")
                     Spacer()
                     if store.busy == .probing {
-                        ProgressView().controlSize(.small)
+                        ProgressView().controlSize(.small).accessibilityLabel("Checking")
                     }
                     Button("Check Again") { Task { await store.probe(profile.name) } }
                         .controlSize(.small)
@@ -305,7 +312,7 @@ private struct ProfileEditorView: View {
             Text(title)
             switch check {
             case .yes:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Yes")
             case .no(let reason):
                 Label(reason, systemImage: "xmark.circle.fill").foregroundStyle(.orange).lineLimit(2)
             case .notChecked(let reason):

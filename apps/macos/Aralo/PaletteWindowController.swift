@@ -138,7 +138,7 @@ private final class PalettePanel: NSPanel {
 /// flag: showing the palette twice has to say it twice.
 @MainActor
 @Observable
-private final class PaletteFocus {
+final class PaletteFocus {
     private(set) var generation = 0
 
     func take() {
@@ -146,12 +146,13 @@ private final class PaletteFocus {
     }
 }
 
-private struct PaletteView: View {
+struct PaletteView: View {
     @Bindable var store: PaletteStore
     let focus: PaletteFocus
     let insert: () -> Void
     let cancel: () -> Void
     @FocusState private var searching: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -180,7 +181,7 @@ private struct PaletteView: View {
 
     private var search: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
             TextField("Search snippets", text: $store.query)
                 .textFieldStyle(.plain)
                 .font(.title2)
@@ -211,6 +212,12 @@ private struct PaletteView: View {
                         PaletteRow(row: row, isSelected: row.id == store.selection)
                             .id(row.id)
                             .contentShape(.rect)
+                            // Pressing the row in VoiceOver inserts it, as a
+                            // double click does.
+                            .accessibilityAction {
+                                store.select(row.id)
+                                insert()
+                            }
                             .onTapGesture(count: 2, perform: insert)
                             .onTapGesture { store.select(row.id) }
                     }
@@ -219,7 +226,8 @@ private struct PaletteView: View {
             }
             .onChange(of: store.selection) { _, selection in
                 guard let selection else { return }
-                withAnimation(.linear(duration: 0.1)) { scroll.scrollTo(selection) }
+                // Reduce Motion jumps to the row instead of sliding to it.
+                withAnimation(reduceMotion ? nil : .linear(duration: 0.1)) { scroll.scrollTo(selection) }
             }
         }
         .frame(minWidth: 240, idealWidth: 300)
@@ -249,6 +257,7 @@ private struct PaletteView: View {
 private struct PaletteRow: View {
     let row: SnippetRow
     let isSelected: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         HStack(spacing: 8) {
@@ -258,6 +267,7 @@ private struct PaletteRow: View {
                 Image(systemName: "text.magnifyingglass")
                     .foregroundStyle(isSelected ? .primary : .secondary)
                     .help("Found by what it means: none of the words you typed are in it")
+                    .accessibilityLabel("Found by meaning")
             }
             if let abbreviation = row.abbreviations.first {
                 Text(abbreviation)
@@ -268,8 +278,10 @@ private struct PaletteRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(isSelected ? Color.accentColor.opacity(0.85) : .clear, in: .rect(cornerRadius: 6))
+        .background(isSelected ? SelectedRow.fill(contrast) : .clear, in: .rect(cornerRadius: 6))
         .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         .padding(.horizontal, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }

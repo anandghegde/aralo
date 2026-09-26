@@ -196,8 +196,10 @@ struct FormView: View {
         let answer = binding(for: field)
         if field.hasRoomToWrite {
             VStack(alignment: .leading, spacing: 4) {
-                Text(field.label).font(.callout).foregroundStyle(.secondary)
+                // The box says its own name; the caption would be read twice.
+                Text(field.label).font(.callout).foregroundStyle(.secondary).accessibilityHidden(true)
                 TextEditor(text: answer)
+                    .accessibilityLabel(field.label)
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(4)
@@ -210,7 +212,7 @@ struct FormView: View {
             }
         } else if field.options.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text(field.label).font(.callout).foregroundStyle(.secondary)
+                Text(field.label).font(.callout).foregroundStyle(.secondary).accessibilityHidden(true)
                 TextField(field.label, text: answer)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused, equals: field.name)
@@ -242,13 +244,14 @@ struct FormView: View {
                 Text("Waiting for the block before it.").font(.callout).foregroundStyle(.secondary)
             case .writing:
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).accessibilityHidden(true)
                     Text(block.model.map { "\($0) is writing…" } ?? "Asking the model…")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             case .written where session.editing == block.index:
                 TextEditor(text: text(of: block))
+                    .accessibilityLabel(block.prompt)
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(4)
@@ -276,6 +279,7 @@ struct FormView: View {
         HStack {
             if session.editing != nil {
                 Text("⌘↩ to insert").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel("Command-Return inserts")
             }
             Spacer()
             Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
@@ -341,6 +345,7 @@ struct FormView: View {
         HStack {
             if insertsWithCommand {
                 Text("⌘↩ to insert").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel("Command-Return inserts")
             }
             Spacer()
             Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)

@@ -829,6 +829,8 @@ struct Shared {
     start: Start,
     /// The model `use_model` named, for the runtime of a moved library.
     model: Mutex<Option<(PathBuf, Arc<AiProfiles>)>>,
+    /// How many starter files the open wrote: none unless the folder was new.
+    starter_files_written: usize,
 }
 
 impl Shared {
@@ -1279,6 +1281,7 @@ impl Core {
     ) -> Result<Arc<Self>, BridgeError> {
         let root = PathBuf::from(path);
         let library = aralo_core::Core::open(&root)?;
+        let starter_files_written = library.starter_files_written();
         let matcher = Arc::new(Mutex::new(library.engine()));
         let cache = cache.map(PathBuf::from);
         let counters = Counters::shared(cache.as_deref());
@@ -1307,6 +1310,7 @@ impl Core {
             counters,
             start,
             model: Mutex::new(None),
+            starter_files_written,
         });
         let engine = Arc::new(Engine {
             matcher,
@@ -1933,6 +1937,13 @@ impl Core {
             .into_iter()
             .map(|recent| recent.id.to_string())
             .collect()
+    }
+
+    /// How many starter snippet files opening the library wrote. Nonzero only
+    /// when the folder was new, so the first run can say whether the snippets
+    /// in it are Aralo's or the user's own.
+    pub fn starter_files_written(&self) -> u32 {
+        u32::try_from(self.shared.starter_files_written).unwrap_or(u32::MAX)
     }
 
     /// Why there is no search index, when there is none. Recents, usage

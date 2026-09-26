@@ -75,6 +75,7 @@ struct ConflictResolverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $resolver.edited)
+                .accessibilityLabel("The Version to Keep")
                 .font(.body.monospaced())
                 .scrollContentBackground(.hidden)
                 .padding(6)

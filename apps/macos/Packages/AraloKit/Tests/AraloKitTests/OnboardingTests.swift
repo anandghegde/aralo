@@ -11,7 +11,7 @@ final class OnboardingTests: XCTestCase {
         )
     }
 
-    func testAFreshUserWalksAllFourStepsAndWaitsAtEachPermission() {
+    func testAFreshUserWalksEveryStepAndWaitsAtEachPermission() {
         var flow = OnboardingFlow()
         XCTAssertEqual(flow.step, .privacy)
         XCTAssertTrue(flow.advance(facts()))
@@ -25,16 +25,58 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(flow.step, .inputMonitoring)
         XCTAssertFalse(flow.advance(facts(accessibility: true)))
 
-        XCTAssertTrue(flow.advance(facts(accessibility: true, inputMonitoring: true)))
+        let granted = facts(accessibility: true, inputMonitoring: true)
+        XCTAssertTrue(flow.advance(granted))
+        XCTAssertEqual(flow.step, .library)
+        XCTAssertEqual(flow.position, 4)
+        XCTAssertTrue(flow.advance(granted))
+        XCTAssertEqual(flow.step, .aiOptIn, "AI is offered, and Continue passes it by")
+        XCTAssertTrue(flow.advance(granted))
         XCTAssertEqual(flow.step, .tryIt)
+        XCTAssertEqual(flow.position, flow.steps.count)
         XCTAssertTrue(flow.isLast)
-        XCTAssertFalse(flow.advance(facts(accessibility: true, inputMonitoring: true)), "the flow is over")
+        XCTAssertFalse(flow.advance(granted), "the flow is over")
+    }
+
+    func testTheSetUpScreensAreNotSkippedWhenEverythingIsGranted() {
+        var flow = OnboardingFlow()
+        flow.advance(facts(accessibility: true, inputMonitoring: true))
+        XCTAssertEqual(flow.step, .library)
+        flow.back()
+        XCTAssertEqual(flow.step, .inputMonitoring)
+    }
+
+    func testAReturningUserIsOnlyAskedForWhatWasRevoked() {
+        var flow = OnboardingFlow(startingAt: .accessibility, returning: true)
+        XCTAssertEqual(flow.steps, [.privacy, .accessibility, .inputMonitoring, .tryIt])
+        XCTAssertTrue(flow.advance(facts(accessibility: true, inputMonitoring: true)))
+        XCTAssertEqual(flow.step, .tryIt, "no library or AI screen the second time")
+        flow.back()
+        XCTAssertEqual(flow.step, .inputMonitoring)
+        XCTAssertEqual(flow.position, 3)
+    }
+
+    func testTheLibraryScreenSaysWhoseSnippetsTheyAre() {
+        let folder = URL(fileURLWithPath: "/Volumes/Work/Snippets")
+        let made = OnboardingLibrary(snippetCount: 12, starterFiles: 5, folder: folder)
+        XCTAssertTrue(made.summary.hasPrefix("Aralo made your library and put 12 snippets"), made.summary)
+        let own = OnboardingLibrary(snippetCount: 1, starterFiles: 0, folder: folder)
+        XCTAssertEqual(own.summary, "Your library already has 1 snippet.")
+        let empty = OnboardingLibrary(snippetCount: 0, starterFiles: 0, folder: folder)
+        XCTAssertTrue(empty.summary.hasPrefix("Your library is empty."), empty.summary)
+        XCTAssertEqual(made.displayPath, "/Volumes/Work/Snippets")
+
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let inHome = OnboardingLibrary(
+            snippetCount: 0, starterFiles: 0, folder: home.appendingPathComponent("Aralo Snippets")
+        )
+        XCTAssertEqual(inHome.displayPath, "~/Aralo Snippets")
     }
 
     func testWhatIsAlreadyGrantedIsNotAskedFor() {
         var flow = OnboardingFlow()
         flow.advance(facts(accessibility: true, inputMonitoring: true))
-        XCTAssertEqual(flow.step, .tryIt)
+        XCTAssertEqual(flow.step, .library)
 
         flow = OnboardingFlow()
         flow.advance(facts(accessibility: true))
@@ -51,7 +93,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(flow.canContinue(facts(accessibility: true, tapRunning: true)))
         flow = OnboardingFlow()
         flow.advance(facts(accessibility: true, tapRunning: true))
-        XCTAssertEqual(flow.step, .tryIt)
+        XCTAssertEqual(flow.step, .library)
     }
 
     func testTheFlowOpensAtTheStartOnceAndLaterOnlyAtWhatWasRevoked() {

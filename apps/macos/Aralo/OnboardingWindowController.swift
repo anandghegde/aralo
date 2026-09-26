@@ -11,18 +11,25 @@ final class OnboardingModel {
     private(set) var flow: OnboardingFlow
     private(set) var facts: OnboardingFlow.Facts
     private(set) var example: OnboardingExample?
+    private(set) var library: OnboardingLibrary
     private(set) var pauseShortcut: String?
     var trialText = ""
 
     @ObservationIgnored private let service: AraloService
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored var onFinish: (() -> Void)?
+    /// Opens the library window's import panel. What comes in shows up on
+    /// the library screen at the next poll.
+    @ObservationIgnored var onImport: (() -> Void)?
+    /// Opens the AI tab of Settings. The flow never turns AI on itself.
+    @ObservationIgnored var onSetUpAI: (() -> Void)?
 
-    init(service: AraloService, startingAt step: OnboardingStep) {
+    init(service: AraloService, startingAt step: OnboardingStep, returning: Bool = false) {
         self.service = service
-        flow = OnboardingFlow(startingAt: step)
+        flow = OnboardingFlow(startingAt: step, returning: returning)
         facts = Self.facts(of: service)
         example = service.onboardingExample
+        library = service.onboardingLibrary
         pauseShortcut = service.pauseShortcut?.display
     }
 
@@ -48,6 +55,12 @@ final class OnboardingModel {
     private func refresh() {
         let latest = Self.facts(of: service)
         if latest != facts { facts = latest }
+        // An import can change both the count and which snippet to try.
+        let latestLibrary = service.onboardingLibrary
+        if latestLibrary != library {
+            library = latestLibrary
+            example = service.onboardingExample
+        }
         if example == nil { example = service.onboardingExample }
     }
 
@@ -59,6 +72,10 @@ final class OnboardingModel {
     }
 
     func back() { flow.back() }
+
+    func importSnippets() { onImport?() }
+    func setUpAI() { onSetUpAI?() }
+    func showLibraryInFinder() { NSWorkspace.shared.activateFileViewerSelecting([library.folder]) }
 
     /// The first click shows the system prompt. macOS shows it only once, so
     /// every click also opens the right pane of System Settings.
@@ -74,8 +91,18 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 
     private let model: OnboardingModel
 
-    init(service: AraloService, startingAt step: OnboardingStep) {
-        model = OnboardingModel(service: service, startingAt: step)
+    var onImport: (() -> Void)? {
+        get { model.onImport }
+        set { model.onImport = newValue }
+    }
+
+    var onSetUpAI: (() -> Void)? {
+        get { model.onSetUpAI }
+        set { model.onSetUpAI = newValue }
+    }
+
+    init(service: AraloService, startingAt step: OnboardingStep, returning: Bool = false) {
+        model = OnboardingModel(service: service, startingAt: step, returning: returning)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false
@@ -110,7 +137,8 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-private struct OnboardingView: View {
+/// Internal rather than private so the accessibility audit can draw it.
+struct OnboardingView: View {
     @Bindable var model: OnboardingModel
 
     var body: some View {
@@ -122,7 +150,7 @@ private struct OnboardingView: View {
                     Button("Back") { model.back() }
                 }
                 Spacer()
-                Text("Step \(model.flow.step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                Text("Step \(model.flow.position) of \(model.flow.steps.count)")
                     .foregroundStyle(.secondary)
                 Button(model.flow.isLast ? "Done" : "Continue") { model.proceed() }
                     .keyboardShortcut(.defaultAction)
@@ -160,6 +188,10 @@ private struct OnboardingView: View {
                     """,
                 granted: model.canContinue
             ) { model.grant(.inputMonitoring) }
+        case .library:
+            library
+        case .aiOptIn:
+            aiOptIn
         case .tryIt:
             tryIt
         }
@@ -181,6 +213,44 @@ private struct OnboardingView: View {
         }
     }
 
+    private var library: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your snippets").font(.title2).bold()
+            Text(model.library.summary)
+            HStack(spacing: 8) {
+                Label(model.library.displayPath, systemImage: "folder")
+                    .lineLimit(1).truncationMode(.middle)
+                    .accessibilityLabel("Library folder: \(model.library.displayPath)")
+                Button("Show in Finder") { model.showLibraryInFinder() }
+            }
+            Text("""
+                Each snippet is a plain file in this folder. Keep the folder in iCloud Drive, Dropbox or \
+                a Git repository to have the same snippets on every Mac.
+                """)
+                .foregroundStyle(.secondary)
+            Divider()
+            Text("Coming from another app? Bring its snippets in from an export.")
+            Button("Import Snippets…") { model.importSnippets() }
+        }
+    }
+
+    private var aiOptIn: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AI, if you want it").font(.title2).bold()
+            Text("""
+                Aralo can draft text and run commands on selected text with a model you choose: one on \
+                this Mac, or a provider you have a key for.
+                """)
+            Label("AI is off until you turn it on.", systemImage: "power")
+            Label("Nothing is sent to a model until you do.", systemImage: "wifi.slash")
+            Label("Before anything is sent, Aralo shows what it is and where it goes.", systemImage: "eye")
+            HStack {
+                Button("Set Up AI…") { model.setUpAI() }
+                Text("or press Continue to leave it off.").foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var tryIt: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Try it").font(.title2).bold()
@@ -194,6 +264,7 @@ private struct OnboardingView: View {
             }
             TextEditor(text: $model.trialText)
                 .font(.title3)
+                .accessibilityLabel("Try-it field")
                 .frame(height: 120)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
             if model.worked {
@@ -215,7 +286,7 @@ private struct OnboardingView: View {
     }
 }
 
-private struct PermissionPage: View {
+struct PermissionPage: View {
     let title: String
     let why: String
     let how: String
@@ -232,7 +303,7 @@ private struct PermissionPage: View {
             } else {
                 Button("Open System Settings…", action: grant)
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).accessibilityHidden(true)
                     Text("Waiting for you to switch it on…").foregroundStyle(.secondary)
                 }
             }

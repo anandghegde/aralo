@@ -1,0 +1,118 @@
+import AppKit
+@testable import Aralo
+import AraloBridge
+import AraloKit
+import SwiftUI
+import XCTest
+
+/// The plan's accessibility check (section 8, task 5.9): every panel the app
+/// shows, drawn with real content, has no element VoiceOver could only read
+/// out by its role. The audit is `AccessibilityAudit`; this is the list of
+/// panels it runs over.
+@MainActor
+final class PanelAccessibilityTests: XCTestCase {
+    private var folder: URL!
+    private var cache: URL!
+    private var core: Core!
+
+    override func setUpWithError() throws {
+        let run = UUID().uuidString
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-a11y-\(run)")
+        cache = FileManager.default.temporaryDirectory.appendingPathComponent("aralo-a11y-\(run)-cache")
+        // A new folder, so the core writes the starter snippets and the
+        // panels have something in them to draw.
+        core = try Core.openLibrary(path: folder.path, cache: cache.path, events: nil, trash: nil)
+    }
+
+    override func tearDownWithError() throws {
+        core = nil
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.removeItem(at: cache)
+    }
+
+    /// Draws a view in a window of the size its controller gives it and fails
+    /// on anything unnamed, with the tree VoiceOver sees to find it in.
+    private func assertLabelled(
+        _ view: some View, width: CGFloat, height: CGFloat, _ panel: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled],
+            backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: view.frame(width: width, height: height))
+        defer { window.close() }
+        let findings = AccessibilityAudit.unlabelled(in: window)
+        guard !findings.isEmpty, let content = window.contentView else { return }
+        let tree = AccessibilityAudit.outline(content).joined(separator: "\n")
+        XCTFail("\(panel): \(findings)\n\(tree)", file: file, line: line)
+    }
+
+    private func profiles() throws -> AiProfiles {
+        try AiProfiles.open(path: cache.appendingPathComponent("profiles.toml").path, keys: .memory)
+    }
+
+    func testEveryOnboardingScreen() {
+        let service = AraloService(libraryURL: folder, cacheURL: cache)
+        for step in OnboardingStep.allCases {
+            let model = OnboardingModel(service: service, startingAt: step)
+            assertLabelled(OnboardingView(model: model), width: 520, height: 420, "\(step)")
+        }
+    }
+
+    func testTheLibraryWindowWithASnippetOpen() throws {
+        let store = LibraryStore(core: core)
+        let first = try XCTUnwrap(core.snippets().first)
+        store.select(snippet: first.id)
+        assertLabelled(LibraryView(store: store, root: folder), width: 960, height: 600, "library")
+    }
+
+    func testTheAISettingsWithAProfileBeingAdded() throws {
+        let store = AISettingsStore(settings: try profiles())
+        assertLabelled(AISettingsView(store: store), width: 760, height: 560, "AI settings")
+        store.newProfile()
+        assertLabelled(AISettingsView(store: store), width: 760, height: 560, "new profile")
+    }
+
+    func testThePalette() {
+        let store = PaletteStore(core: core, inserter: NoInserter())
+        assertLabelled(
+            PaletteView(store: store, focus: PaletteFocus(), insert: {}, cancel: {}), width: 640, height: 400,
+            "palette"
+        )
+    }
+
+    func testTheCommandPanel() throws {
+        let command = AiCommand(
+            id: "01K5C0MMANDS00000000000001", label: "Fix spelling and grammar",
+            instruction: "Fix it.", tags: [], profile: nil, model: nil, builtin: true
+        )
+        let store = CommandStore(
+            commands: [command], selection: .success("their going home"), runner: try profiles(),
+            access: NoSelection()
+        )
+        assertLabelled(CommandView(store: store, replace: {}, escape: {}), width: 640, height: 440, "commands")
+    }
+
+    func testTheEditorsAISheet() throws {
+        let store = AuthoringStore(
+            action: .proofread, replacing: "their going", range: NSRange(location: 0, length: 11),
+            runner: try profiles()
+        )
+        assertLabelled(
+            AuthoringSheet(store: store, replace: { _ in true }, close: {}), width: 560, height: 420, "AI sheet"
+        )
+    }
+}
+
+/// The palette's way into another app, which these tests never take.
+private struct NoInserter: SnippetInserter {
+    func insert(snippetId: String) async -> InsertFailure? { nil }
+}
+
+/// The command panel's way to the selection, which these tests never take.
+private struct NoSelection: SelectionAccess {
+    func read() async -> Result<String, SelectionFailure> { .success("") }
+    func replace(with text: String) async -> SelectionFailure? { nil }
+}

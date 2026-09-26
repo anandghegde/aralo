@@ -65,6 +65,24 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSHumanReadableCopyright: "Apache-2.0. Aralo contributors."
 
+  # Tests that need the app's own views: the accessibility audit of every
+  # panel (task 5.9). They run inside Aralo, which starts nothing under XCTest.
+  AraloTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: AraloTests
+    # Not AraloKit itself: linked twice, Xcode would make it a framework of
+    # its own. The tests reach it through the app they run in.
+    dependencies:
+      - target: Aralo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.aralo.AraloTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Aralo.app/Contents/MacOS/Aralo"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
 schemes:
   Aralo:
     build:
@@ -72,3 +90,7 @@ schemes:
         Aralo: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - AraloTests

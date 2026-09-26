@@ -144,6 +144,7 @@ struct BodyEditor: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: item.isError ? "exclamationmark.triangle.fill" : "info.circle")
                             .foregroundStyle(item.isError ? .red : .orange)
+                            .accessibilityLabel(item.isError ? "Error" : "Note")
                         Text(item.message)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -213,6 +214,7 @@ private struct HighlightingTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let view = NSTextView(usingTextLayoutManager: true)
         view.delegate = context.coordinator
+        view.setAccessibilityLabel("Body")
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false

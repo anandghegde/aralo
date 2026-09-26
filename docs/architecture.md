@@ -108,12 +108,27 @@ Accessibility being taken away, and then takes the tap down, empties the
 engine and goes back to waiting. A tap left up without the grant can stall the
 keyboard.
 
-The first run is four screens: what Aralo reads and never keeps,
-Accessibility, Input Monitoring, and a field to try a snippet in. Each
-permission screen says what the system prompt will look like before it
-appears, and enables Continue when the grant arrives. The rules are
+The first run is six screens (task 5.4): what Aralo reads and never keeps,
+Accessibility, Input Monitoring, the library, AI, and a field to try a
+snippet in. Each permission screen says what the system prompt will look like
+before it appears, and enables Continue when the grant arrives. The rules are
 `OnboardingFlow` in AraloKit, a value type with tests; the window in the app
 target only draws it.
+
+- The library screen says whose snippets are in the folder. `Core` counts
+  the starter files it wrote as it opened a new folder
+  (`starter_files_written()` over the bridge), so the screen can tell "Aralo
+  made your library and put 12 snippets in it" from "Your library already has
+  40 snippets". It shows the folder, with Show in Finder, and Import
+  Snippets…, which opens the library window's import panel. The count is
+  polled, so an import shows up on the screen. Choosing or moving the folder
+  is Settings' business (task 5.2); the screen only points at it.
+- The AI screen is an offer. AI stays off until the user turns it on, and the
+  screen says so. Set Up AI… opens the AI tab of Settings; Continue passes the
+  screen by and changes nothing.
+- Only permission screens are skipped when their grant is there. The library
+  and AI screens are set-up screens: a returning user, brought back because a
+  grant was revoked, sees only the permission screens and the try-it field.
 
 - Input Monitoring counts as granted when the tap is running.
   `CGPreflightListenEventAccess` can go on answering "no" inside a process
@@ -1212,6 +1227,34 @@ the suite against a real Ollama and a real llama.cpp server in containers, and
 `conformance-nightly.yml` runs every hosted endpoint whose key is a
 repository secret (`scripts/conformance-hosted.sh`).
 
+## Accessibility
+
+Every panel is checked for controls VoiceOver could only read out by role
+(task 5.9). `AccessibilityAudit` in AraloKit walks the same element tree
+VoiceOver reads, from inside the process, and returns each button, box,
+picker or image with no label, no title, no placeholder and no form-row title
+element. A name that is a raw SF Symbol name ("text.magnifyingglass") counts
+as none, because that is what VoiceOver would spell out.
+
+- SwiftUI builds its elements only once an assistive client says it is
+  listening. The audit sets `AXEnhancedUserInterface` on the app, as
+  VoiceOver does, orders the window in off screen and lets the run loop turn.
+- Its elements answer the NSAccessibility getters without declaring the
+  protocol, so the audit asks by selector.
+- `AraloTests`, a test bundle hosted in the app (`make test-app`), draws each
+  panel with real content: every onboarding screen, the library window with a
+  snippet open, AI settings with and without a profile being added, the
+  palette, the command panel and the editor's AI sheet. Each must audit
+  clean. Under XCTest the app starts nothing: no library, tap or first run.
+- Rows in the palette and the command panel read as one button, say when they
+  are selected, and have an action that inserts or runs, like a double click.
+  Groups and snippets that are switched off say so, not only by dimming.
+- Reduce Motion makes the palette jump to the selected row instead of
+  scrolling to it. Increase Contrast makes the selected-row highlight solid.
+- macOS has no Dynamic Type for these views. Text uses the system text
+  styles, so it follows the text-size settings SwiftUI honours; several
+  panels have fixed frames and are not checked at large sizes.
+
 ## Local counters and the diagnostics report
 
 Aralo sends nothing about how it is used (PRD P8). It counts on the machine
@@ -1285,7 +1328,7 @@ the event tap.
 | Object | Calls | Kind |
 | --- | --- | --- |
 | `Engine` | `on_key(KeyInput) -> KeyAction`, `insert(snippet_id, into_app) -> InsertOutcome`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
-| `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
+| `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `starter_files_written()`, `index_problem()` | Synchronous |
 | `Core`, search by meaning | `use_model(folder, ai)`: the embedding model, loaded and the library embedded on the indexer thread while the switch in `ai` (an `AiProfiles`) is on, dropped while it is off; `meaning_problem()`; `wait_for_index()` for tests. A hit found by meaning has `SearchField.meaning` | Synchronous; the work is on the indexer thread |
 | `Core`, editing | `create_snippet`, `save_snippet`, `save_snippet_since(id, opened, draft) -> SaveOutcome` (`Written { id }` or `Clashed { clash }`), `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
 | `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `outline_draft(body)`, `try_draft(draft, group, editing?) -> DraftTrial`, `recents(limit)` | Synchronous |

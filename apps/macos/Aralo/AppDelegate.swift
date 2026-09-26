@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The panel tests run inside the app. They draw its views against
+        // folders of their own, so the real library, the key tap and the
+        // first run stay shut.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         let statusMenu = StatusMenuController(service: service)
         statusMenu.onSetUp = { [weak self] in self?.showOnboarding(fromMenu: true) }
         statusMenu.onShowLibrary = { [weak self] in self?.showLibrary() }
@@ -113,7 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let entry = OnboardingFlow.entryPoint(completedBefore: completed, facts: facts)
         guard let step = entry ?? (fromMenu ? .tryIt : nil) else { return }
         onboarding?.close()
-        let controller = OnboardingWindowController(service: service, startingAt: step)
+        let controller = OnboardingWindowController(service: service, startingAt: step, returning: completed)
+        controller.onImport = { [weak self] in self?.libraryWindow()?.chooseImport() }
+        controller.onSetUpAI = { [weak self] in self?.showSettings() }
         onboarding = controller
         controller.show()
     }

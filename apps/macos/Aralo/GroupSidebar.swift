@@ -110,6 +110,12 @@ private struct GroupRow: View {
         }
         .opacity(node.enabled ? 1 : 0.45)
         .help(node.enabled ? "" : "This group is switched off: nothing in it expands.")
+        // Dimmed is how the eye sees that a group is off; VoiceOver says so.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(node.isRoot ? "All Snippets" : node.name)
+        .accessibilityValue(
+            (node.total == 1 ? "1 snippet" : "\(node.total) snippets") + (node.enabled ? "" : ", switched off")
+        )
     }
 }
 

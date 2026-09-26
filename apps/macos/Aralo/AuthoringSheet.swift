@@ -30,7 +30,7 @@ struct AuthoringSheet: View {
             Label(store.label, systemImage: "sparkles").font(.title3.weight(.semibold))
             Spacer()
             if store.phase == .running {
-                ProgressView().controlSize(.small)
+                ProgressView().controlSize(.small).accessibilityLabel("Writing")
             }
         }
         .padding(.horizontal, 16)
@@ -85,6 +85,7 @@ struct AuthoringSheet: View {
             }
             if store.isEditing {
                 TextEditor(text: $store.draft)
+                    .accessibilityLabel("Draft")
                     .font(.body.monospaced())
                     .focused($editing)
                     .padding(12)
