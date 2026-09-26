@@ -7,8 +7,8 @@ use aralo_ffi::{
     BodyProblem, BridgeError, ConflictChoice, ContextNeed, ContextSupply, Core, CoreEvents,
     DeleteStrategy, DiagnosticLevel, ImportSettings, InsertChoice, InsertMethod, InsertOutcome,
     InsertRefusal, KeyAction, KeyInput, LibraryEvent, MacroHandling, PlanKey, PlanStep,
-    ResetReason, SearchQuery, SessionAction, SnippetDraft, SnippetType, Trash, TrialAction,
-    TrialField, UndoStyle,
+    ResetReason, SaveOutcome, SearchQuery, SessionAction, SnippetDraft, SnippetType, Trash,
+    TrialAction, TrialField, UndoStyle,
 };
 
 /// How long a test waits for the watch and the indexer. Long enough that a
@@ -752,6 +752,60 @@ fn a_snippet_the_shell_writes_is_a_file_and_expands() {
     assert!(core.snippet(id).is_none());
     assert!(!root.join(&detail.path).exists());
     assert!(shell.heard().contains(&LibraryEvent::Edited));
+}
+
+#[test]
+fn a_save_keeps_a_change_made_on_disk_and_hands_back_a_clash() {
+    let (_folder, core) = open();
+    let id = core
+        .create_snippet(
+            vec!["Work".into()],
+            draft("Address", ";addr", "1 Long Road\nTown"),
+        )
+        .unwrap();
+    let root = std::path::PathBuf::from(core.library_path());
+    let detail = core.snippet(id.clone()).unwrap();
+    let file = root.join(&detail.path);
+    let opened = detail.draft.clone();
+
+    // Another Mac renames it while this one's editor has it open.
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, text.replace("label: Address", "label: Home address")).unwrap();
+    let mut mine = opened.clone();
+    mine.body = "1 Long Road\nCity".into();
+    let SaveOutcome::Written { id: saved } = core
+        .save_snippet_since(id.clone(), opened.clone(), mine.clone())
+        .unwrap()
+    else {
+        panic!("a clean merge clashed");
+    };
+    assert_eq!(saved, id);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("label: Home address"), "{text}");
+    assert!(text.contains("City"), "{text}");
+
+    // Then changes the line this one changes too.
+    let opened = core.snippet(id.clone()).unwrap().draft;
+    std::fs::write(&file, text.replace("City", "Village")).unwrap();
+    let mut mine = opened.clone();
+    mine.body = "1 Long Road\nHamlet".into();
+    let SaveOutcome::Clashed { clash } = core
+        .save_snippet_since(id.clone(), opened, mine.clone())
+        .unwrap()
+    else {
+        panic!("a clash was written");
+    };
+    assert!(clash.body_clashes);
+    assert!(clash.disk_text.contains("Village"));
+    assert!(clash.mine_text.contains("Hamlet"));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("Village"));
+
+    let disk = clash.disk.expect("the file reads");
+    assert!(matches!(
+        core.save_snippet_since(id, disk, mine).unwrap(),
+        SaveOutcome::Written { .. }
+    ));
+    assert!(std::fs::read_to_string(&file).unwrap().contains("Hamlet"));
 }
 
 #[test]

@@ -4,8 +4,9 @@
 //! `snippets_fts` is derived from them and can be thrown away and rebuilt. Three
 //! tables are not: `stats` counts expansions, `vectors` holds embeddings that
 //! cost real time to compute, and `bases` holds the last version of each
-//! snippet this machine saw, which is what a conflict copy is merged against.
-//! None is touched by a rebuild and none is ever synced between machines.
+//! snippet this machine saw and did not save itself, which is what a conflict
+//! copy is merged against (`saves` is how it tells). None is touched by a
+//! rebuild and none is ever synced between machines.
 //!
 //! Expansion does not read the index. Abbreviations reach the engine through
 //! [`Library::snapshot`], which needs only the loaded files, so a cold rebuild
@@ -32,7 +33,7 @@ use crate::{Library, LoadedSnippet};
 
 /// Bumped whenever a derived table changes shape. An index written by an older
 /// Aralo is dropped and rebuilt rather than migrated: it is a cache.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Column weights for `bm25`, in the order the FTS table declares them. An
 /// abbreviation is what the user types, so it outranks a label, and both
@@ -207,12 +208,20 @@ impl Index {
              ) STRICT;
 
              -- The merge base of each snippet: the file as it last stood when
-             -- no conflict copy was waiting beside it (ADR-0006). `hash` is of
-             -- the bytes on disk, so a file nobody touched is not written again.
+             -- no conflict copy was waiting beside it and this machine had not
+             -- just saved it itself (ADR-0006). `hash` is of the bytes on disk,
+             -- so a file nobody touched is not written again.
              CREATE TABLE IF NOT EXISTS bases (
                  id   TEXT PRIMARY KEY,
                  hash TEXT NOT NULL,
                  text TEXT NOT NULL
+             ) STRICT;
+
+             -- The hash of the last file this machine saved for each snippet,
+             -- so that its own edit is still known for one after a restart.
+             CREATE TABLE IF NOT EXISTS saves (
+                 id   TEXT PRIMARY KEY,
+                 hash TEXT NOT NULL
              ) STRICT;
 
              PRAGMA user_version = {SCHEMA_VERSION};
@@ -619,16 +628,22 @@ fn write_groups(transaction: &Transaction<'_>, library: &Library) -> Result<(), 
 /// waiting beside it: until that is settled, neither side is the version both
 /// machines last agreed on. A file with no `id` has no identity for a copy to
 /// share, so it has no base either. Bases of snippets that have gone go too.
+///
+/// A file this machine saved itself does not become the base either, once
+/// there is one. Its edit may not have reached any other machine yet, and a
+/// conflict copy is the proof that one did not: merged against a base that
+/// already holds this machine's edit, the other side would look like it had
+/// undone it, and win. The older base can only make a clash of what would
+/// have merged, never lose an edit. The next version to arrive from outside
+/// becomes the base, since whoever wrote it had seen everything before it.
 fn write_bases(transaction: &Transaction<'_>, library: &Library) -> Result<(), IndexError> {
-    let mut known: HashMap<String, String> = HashMap::new();
-    {
-        let mut statement = transaction.prepare("SELECT id, hash FROM bases")?;
+    let pairs = |sql: &str| -> Result<HashMap<String, String>, IndexError> {
+        let mut statement = transaction.prepare(sql)?;
         let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        for row in rows {
-            let (id, hash) = row?;
-            known.insert(id, hash);
-        }
-    }
+        Ok(rows.collect::<Result<_, _>>()?)
+    };
+    let mut known = pairs("SELECT id, hash FROM bases")?;
+    let saves = pairs("SELECT id, hash FROM saves")?;
     for snippet in library.snippets() {
         let id = snippet.id.to_string();
         let hash = snippet.source_hash.to_hex().to_string();
@@ -638,6 +653,21 @@ fn write_bases(transaction: &Transaction<'_>, library: &Library) -> Result<(), I
         }
         if stored.as_deref() == Some(hash.as_str()) {
             continue;
+        }
+        let own = library.writes().saved(&snippet.source_hash)
+            || saves.get(&id).is_some_and(|saved| *saved == hash);
+        if own {
+            transaction
+                .prepare_cached(
+                    "INSERT INTO saves (id, hash) VALUES (?1, ?2)
+                     ON CONFLICT(id) DO UPDATE SET hash = excluded.hash",
+                )?
+                .execute(params![id, hash])?;
+            // With no base at all, the first version this machine knows is
+            // the one every later edit, here or elsewhere, grows from.
+            if stored.is_some() {
+                continue;
+            }
         }
         let Ok(text) = snippet.file.to_file_string() else {
             continue;
@@ -652,6 +682,9 @@ fn write_bases(transaction: &Transaction<'_>, library: &Library) -> Result<(), I
     for id in known.keys() {
         transaction
             .prepare_cached("DELETE FROM bases WHERE id = ?1")?
+            .execute(params![id])?;
+        transaction
+            .prepare_cached("DELETE FROM saves WHERE id = ?1")?
             .execute(params![id])?;
     }
     Ok(())

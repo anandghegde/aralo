@@ -81,8 +81,9 @@ final class LibraryWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Closing the window is not a way to throw work away: what was typed into
-    /// the open snippet is written, the same as moving off it in the list.
-    func windowWillClose(_ notification: Notification) {
-        store.attempt { try $0.save() }
+    /// the open snippet is written, the same as moving off it in the list. A
+    /// save that clashed with a change on disk keeps the window open on it.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        store.leave()
     }
 }

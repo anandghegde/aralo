@@ -452,6 +452,43 @@ fn a_merge_base_is_the_last_settled_version_and_waits_out_a_conflict() {
 }
 
 #[test]
+fn a_save_made_here_is_not_a_base_even_after_a_restart() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    let cache = tempfile::tempdir().unwrap();
+    let at = cache.path().join("index.sqlite3");
+    let library = library(root);
+    let mut index = Index::open(&at).unwrap();
+    index.sync(&library).unwrap();
+    let id = "01J8ZK3V5Q8W6T9X2N4R7M0AA1".parse().unwrap();
+
+    // This machine saves an edit. No other machine may have it yet, so the
+    // base stays the version both last had.
+    let mut file = library.snippet(id).unwrap().file.clone();
+    file.body = "Best,\nSam".to_owned();
+    library
+        .write_snippet(Path::new("Work/best-regards.md"), &file)
+        .unwrap();
+    index.sync(&library.reload().unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Best regards,\nSam");
+
+    // Nor after a restart, when the library no longer remembers the save.
+    drop(index);
+    let mut index = Index::open(&at).unwrap();
+    index.sync(&Library::load(root).unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Best regards,\nSam");
+
+    // A version from outside is what everyone has now, and becomes the base.
+    write(
+        root,
+        "Work/best-regards.md",
+        "---\nid: 01J8ZK3V5Q8W6T9X2N4R7M0AA1\nlabel: Best regards\nabbr: \";br\"\n---\nCheers,\nSam\n",
+    );
+    index.sync(&Library::load(root).unwrap()).unwrap();
+    assert_eq!(index.base(id).unwrap().unwrap().body, "Cheers,\nSam");
+}
+
+#[test]
 fn vectors_are_kept_per_model_and_pruned_to_what_is_asked_for() {
     let mut index = Index::open_in_memory().unwrap();
     let a = (String::from("hash-a"), vec![1u8, 2, 3, 4]);

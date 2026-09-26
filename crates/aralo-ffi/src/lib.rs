@@ -1301,6 +1301,35 @@ impl Core {
     }
 }
 
+/// What a save from the editor came to.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum SaveOutcome {
+    /// The draft is in the file, with any change made on disk since merged
+    /// in. `id` differs from the one saved only for a hand-written file that
+    /// carried none until now.
+    Written { id: String },
+    /// The file changed on disk where the draft did. Nothing was written.
+    Clashed { clash: SaveClash },
+}
+
+/// A draft and the file under it that both changed one thing, differently.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SaveClash {
+    /// The file as it is on disk now.
+    pub disk_text: String,
+    /// Its fields as the editor would open them; nil when it no longer reads
+    /// as a snippet.
+    pub disk: Option<SnippetDraft>,
+    /// The file as the draft would have written it.
+    pub mine_text: String,
+    /// The file as it stood when the editor opened.
+    pub base_text: String,
+    /// Front-matter keys both changed, differently.
+    pub clashing_keys: Vec<String>,
+    /// Both changed the same lines of the body.
+    pub body_clashes: bool,
+}
+
 /// A conflict copy waiting for the user.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ConflictSummary {
@@ -1452,6 +1481,39 @@ impl Core {
             .runtime
             .edit(|core| core.save_snippet(id, &draft))?;
         Ok(saved.to_string())
+    }
+
+    /// Writes `draft` over the snippet `id`, keeping whatever changed in its
+    /// file since the editor opened it on `opened` (plan 5.1). A change on
+    /// disk that touched what the draft touched writes nothing and comes back
+    /// as `Clashed`; saving again with `opened` set to the clash's `disk`
+    /// keeps the draft.
+    pub fn save_snippet_since(
+        &self,
+        id: String,
+        opened: SnippetDraft,
+        draft: SnippetDraft,
+    ) -> Result<SaveOutcome, BridgeError> {
+        let id = snippet_id(&id)?;
+        let opened = Draft::from(&opened);
+        let draft = Draft::from(&draft);
+        let saved = self
+            .shared
+            .runtime
+            .edit(|core| core.save_snippet_since(id, &opened, &draft))?;
+        Ok(match saved {
+            aralo_core::Saved::Written(id) => SaveOutcome::Written { id: id.to_string() },
+            aralo_core::Saved::Clashed(clash) => SaveOutcome::Clashed {
+                clash: SaveClash {
+                    disk_text: clash.disk_text,
+                    disk: clash.disk.as_ref().map(SnippetDraft::from),
+                    mine_text: clash.mine_text,
+                    base_text: clash.base_text,
+                    clashing_keys: clash.clashes.keys,
+                    body_clashes: clash.clashes.body,
+                },
+            },
+        })
     }
 
     /// Removes a snippet's file. It is unlinked, not put in the trash: a shell

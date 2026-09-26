@@ -43,6 +43,11 @@ public final class LibraryStore {
     /// that works clears it.
     public private(set) var failure: String?
 
+    /// A save that found the file changed on disk where the draft changed
+    /// it. Nothing was written, and the draft stays on screen until the user
+    /// picks one of the ways out below.
+    public internal(set) var clash: EditClash?
+
     /// The sync conflict copies that did not merge on their own and wait for
     /// the user, in path order.
     public private(set) var conflicts: [ConflictSummary] = []
@@ -58,7 +63,7 @@ public final class LibraryStore {
     /// What runs the editor's AI actions. Nil leaves the AI menu out.
     @ObservationIgnored public var writer: AuthoringRunner?
 
-    @ObservationIgnored private let core: Core
+    @ObservationIgnored let core: Core
 
     public init(core: Core, onTestFieldKeyboard: (@MainActor (Bool) -> Void)? = nil) {
         self.core = core
@@ -98,6 +103,7 @@ public final class LibraryStore {
     /// Opens a snippet in the editor. Passing nil clears it. Unsaved edits are
     /// dropped: the window asks first.
     public func select(snippet id: String?) {
+        clash = nil
         guard let id, let detail = core.snippet(id: id) else {
             editing = nil
             return
@@ -220,7 +226,7 @@ public final class LibraryStore {
     /// Puts an import of `source` on screen. What was typed into the open
     /// snippet is written first, so an import never lands under an edit.
     public func beginImport(of source: URL) {
-        attempt { try $0.save() }
+        guard leave() else { return }
         importing = importer(for: source)
     }
 
@@ -282,11 +288,18 @@ public final class LibraryStore {
 
     /// Writes the draft on screen to its file. A save is never blocked by
     /// `problems`: the folder is the user's.
+    ///
+    /// A change made to the file since the editor opened it is merged in; one
+    /// to what the draft changed writes nothing, and `clash` says so.
     public func save() throws {
         guard let editing, editing.isDirty else { return }
-        let id = try core.saveSnippet(id: editing.id, draft: editing.draft)
-        refresh()
-        select(snippet: id)
+        switch try core.saveSnippetSince(id: editing.id, opened: editing.saved, draft: editing.draft) {
+        case .written(let id):
+            refresh()
+            select(snippet: id)
+        case .clashed(let found):
+            clash = EditClash(id: editing.id, name: editing.draft.label, clash: found)
+        }
     }
 
     /// Throws away the edits on screen and shows the file again.

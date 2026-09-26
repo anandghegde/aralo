@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use aralo_library::LoadedSnippet;
+use aralo_library::{merge, Clashes, LoadedSnippet, Merged};
 use aralo_snippet::{
     CaseMode, FrontMatter, GroupFile, SnippetFile, SnippetId, SnippetKind, TriggerMode,
     SNIPPET_EXTENSION,
@@ -52,11 +52,16 @@ pub struct Draft {
 impl Draft {
     /// The draft that opens an editor on a snippet already in the library.
     pub fn of(snippet: &LoadedSnippet) -> Self {
-        let front = &snippet.file.front;
+        Self::of_file(&snippet.file)
+    }
+
+    /// The draft that opens an editor on a snippet file.
+    pub fn of_file(file: &SnippetFile) -> Self {
+        let front = &file.front;
         Self {
             label: front.label.clone(),
             abbr: front.abbr.clone(),
-            body: snippet.file.body.clone(),
+            body: file.body.clone(),
             tags: front.tags.clone(),
             kind: front.kind,
             trigger: front.trigger,
@@ -65,6 +70,15 @@ impl Draft {
             keep_delimiter: front.keep_delimiter,
             enabled: front.enabled,
         }
+    }
+
+    /// `file` with this draft written over it: the front matter as
+    /// [`Draft::apply`] leaves it, and the draft's body.
+    fn over(&self, file: &SnippetFile) -> SnippetFile {
+        let mut file = file.clone();
+        self.apply(&mut file.front);
+        file.body = self.body.clone();
+        file
     }
 
     /// Writes this draft over `front`, leaving every key it says nothing about
@@ -80,6 +94,35 @@ impl Draft {
         front.keep_delimiter = self.keep_delimiter;
         front.enabled = self.enabled;
     }
+}
+
+/// What [`Core::save_snippet_since`] came to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Saved {
+    /// The draft is in the file, with whatever changed on disk since the
+    /// editor opened merged into it. The ID is as [`Core::save_snippet`]
+    /// returns it.
+    Written(SnippetId),
+    /// The file changed on disk since the editor opened, in the same place the
+    /// draft changed it. Nothing was written.
+    Clashed(Box<SaveClash>),
+}
+
+/// A draft and a file that both changed one thing, differently: everything an
+/// editor shows to let the user pick.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveClash {
+    /// The file as it is on disk now.
+    pub disk_text: String,
+    /// The file's fields as an editor would open them, or `None` when the file
+    /// is no longer a snippet Aralo can read.
+    pub disk: Option<Draft>,
+    /// The file as the draft would have written it.
+    pub mine_text: String,
+    /// The file as it stood when the editor opened.
+    pub base_text: String,
+    /// What both sides changed. Empty when the file on disk would not read.
+    pub clashes: Clashes,
 }
 
 /// Something about a draft the editor should say before it is saved.
@@ -160,6 +203,82 @@ impl Core {
         self.library.write_snippet(&path, &file)?;
         self.reload()?;
         Ok(id)
+    }
+
+    /// Writes `draft` over the snippet `id`, keeping whatever changed in its
+    /// file since the editor opened it on `opened`.
+    ///
+    /// The file is read again here rather than taken from the last read of the
+    /// folder, because a sync client can bring down a change inside the
+    /// watcher's debounce, and writing over it would lose someone's work
+    /// without a word. The two are merged in memory the way a conflict copy is
+    /// ([`crate::merge`]): `opened` is the base, the draft is this side and the
+    /// file is the other. A clean merge is written. A clash writes nothing and
+    /// comes back as [`Saved::Clashed`] with both versions, for the editor to
+    /// put in front of the user; saving again with `opened` set to
+    /// [`SaveClash::disk`] keeps the draft.
+    pub fn save_snippet_since(
+        &mut self,
+        id: SnippetId,
+        opened: &Draft,
+        draft: &Draft,
+    ) -> Result<Saved, CoreError> {
+        let snippet = self.snippet_or_error(id)?;
+        let mut relative = snippet.path.clone();
+        let loaded = snippet.file.clone();
+        let mut read = read_snippet_file(&self.root().join(&relative))?;
+        if read.is_none() {
+            // Gone from where the folder last had it. Another Mac may have
+            // moved it to another group; writing it back here would leave two
+            // files with one ID, so the folder is read again to look.
+            self.reload()?;
+            if let Some(moved) = self.library.snippet(id) {
+                if moved.path != relative {
+                    relative = moved.path.clone();
+                    read = read_snippet_file(&self.root().join(&relative))?;
+                }
+            }
+        }
+        let (disk_text, disk) = match read {
+            Some((text, parsed)) => (Some(text), parsed),
+            // Deleted since the folder was read: the save puts it back, as a
+            // save of the last version seen would.
+            None => (None, Some(loaded.clone())),
+        };
+
+        let Some(theirs) = disk else {
+            let base = opened.over(&loaded);
+            return Ok(Saved::Clashed(Box::new(SaveClash {
+                disk_text: disk_text.unwrap_or_default(),
+                disk: None,
+                mine_text: file_text(&draft.over(&loaded)),
+                base_text: file_text(&base),
+                clashes: Clashes::default(),
+            })));
+        };
+        // The keys a draft does not carry are the file's on every side, so
+        // only what the draft carries can differ from the base.
+        let base = opened.over(&theirs);
+        let ours = draft.over(&theirs);
+        let mut file = match merge(Some(&base), &ours, &theirs) {
+            Merged::Clean(file) => *file,
+            Merged::Conflicted(clashes) => {
+                return Ok(Saved::Clashed(Box::new(SaveClash {
+                    disk_text: disk_text.unwrap_or_else(|| file_text(&theirs)),
+                    disk: Some(Draft::of_file(&theirs)),
+                    mine_text: file_text(&ours),
+                    base_text: file_text(&base),
+                    clashes,
+                })));
+            }
+        };
+        let id = *file
+            .front
+            .id
+            .get_or_insert_with(|| loaded.front.id.unwrap_or_else(SnippetId::generate));
+        self.library.write_snippet(&relative, &file)?;
+        self.reload()?;
+        Ok(Saved::Written(id))
     }
 
     /// Switches one snippet on or off without touching anything else in it.
@@ -427,6 +546,28 @@ impl Core {
             .find(|path| !root.join(path).exists())
             .expect("the range is unbounded")
     }
+}
+
+/// A snippet file's text and, when it reads as one, the snippet. `None` when
+/// there is no file at `path`.
+fn read_snippet_file(path: &Path) -> Result<Option<(String, Option<SnippetFile>)>, CoreError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            let parsed = SnippetFile::parse(&text).ok();
+            Ok(Some((text, parsed)))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(CoreError::Read {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
+/// A snippet file as it would be written. Serialising what was parsed cannot
+/// fail; if it ever did, the editor shows nothing rather than something wrong.
+fn file_text(file: &SnippetFile) -> String {
+    file.to_file_string().unwrap_or_default()
 }
 
 /// The folder a group lives in, checked one name at a time so that nothing a

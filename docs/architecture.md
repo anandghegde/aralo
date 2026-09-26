@@ -484,6 +484,7 @@ folder is a corruption waiting to happen.
 | `snippets_fts` | FTS5 over label, abbreviation, tags and body | Yes |
 | `stats` | Expansion counts and last-used time | **No.** Local only, never synced |
 | `bases` | Each snippet's last settled file, the base a conflict copy merges against | **No.** Only this machine saw it |
+| `saves` | The hash of the last file this machine saved for each snippet, which never becomes a base | **No.** Only this machine wrote it |
 | `vectors` | What each snippet means, as the embedding model saw it, keyed by content hash and model | **No.** Kept across rebuilds; pruned when a snippet goes or the model changes |
 
 `sync` is the usual path: it compares each snippet's content hash, path, group
@@ -611,7 +612,14 @@ The base is the version this machine last saw settled, which the index keeps in
 `bases`, keyed by the hash of the file's raw bytes. The index's content hash
 would not do, because it misses keys such as `case`. A base is not moved while
 a copy of its snippet is waiting, so it stays the common ancestor of both
-sides. The front matter merges key by key, keys this version does not know
+sides. Nor is it moved by a file this machine saved itself: that edit may not
+have reached any other machine, and a conflict copy is the proof that it did
+not. Against a base that already held it, the other side would look like it
+had undone the edit and would win without a clash. The library remembers the
+hash of every snippet it saves (`OwnWrites::saved`), and the index keeps the
+last one per snippet in `saves` so the rule outlasts a restart. The base moves
+on with the next version that arrives from outside. An older base can only turn
+a merge into a clash, never lose an edit. The front matter merges key by key, keys this version does not know
 included, and the body merges line by line. A side that left something as the
 base had it takes the other side's change. Both sides making one change is that
 change. Anything else is a clash, and nothing is guessed. With no base, only
@@ -646,6 +654,48 @@ window lists each one, and the snippet it belongs to carries a banner. Both
 open the resolver, a sheet with the two files side by side, the base under a
 disclosure, a sentence naming what clashed, and the three ways out.
 `ConflictResolver` in AraloKit is that sheet apart from its view.
+
+### A file that changes while it is open
+
+A sync client can bring another Mac's edit down while this Mac's editor holds
+the same snippet with unsaved changes (plan 5.1). Neither side has made a
+conflict copy yet: there is one file, changed underneath a draft. Writing the
+draft would throw the other Mac's edit away without a word.
+
+So the editor saves with `Core::save_snippet_since(id, opened, draft)`, where
+`opened` is the snippet as the editor loaded it. It reads the file afresh and
+merges three ways in memory, with the same merge a conflict copy gets:
+`opened` laid over the file on disk is the base, `draft` over it is this Mac's
+side, and the file is the other's. The front matter merges key by key and the
+body line by line, so another Mac's new name and this Mac's new last line both
+survive. A clean merge is written like any save.
+
+A clash writes nothing. The result is `Saved::Clashed` with the file as it is
+on disk, as the draft would write it and as it was when opened, and what the
+two changed differently. The draft stays the only copy of the user's work, so
+the editor keeps it on screen and will not move off it, to another snippet or
+by closing the window, until the user decides. Unlike a conflict copy, the
+clash is never written to the folder: a copy there would let the index move
+its base on, and the next merge would drop one side without saying so.
+
+On the Mac, the save opens a sheet with the two versions side by side and the
+opened one under a disclosure. Save Mine saves the draft again with the file
+on disk as `opened`, so the draft wins where the two disagree and everything
+else on disk stays. Use the File on Disk drops the draft. Edit Mine First
+keeps the draft on screen, with the file on disk as what the next save goes
+over. Cancel puts the sheet away, and the next save finds the clash again. A
+file that no longer reads as a snippet, such as one a sync client left half
+written, is never merged with: only Save Mine is offered, and it writes the
+draft whole. A file another Mac moved to another group is saved where it
+went, and one deleted underneath the editor is written again.
+`LibraryStore` holds all of it, as `clash`, `leave()`, `keepMine()`,
+`useTheirs()` and `editBeforeSaving()`; `EditClashView` is how it looks.
+
+`crates/aralo-core/tests/save_since.rs` plays both Macs as two `Core`s on one
+folder. `crates/aralo-core/tests/two_macs.rs` plays them as two runtimes on two
+copies of the folder, with the sync client's conflict copy named as each
+provider names it, and checks that both Macs merge to the same file or both
+keep the two versions.
 
 ### Editing
 
@@ -1106,7 +1156,7 @@ the event tap.
 | `Engine` | `on_key(KeyInput) -> KeyAction`, `insert(snippet_id, into_app) -> InsertOutcome`, `expansion_done(snippet_id, delete_count, method)`, `reset(reason)`, `set_front_app(bundle_id)`, `injection_profile()`, `set_paused(bool)`, `is_paused()`, `set_excluded_apps(bundle_ids)`, `holds_no_keystrokes()` | Synchronous |
 | `Core` | `open_library(path, cache?, events?, trash?)` (constructor), `engine()`, `reload()`, `load_compat_table(path)`, `library_path()`, `snippets()`, `diagnostics()`, `index_problem()` | Synchronous |
 | `Core`, search by meaning | `use_model(folder, ai)`: the embedding model, loaded and the library embedded on the indexer thread while the switch in `ai` (an `AiProfiles`) is on, dropped while it is off; `meaning_problem()`; `wait_for_index()` for tests. A hit found by meaning has `SearchField.meaning` | Synchronous; the work is on the indexer thread |
-| `Core`, editing | `create_snippet`, `save_snippet`, `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
+| `Core`, editing | `create_snippet`, `save_snippet`, `save_snippet_since(id, opened, draft) -> SaveOutcome` (`Written { id }` or `Clashed { clash }`), `delete_snippet`, `move_snippet`, `set_snippet_enabled`, `snippet(id)`, `create_group`, `rename_group`, `move_group`, `delete_group`, `set_group_enabled`, `set_group_appearance`, `groups()`, `group_contents` | Synchronous |
 | `Core`, the editor's questions | `check_draft(draft, editing?)`, `suggest_abbreviation(label)`, `search(SearchQuery)`, `preview(id)`, `preview_draft(body)`, `outline_draft(body)`, `try_draft(draft, group, editing?) -> DraftTrial`, `recents(limit)` | Synchronous |
 | `DraftTrial` | `key(KeyInput) -> TrialAction` (`Typed`, `Expanded` or `Session { session }`), `field() -> TrialField`, `move_caret(caret)`, `clear()`, `finish(steps, undo_delete_count?)`, `cancel(session)`, `abbreviations()`. Offsets are UTF-16 | Synchronous |
 | `Core`, the locale | `set_locale(tag)`, `locale()`: which locale `{{date}}` is written in. The Mac shell passes `Locale.current.identifier`; a terminal falls back to `LC_ALL`, `LC_TIME` or `LANG` ([ADR-0014](adr/0014-clock-and-locale.md)) | Synchronous |

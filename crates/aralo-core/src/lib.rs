@@ -54,7 +54,7 @@ pub use aralo_template::{
 };
 pub use clock::{FixedClock, SystemClock as SystemTimeClock};
 pub use compat::{CompatError, CompatTable, InjectionProfile};
-pub use edit::{Draft, DraftIssue, Problem};
+pub use edit::{Draft, DraftIssue, Problem, SaveClash, Saved};
 pub use meaning::{Meaning, MIN_SIMILARITY};
 pub use merge::{ConflictSides, Discard, MergeReport, Resolution, SetAside};
 pub use runtime::{LibraryChange, LibraryListener, Runtime, RuntimeOptions};

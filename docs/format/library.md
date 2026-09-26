@@ -219,7 +219,10 @@ your sync client keeps both versions. The second one is saved under a name like
 it sits in the same folder as the original, has the same `id`, and has a name a
 sync client gives a copy. It then loads the original and leaves the copy out.
 
-Aralo merges the copy into the original against the version this Mac last saw:
+Aralo merges the copy into the original against the last version this Mac
+had in common with the others: the last one it read that it had not saved
+itself. A version this Mac saved may never have left it, so it is not taken for
+common ground until a newer version arrives from elsewhere.
 
 - The front matter is merged key by key.
 - The body is merged line by line.
@@ -227,13 +230,13 @@ Aralo merges the copy into the original against the version this Mac last saw:
 
 If both sides changed the same key or the same lines, nothing is merged.
 Both files stay where they are, and `aralo validate` and the snippet window
-warn about the copy until you delete the version you do not want.
+warn about the copy. The snippet window's Sync Conflicts menu shows the two
+side by side, for you to keep one or write the version to keep.
 
-## Not implemented yet
-
-- A window to resolve a conflict copy that did not merge cleanly. Today such a
-  copy is left beside its original with a warning, for you to keep one of the
-  two.
+The same merge runs when you save a snippet whose file changed on disk while
+you had it open. A change elsewhere in the file is kept beside yours. A change
+to what you changed writes nothing, and the window shows both versions for you
+to choose.
 
 Watching the folder, the SQLite index, full-text search and search by meaning
 are in, running under `aralo_core::Runtime`: edit a file in any editor and the

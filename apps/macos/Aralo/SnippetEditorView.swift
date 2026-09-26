@@ -137,8 +137,7 @@ struct SnippetEditorView: View {
                     Text(problem.message)
                     if let other = problem.conflictsWith {
                         Button("Show It") {
-                            store.attempt { try $0.save() }
-                            store.select(snippet: other)
+                            if store.leave() { store.select(snippet: other) }
                         }
                         .buttonStyle(.link)
                     }

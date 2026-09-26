@@ -16,7 +16,7 @@
 //!
 //! [ADR-0006]: ../../../docs/adr/0006-files-as-source-of-truth.md
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,6 +62,11 @@ pub enum WatchError {
 #[derive(Debug, Clone, Default)]
 pub struct OwnWrites {
     pending: Arc<Mutex<HashMap<PathBuf, Vec<Write>>>>,
+    /// Every snippet file Aralo saved since the library was opened, by the
+    /// hash of its bytes. Unlike `pending` this is never spent or forgotten:
+    /// the index asks it which files are this machine's own edits, which must
+    /// not become a merge base ([`crate::Index::sync`]).
+    saved: Arc<Mutex<HashSet<blake3::Hash>>>,
 }
 
 #[derive(Debug)]
@@ -82,6 +87,20 @@ impl OwnWrites {
     /// `path`.
     pub fn record(&self, path: &Path, contents: &[u8]) {
         self.push(path, Some(blake3::hash(contents)));
+    }
+
+    /// Remembers that the snippet file Aralo has just written held
+    /// `contents`, for as long as this record lasts.
+    pub fn record_save(&self, contents: &[u8]) {
+        if let Ok(mut saved) = self.saved.lock() {
+            saved.insert(blake3::hash(contents));
+        }
+    }
+
+    /// True when Aralo saved a snippet file holding exactly the bytes that
+    /// hash to `hash` since this record began.
+    pub fn saved(&self, hash: &blake3::Hash) -> bool {
+        self.saved.lock().is_ok_and(|saved| saved.contains(hash))
     }
 
     /// Remembers that Aralo is about to remove `path`, so the event that

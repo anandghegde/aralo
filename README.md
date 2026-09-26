@@ -443,6 +443,19 @@ right. The six hosted providers in `conformance/endpoints.toml` are listed as
 not run live until their keys are repository secrets. See
 [the conformance suite](docs/architecture.md#the-conformance-suite).
 
+M5 has begun with sync (task 5.1). A library in a Dropbox, iCloud Drive,
+Google Drive, OneDrive or Syncthing folder already worked, conflict copies
+included. Now a save no longer writes over what another Mac changed while the
+snippet was open here: the editor merges the file on disk into what you typed,
+so a rename there and a new line here both land. When both changed the same
+thing, nothing is written, and a sheet shows the two versions side by side
+until you keep yours, take the file on disk, or fold one into the other first.
+See [a file that changes while it is open](docs/architecture.md#a-file-that-changes-while-it-is-open).
+A conflict copy is also merged against a better base now. Aralo used to take
+its own last save as the version both Macs shared, so the other Mac's copy
+looked like it had undone that save and won without a word; a save made here
+no longer becomes the base until a newer version arrives from elsewhere.
+
 Six spikes are still owed in M0; S5, the embedding runtime, is answered by
 ADR-0016. They are listed in [docs/adr/README.md](docs/adr/README.md).
 

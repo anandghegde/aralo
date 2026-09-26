@@ -260,6 +260,7 @@ impl Library {
                 path: path.clone(),
                 source,
             })?;
+        self.writes.record_save(text.as_bytes());
         self.write_recorded(&path, text.as_bytes())
     }
 

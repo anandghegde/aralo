@@ -37,6 +37,9 @@ struct LibraryView: View {
         .sheet(item: $resolving) { resolver in
             ConflictResolverView(resolver: resolver)
         }
+        .sheet(item: clashShown) { clash in
+            EditClashView(store: store, clash: clash)
+        }
         .sheet(item: $store.importing) { job in
             ImportSheet(job: job) { entry in store.open(imported: entry) }
         }
@@ -136,7 +139,7 @@ struct LibraryView: View {
     /// Saves what is typed first, so the resolver shows the file as it now
     /// is and the user's edit is one of the versions to choose from.
     private func resolve(_ copy: String) {
-        leave()
+        guard store.leave() else { return }
         resolving = store.resolver(for: copy)
     }
 
@@ -146,7 +149,7 @@ struct LibraryView: View {
     /// record: leaving an edit behind only in the window would be the
     /// surprise, not saving it.
     private func leave() {
-        store.attempt { try $0.save() }
+        store.leave()
     }
 
     private var groupSelection: Binding<String?> {
@@ -164,13 +167,19 @@ struct LibraryView: View {
             get: { store.selectedSnippet },
             set: { id in
                 guard id != store.selectedSnippet else { return }
-                leave()
+                // A save that clashed with a change on disk keeps the draft,
+                // and the draft keeps the window on its snippet.
+                guard store.leave() else { return }
                 store.select(snippet: id)
             }
         )
     }
 
     // MARK: - Sheets
+
+    private var clashShown: Binding<EditClash?> {
+        Binding(get: { store.clash }, set: { shown in if shown == nil { store.dismissClash() } })
+    }
 
     private var failureShown: Binding<Bool> {
         Binding(get: { store.failure != nil }, set: { shown in if !shown { store.dismissFailure() } })
