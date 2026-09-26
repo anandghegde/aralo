@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenu.onTransformSelection = { [weak self] in self?.service.openCommands() }
         statusMenu.onImport = { [weak self] in self?.libraryWindow()?.chooseImport() }
         statusMenu.onShowSettings = { [weak self] in self?.showSettings() }
+        // Unknown counts as local-only, so a check that should not happen does not.
+        statusMenu.updater = Updater { [weak self] in
+            (try? self?.service.aiSettings().switches().localOnly) ?? true
+        }
         self.statusMenu = statusMenu
         service.onPaletteRequested = { [weak self] in self?.showPalette() }
         service.onFormRequested = { [weak self] in self?.showForm() }

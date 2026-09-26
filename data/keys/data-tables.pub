@@ -1,0 +1,12 @@
+# The Ed25519 public key the signed data tables are checked with (plan
+# section 9, "Signed data updates"). Compiled into the core by
+# crates/aralo-core/src/signed.rs; the release workflow signs
+# data/compat/apps.toml with the matching private key, the
+# DATA_TABLE_SIGNING_KEY secret. See docs/releasing.md.
+#
+# One line of 64 hex digits, or `unset`. While it is `unset`, every downloaded
+# table is refused and the bundled copy stays in use, and a release that is not
+# a dry run refuses to start.
+#
+# PLACEHOLDER: replace `unset` with the real key before the first release.
+unset

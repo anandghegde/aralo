@@ -127,6 +127,7 @@ dependencies = [
  "aralo-snippet",
  "aralo-template",
  "aralo-testkit",
+ "aws-lc-rs",
  "blake3",
  "chrono",
  "keyring",

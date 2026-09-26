@@ -1,0 +1,33 @@
+# The Homebrew cask for Aralo. A template: scripts/release.sh fills in
+# @VERSION@, @SHA256@ and @REPO@ and writes aralo.rb beside the DMG, and the
+# release workflow opens a pull request with it on the tap. See
+# docs/releasing.md.
+cask "aralo" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/@REPO@/releases/download/v#{version}/Aralo-#{version}.dmg"
+  name "Aralo"
+  desc "Open-source text expander with optional AI"
+  homepage "https://github.com/@REPO@"
+
+  livecheck do
+    url "https://github.com/@REPO@/releases/latest/download/appcast.xml"
+    strategy :sparkle
+  end
+
+  # Sparkle updates the app in place.
+  auto_updates true
+  depends_on macos: ">= :sonoma"
+
+  app "Aralo.app"
+
+  # The snippet library (~/Aralo, or wherever the user moved it) is the user's
+  # work and is never removed. Keys stay in the keychain.
+  zap trash: [
+    "~/Library/Application Support/Aralo",
+    "~/Library/Caches/app.aralo.Aralo",
+    "~/Library/HTTPStorages/app.aralo.Aralo",
+    "~/Library/Preferences/app.aralo.Aralo.plist",
+  ]
+end

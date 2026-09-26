@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the Info.plist Xcode generates. Only the keys Xcode has no
+  INFOPLIST_KEY_ setting for live here. The values are build settings from
+  apps/macos/project.yml, which the release workflow overrides.
+-->
+<plist version="1.0">
+<dict>
+	<key>SUFeedURL</key>
+	<string>$(ARALO_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(ARALO_SPARKLE_PUBLIC_KEY)</string>
+</dict>
+</plist>

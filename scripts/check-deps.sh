@@ -390,8 +390,10 @@ else
 fi
 
 # --- i: hardened runtime -------------------------------------------------------------
-# No JIT, unsigned-memory or library-validation exception: there is no JIT and
-# no third-party dynamic library. An entitlements file is where one would go.
+# No JIT, unsigned-memory or library-validation exception: there is no JIT, and
+# the one third-party framework (Sparkle) is re-signed with Aralo's identity by
+# scripts/release.sh, so library validation holds. An entitlements file is where
+# an exception would go. scripts/verify-release.sh checks the built app.
 
 PROJECT_SPEC="apps/macos/project.yml"
 if [ ! -f "$PROJECT_SPEC" ]; then

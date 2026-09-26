@@ -32,6 +32,9 @@ aralo-core = { path = "crates/aralo-core" }
 # Test helpers; a dev-dependency only.
 aralo-testkit = { path = "crates/aralo-testkit" }
 
+# Ed25519 checks on the signed data tables (plan section 9). Already in the
+# build as rustls's crypto provider, so it adds no crate.
+aws-lc-rs = { version = "1.18", default-features = false, features = ["aws-lc-sys"] }
 blake3 = { version = "1.8", default-features = false, features = ["std"] }
 # The clock, for the core only. `clock` brings the system time zone;
 # `aralo-template` formats a time it is handed and never reads one.

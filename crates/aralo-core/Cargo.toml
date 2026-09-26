@@ -17,6 +17,7 @@ aralo-library = { workspace = true }
 aralo-providers = { workspace = true }
 aralo-snippet = { workspace = true }
 aralo-template = { workspace = true }
+aws-lc-rs = { workspace = true }
 blake3 = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }

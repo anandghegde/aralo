@@ -69,9 +69,10 @@ What each promise defends against, and the test that proves it, is in
 
 Aralo has no servers of its own, so there is nothing of Aralo's to contact.
 The app sends a request only to an address the user saved in an AI profile,
-and only while the AI switch is on. In local-only mode the network guard
+and only while the AI switch is on, with one exception: a release checks
+GitHub for updates (below). In local-only mode the network guard
 refuses every address that is not this Mac, by URL before sending and by
-resolved address when connecting.
+resolved address when connecting, and the update check is off.
 
 | Host | When | What goes there |
 | --- | --- | --- |
@@ -86,7 +87,9 @@ resolved address when connecting.
 | `api.deepseek.com` | A profile made from the DeepSeek preset | The same |
 | `api.together.xyz` | A profile made from the Together preset | The same |
 | Any address the user types | A profile the user made by hand | The same |
-| `github.com` | Planned: Sparkle's update check and the signed data tables (task 5.5). Neither is built, so today the app contacts no GitHub host | The app's version, for the update check. Nothing about the user's snippets |
+| `github.com` | Sparkle's update check: `releases/latest/download/appcast.xml` once a day, and the DMG of a new version when the user accepts it. Never in local-only mode (`UpdatePolicy`), and never from a build without a real update key, which is every build but a release. Planned: the signed data tables, from the same releases (not built) | The app's version and macOS version, in Sparkle's request. Nothing about the user's snippets |
+| `release-assets.githubusercontent.com` | GitHub answers a release download with a redirect to its file storage, and Sparkle follows it | The same requests as to `github.com` |
+| `objects.githubusercontent.com` | The same, for the older form of that redirect | The same |
 
 A preset is only a starting point for a profile. No preset host is contacted
 until the user saves a profile with it and switches AI on.
@@ -118,4 +121,5 @@ contacted by the app. Cargo fetches crates from crates.io.
 `scripts/fetch-model.sh` fetches the embedding model from Hugging Face and
 checks it against recorded checksums. CI pulls Ollama and llama.cpp container
 images for the conformance job, and the nightly job calls the hosted endpoints
-whose keys are repository secrets.
+whose keys are repository secrets. The release workflow fetches Sparkle from
+GitHub, and sends the app and the DMG to Apple's notary service.
