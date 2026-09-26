@@ -104,6 +104,111 @@ final class PanelAccessibilityTests: XCTestCase {
             AuthoringSheet(store: store, replace: { _ in true }, close: {}), width: 560, height: 420, "AI sheet"
         )
     }
+
+    // MARK: The form panel
+
+    /// A session for `body`, picked from the palette as the form panel gets one.
+    private func form(_ body: String, models: BlockRunner? = nil) throws -> FormSession {
+        let id = try core.createSnippet(
+            group: [],
+            draft: SnippetDraft(
+                label: "Ticket", abbreviations: [";tkt"], body: body, tags: [], kind: .text,
+                trigger: nil, case: nil, wholeWord: nil, keepDelimiter: nil, enabled: nil
+            )
+        )
+        try core.reload()
+        guard case .startSession(_, let session) = core.engine().insert(snippetId: id, intoApp: "com.apple.TextEdit")
+        else {
+            struct NothingAsked: Error {}
+            throw NothingAsked()
+        }
+        return FormSession(session: session, runner: NoRunner(), label: "Ticket", models: models)
+    }
+
+    private func assertLabelled(_ session: FormSession, _ panel: String, line: UInt = #line) {
+        assertLabelled(
+            FormView(session: session, submit: {}, cancel: {}), width: 460, height: 340, panel, line: line
+        )
+    }
+
+    /// Waits for the models to stop writing, as the panel does before Enter.
+    private func settled(_ session: FormSession) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while session.isWriting, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertFalse(session.isWriting, "the model never finished")
+    }
+
+    func testTheFormPanelWithEveryKindOfBox() throws {
+        let session = try form(
+            "Dear {{field: who | label: Their name | default: friend}},\n"
+                + "{{field: notes | label: Notes | lines: 3}}\n"
+                + "Sent by {{choice: how | options: post, e-mail}}."
+        )
+        XCTAssertEqual(session.fields.count, 3)
+        assertLabelled(session, "form")
+    }
+
+    func testTheFormPanelOnItsAIBlocks() async throws {
+        let session = try form(
+            "Hi {{field: who}},\n{{ai: Thank them | fallback: Thanks.}}", models: CannedModel(answer: "Thank you!")
+        )
+        session.answers["who"] = "Dana"
+        session.submit()
+        XCTAssertEqual(session.step, .blocks)
+        await settled(session)
+        assertLabelled(session, "AI blocks, written")
+        session.edit()
+        assertLabelled(session, "AI blocks, editing")
+    }
+
+    func testTheFormPanelWhileAModelIsWriting() throws {
+        let session = try form("{{ai: Thank them | fallback: Thanks.}}", models: CannedModel(answer: nil))
+        XCTAssertTrue(session.isWriting)
+        assertLabelled(session, "AI blocks, writing")
+        session.cancel()
+    }
+
+    func testTheFormPanelWhenNoModelAnswers() async throws {
+        let session = try form("{{ai: Thank them | fallback: Thanks.}}")
+        await settled(session)
+        assertLabelled(session, "AI blocks, fallback")
+    }
+
+    // MARK: The import sheet
+
+    /// A CSV with one snippet of each outcome: one that comes over clean, one
+    /// whose macro does not convert, and an empty row that cannot come over.
+    private func export() throws -> URL {
+        let file = cache.appendingPathComponent("export.csv")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try """
+            Abbreviation,Name,Folder,Content
+            ;wait,Wait,Work,"Hold %delay:500% on"
+            ;sig,Signature,Work,"Best, Dana"
+            ,Empty,Work,
+
+            """.write(to: file, atomically: true, encoding: .utf8)
+        return file
+    }
+
+    func testTheImportSheetBeforeAndAfter() throws {
+        let job = LibraryStore(core: core).importer(for: try export())
+        let summary = try XCTUnwrap(job.summary, job.failure ?? "no dry run")
+        XCTAssertEqual([summary.imported, summary.needsEdit, summary.skipped], [2, 1, 1])
+        assertLabelled(ImportSheet(job: job, open: { _ in }), width: 680, height: 560, "import, dry run")
+        XCTAssertTrue(job.run(), job.failure ?? "")
+        assertLabelled(ImportSheet(job: job, open: { _ in }), width: 680, height: 560, "import, report")
+    }
+
+    func testTheImportSheetWithNothingToImport() throws {
+        let file = cache.appendingPathComponent("empty.json")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try "[]".write(to: file, atomically: true, encoding: .utf8)
+        let job = LibraryStore(core: core).importer(for: file)
+        assertLabelled(ImportSheet(job: job, open: { _ in }), width: 680, height: 560, "import, nothing")
+    }
 }
 
 /// The palette's way into another app, which these tests never take.
@@ -115,4 +220,53 @@ private struct NoInserter: SnippetInserter {
 private struct NoSelection: SelectionAccess {
     func read() async -> Result<String, SelectionFailure> { .success("") }
     func replace(with text: String) async -> SelectionFailure? { nil }
+}
+
+/// The form panel's way into the document, which these tests never take.
+private final class NoRunner: ExpansionRunner, @unchecked Sendable {
+    func run(_ action: SessionAction) {}
+    func cancel(_ session: ExpansionSession) {}
+}
+
+/// A model that answers every block with `answer` at once, or, given none,
+/// is still writing when the test looks.
+private struct CannedModel: BlockRunner {
+    let answer: String?
+
+    func start(_ session: ExpansionSession, block: UInt32) async throws -> AiBlockRunProtocol {
+        CannedRun(index: block, answer: answer)
+    }
+}
+
+private final class CannedRun: AiBlockRunProtocol, @unchecked Sendable {
+    private let index: UInt32
+    private let reply: String?
+    private let lock = NSLock()
+    private var given = false
+
+    init(index: UInt32, answer: String?) {
+        self.index = index
+        reply = answer
+    }
+
+    func next() async throws -> String? {
+        guard let reply else {
+            // Writing, for as long as the test looks.
+            try await Task.sleep(for: .seconds(60))
+            return nil
+        }
+        return lock.withLock {
+            defer { given = true }
+            return given ? nil : reply
+        }
+    }
+
+    func cancel() {}
+    func answer() -> String? { reply }
+    func block() -> UInt32 { index }
+    func cutShort() -> Bool { false }
+    func model() -> String { "model-a" }
+    func profile() -> String { "Example" }
+    func sent() -> [AiContextSent] { [AiContextSent(kind: .fillins, bytes: 9)] }
+    func text() -> String { lock.withLock { given ? reply ?? "" : "" } }
 }
