@@ -1,0 +1,18 @@
+# The documentation site: docs/ built with mdBook (task 5.6). `mdbook build`
+# writes it to book/; .github/workflows/docs.yml builds it on pull requests and
+# publishes it to GitHub Pages from main. The table of contents is
+# docs/SUMMARY.md.
+[book]
+title = "Aralo"
+description = "An open-source text expander with optional AI, for macOS first."
+authors = ["Aralo contributors"]
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/anandghegde/aralo"
+edit-url-template = "https://github.com/anandghegde/aralo/edit/main/{path}"

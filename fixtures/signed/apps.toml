@@ -1,0 +1,106 @@
+# How Aralo inserts text, app by app.
+#
+# Every app gets `defaults` unless an `[[app]]` entry says otherwise. An entry
+# only lists what differs. The file is compiled into the core, and
+# `cargo test -p aralo-core` fails if it does not parse.
+# Schema: schemas/compat.schema.json.
+#
+# The entries below are the 15 apps of the injection matrix (the implementation
+# plan, section 11). The matrix has run against TextEdit only (it passes on the
+# defaults), so nothing else here is measured:
+# the overrides come from the plan's own rule that terminals and remote
+# desktops are typed into. The matrix run replaces this version: `make matrix`,
+# described in docs/architecture.md under "The injection matrix".
+#
+#   insert            auto   type up to `typing_limit`, paste longer text and
+#                            anything with a line break
+#                     type   always type; a line break is a Return key
+#                     paste  always paste
+#   typing_limit      longest text `auto` still types, in UTF-16 units
+#   key_delay_ms      pause after every synthetic key
+#   paste_settle_ms   how long the app gets to read the pasteboard before the
+#                     user's clipboard is put back
+#   undo              native     a pasted expansion is undone with one Cmd+Z
+#                     backspace  every expansion is undone with Backspace
+#   delete            backspace  one Backspace per character of the abbreviation
+#                     select     Shift+Left over the abbreviation, then one Backspace
+
+version = 0
+
+[defaults]
+insert = "auto"
+typing_limit = 120
+key_delay_ms = 1
+paste_settle_ms = 250
+undo = "native"
+delete = "backspace"
+
+[[app]]
+name = "TextEdit"
+bundle_id = "com.apple.TextEdit"
+
+[[app]]
+name = "Notes"
+bundle_id = "com.apple.Notes"
+
+[[app]]
+name = "Mail"
+bundle_id = "com.apple.mail"
+
+[[app]]
+name = "Safari"
+bundle_id = "com.apple.Safari"
+
+[[app]]
+name = "Chrome"
+bundle_id = "com.google.Chrome"
+
+[[app]]
+name = "Firefox"
+bundle_id = "org.mozilla.firefox"
+
+[[app]]
+name = "Visual Studio Code"
+bundle_id = "com.microsoft.VSCode"
+
+[[app]]
+name = "Slack"
+bundle_id = "com.tinyspeck.slackmacgap"
+
+# A paste into a shell can ask for confirmation or arrive bracketed, and Cmd+Z
+# does not take it back.
+[[app]]
+name = "Terminal"
+bundle_id = "com.apple.Terminal"
+insert = "type"
+undo = "backspace"
+
+[[app]]
+name = "iTerm2"
+bundle_id = "com.googlecode.iterm2"
+insert = "type"
+undo = "backspace"
+
+[[app]]
+name = "Microsoft Word"
+bundle_id = "com.microsoft.Word"
+
+[[app]]
+name = "Pages"
+bundle_id = "com.apple.iWork.Pages"
+
+[[app]]
+name = "Xcode"
+bundle_id = "com.apple.dt.Xcode"
+
+[[app]]
+name = "Obsidian"
+bundle_id = "md.obsidian"
+
+# The remote machine has its own clipboard, which lags behind this one, and
+# its own undo shortcut.
+[[app]]
+name = "Microsoft Remote Desktop"
+bundle_id = "com.microsoft.rdc.macos"
+insert = "type"
+undo = "backspace"

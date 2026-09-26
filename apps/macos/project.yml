@@ -11,6 +11,12 @@ options:
 packages:
   AraloKit:
     path: Packages/AraloKit
+  # App updates (plan section 2). The one third-party framework in the app;
+  # the release workflow re-signs it with Aralo's Developer ID. Pinned exactly:
+  # an update to it is a reviewed change.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: "2.10.0"
 
 settings:
   base:
@@ -40,10 +46,19 @@ targets:
         optional: true
     dependencies:
       - package: AraloKit
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.aralo.Aralo
         GENERATE_INFOPLIST_FILE: YES
+        # Merged into the generated one: the Sparkle keys below.
+        INFOPLIST_FILE: Support/Info.plist
+        # Sparkle's feed, and the Ed25519 key updates are checked with.
+        # PLACEHOLDER: a local build keeps this key, which is not a key, so
+        # Sparkle never starts in it (UpdateFeed.isConfigured). The release
+        # workflow sets both from its secrets: scripts/release.sh.
+        ARALO_FEED_URL: https://github.com/anandghegde/aralo/releases/latest/download/appcast.xml
+        ARALO_SPARKLE_PUBLIC_KEY: PLACEHOLDER-set-by-scripts-release.sh
         # An agent app: a menu bar item and no Dock icon.
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Aralo

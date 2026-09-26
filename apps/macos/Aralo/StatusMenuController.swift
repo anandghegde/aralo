@@ -18,6 +18,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var onTransformSelection: (() -> Void)?
     /// Opens Settings.
     var onShowSettings: (() -> Void)?
+    /// Asks Sparkle for an update. Nil in a build without a feed.
+    var updater: Updater?
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
     init(service: AraloService) {
@@ -79,6 +81,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let settings = command("Settings\u{2026}", #selector(showSettings))
         settings.keyEquivalent = ","
         menu.addItem(settings)
+        if updater?.canCheck == true {
+            menu.addItem(command("Check for Updates\u{2026}", #selector(checkForUpdates)))
+        }
         let quit = #selector(NSApplication.terminate(_:))
         menu.addItem(NSMenuItem(title: "Quit Aralo", action: quit, keyEquivalent: "q"))
     }
@@ -165,4 +170,5 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func importSnippets() { onImport?() }
     @objc private func transformSelection() { onTransformSelection?() }
     @objc private func showSettings() { onShowSettings?() }
+    @objc private func checkForUpdates() { updater?.checkForUpdates() }
 }

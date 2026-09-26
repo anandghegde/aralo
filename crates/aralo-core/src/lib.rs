@@ -23,6 +23,7 @@ pub mod relocate;
 pub mod report;
 mod runtime;
 mod session;
+pub mod signed;
 mod simulate;
 mod starter;
 pub mod state;
