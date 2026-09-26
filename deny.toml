@@ -128,8 +128,25 @@ deny = [
     { crate = "reqwest", wrappers = ["aralo-ai"], reason = "only the network guard in aralo-ai may construct HTTP clients (ADR-0007)" },
 ]
 
-# Duplicate versions we accept, each with a reason.
-skip = []
+# Duplicate versions we accept, each with a reason. Each names only the older
+# major, so a third version still warns; drop an entry once the crates named in
+# it move on and `cargo deny check bans` stops needing it.
+skip = [
+    # Proc-macro crates still on syn 2 while the rest of the tree is on syn 3:
+    # uniffi's macros, jni-macros (under rustls-platform-verifier), the
+    # windows-implement/-interface macros, zerocopy-derive and scroll_derive
+    # (goblin, under uniffi_bindgen). Build-time only: syn is never linked
+    # into the app or the CLI.
+    { crate = "syn@2", reason = "proc macros of uniffi, jni, windows and zerocopy are not on syn 3 yet; build-time only" },
+    # keyring 3.6 and notify 8.2 (notify's latest) want windows-sys 0.60; the
+    # rest of the Windows tree is on 0.61. Windows builds only. keyring 4 is a
+    # rewrite with a new API, not a bump.
+    { crate = "windows-sys@0.60", reason = "keyring 3.6 and notify 8.2 are on 0.60; Windows builds only" },
+    # rsqlite-vfs, the VFS of sqlite-wasm-rs that rusqlite 0.40 uses on
+    # wasm32, is on hashbrown 0.16; indexmap and hashlink are on 0.17. Only
+    # the wasm32 target builds it.
+    { crate = "hashbrown@0.16", reason = "rusqlite's wasm32 VFS (rsqlite-vfs) is on 0.16; wasm32 only" },
+]
 skip-tree = []
 
 [sources]
