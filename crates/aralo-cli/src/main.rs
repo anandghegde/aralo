@@ -582,6 +582,10 @@ fn describe(issue: &Issue) -> (Level, String) {
             Level::Warning,
             "symbolic links to folders are not followed".into(),
         ),
+        Issue::NotDownloaded => (
+            Level::Warning,
+            "in iCloud Drive and not downloaded to this Mac; it loads once it is".into(),
+        ),
         Issue::UnsupportedKind(kind) => (
             Level::Warning,
             format!("{kind:?} snippets do not expand in this version yet"),

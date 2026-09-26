@@ -24,6 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         service.onPaletteRequested = { [weak self] in self?.showPalette() }
         service.onFormRequested = { [weak self] in self?.showForm() }
         service.onCommandsRequested = { [weak self] in self?.showCommands() }
+        // The snippet window shows the folder it was made for; the next one
+        // shows where the library went.
+        service.onLibraryMoved = { [weak self] _ in
+            self?.library?.window?.close()
+            self?.library = nil
+        }
         service.start()
         showOnboarding(fromMenu: false)
     }
@@ -53,7 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settings == nil {
             do {
                 // The service's instance, which the command panel runs with.
-                settings = SettingsWindowController(aiSettings: AISettingsStore(settings: try service.aiSettings()))
+                settings = SettingsWindowController(
+                    aiSettings: AISettingsStore(settings: try service.aiSettings()),
+                    location: LibraryLocationStore(service: service)
+                )
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Aralo could not open its AI settings"

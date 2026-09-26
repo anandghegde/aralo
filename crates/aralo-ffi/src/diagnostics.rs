@@ -101,7 +101,7 @@ impl Core {
         let counters = &self.shared.counters;
         let _ = counters.save();
         let mut report = DiagnosticReport::new(&facts.into());
-        report.runtime(&self.shared.runtime);
+        report.runtime(&self.shared.runtime());
         if let Some(ai) = ai {
             report.ai(ai.settings());
         }

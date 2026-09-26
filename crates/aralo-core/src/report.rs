@@ -350,6 +350,7 @@ fn issue_name(issue: &Issue) -> &'static str {
         Issue::UnsupportedKind(_) => "unsupported types",
         Issue::AbbreviationRejected { .. } => "refused abbreviations",
         Issue::SymlinkedFolder => "symlinked folders",
+        Issue::NotDownloaded => "not downloaded",
         Issue::TooDeep => "folders too deep",
     }
 }

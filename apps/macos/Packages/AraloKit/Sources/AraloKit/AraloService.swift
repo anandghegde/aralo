@@ -57,7 +57,11 @@ public final class AraloService {
     /// same terms as `onPaletteRequested`.
     public var onCommandsRequested: (@MainActor () -> Void)?
 
-    public let libraryURL: URL
+    /// Where the library is. It changes when the user moves the library, or
+    /// picks one another Mac synced (plan 5.2).
+    public internal(set) var libraryURL: URL
+    /// The library runs from somewhere else now; a window showing it follows.
+    public var onLibraryMoved: (@MainActor (URL) -> Void)?
     public let cacheURL: URL
     var core: Core?
     private var tap: EventTap?

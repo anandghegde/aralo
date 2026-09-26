@@ -25,6 +25,7 @@ use aralo_snippet::{GroupFile, Manifest, SnippetFile, SnippetId, SnippetKind, GR
 
 pub use conflict::{is_conflict_copy, Conflict};
 pub use index::{content_hash, Index, IndexError, Indexed, Recent, Stats};
+pub use load::icloud_placeholder;
 pub use merge::{merge, Clashes, Merged};
 pub use search::{meaning_text, Field, Hit, Query, Searcher};
 pub use settings::Settings;
@@ -190,6 +191,10 @@ pub enum Issue {
     },
     /// Symbolic links to folders are not followed.
     SymlinkedFolder,
+    /// iCloud Drive has this snippet in the cloud and not on this Mac: what
+    /// is in the folder is a `.name.md.icloud` placeholder. It loads once the
+    /// file is downloaded again, which the watcher sees.
+    NotDownloaded,
     TooDeep,
 }
 

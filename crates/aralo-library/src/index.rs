@@ -447,6 +447,28 @@ impl Index {
         Ok(self.len()? == 0)
     }
 
+    /// Writes a copy of the whole index to `path`, which must not exist yet,
+    /// for a library that moves: the index is keyed by the library's path,
+    /// and what cannot be rebuilt — counts, merge bases, the hashes of this
+    /// machine's saves, vectors — would otherwise stay behind at the old one.
+    ///
+    /// It is SQLite's `VACUUM INTO`, which reads one consistent snapshot, so
+    /// the copy can be taken while the indexer is still writing.
+    pub fn copy_to(&self, path: &Path) -> Result<(), IndexError> {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent).map_err(|source| IndexError::Folder {
+                path: parent.to_owned(),
+                source,
+            })?;
+        }
+        self.connection
+            .execute("VACUUM INTO ?1", [path.to_string_lossy()])?;
+        Ok(())
+    }
+
     /// Every derived row as one ordered, printable line. Two indexes hold the
     /// same library exactly when these match, which is how a sync is checked
     /// against a rebuild. A large library makes a large dump; this is for

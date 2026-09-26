@@ -697,6 +697,70 @@ copies of the folder, with the sync client's conflict copy named as each
 provider names it, and checks that both Macs merge to the same file or both
 keep the two versions.
 
+### Moving the library
+
+Aralo does not sync. A library syncs because it sits in a folder a sync
+client looks after, and moving it there is the one thing the app does about
+sync (plan 5.2). `aralo_core::move_library(from, to, cache)` in
+`crates/aralo-core/src/relocate.rs` is copy, check, then switch, and it never
+deletes anything:
+
+1. The destination must be outside the library, not above it, and empty or
+   missing. Finder's `.DS_Store` does not count as a file.
+2. Every file in the library must be on this Mac. iCloud Drive's Optimise Mac
+   Storage leaves `.name.icloud` placeholders, or, on newer macOS, files
+   marked dataless. Copying either would make the sync client download it or
+   copy nothing, so the move is refused and names the files to download.
+3. The library is copied into a hidden staging folder beside the destination:
+   files, folders, links as links. Every file is flushed to disk, read back
+   and compared by hash with the original. A file that changed while it was
+   copied is copied once more, and one that keeps changing stops the move.
+4. The copy must load as the same library: the same snippets, at the same
+   paths, with the same content hashes.
+5. The staging folder is renamed into place, a single step on one volume.
+6. The index is carried over with `VACUUM INTO`, under the new path's
+   `library_key`. Recents, usage counts, conflict bases, saves and vectors
+   come along, and none of those can be rebuilt from the folder. A cache that
+   will not copy costs those and is reported as `index_problem`. The new
+   location then builds a fresh index.
+
+On any failure the staging folder is removed and the library runs where it
+was. The old folder is left as it was. `Moved::changed_since()` hashes it
+again and names anything that changed after the copy. The Mac shell moves the
+old folder to the Trash only when that list is empty, and only when the user
+asks.
+
+The bridge holds its runtime behind a lock it only touches to clone a handle,
+so `Core::move_library` can switch runtimes while keys are typed. It flushes
+the indexer, moves, starts a runtime on the new folder with the same cache,
+trash and listener, takes up the model again, swaps it in, and drops the old
+one, which stops its watch and indexer. The new runtime's `reload` gives the
+matcher its snapshot and tells the shell `Reloaded`. `Core::switch_library`
+does the same for a library that is already there, another Mac's synced
+library for example, with nothing copied.
+
+`inspect_library_location(path)` is what the picker asks first. It says which
+sync client looks after a folder: iCloud Drive under
+`Library/Mobile Documents`, Dropbox, OneDrive, Google Drive and Box under
+`Library/CloudStorage`, and the older `~/Dropbox` by its `.dropbox` marker. It
+also says whether the folder is empty, already a library, or full of other
+files. The Settings window's Library tab (`LibraryLocationStore`,
+`LibrarySettingsView`) moves the library into an empty folder, switches to a
+library that is there, and gives a folder that holds other files, such as
+iCloud Drive's top level, an `Aralo` folder of its own. The path is
+remembered under `AraloLibraryPath` in the app's defaults. `ARALO_LIBRARY`
+still overrides it.
+
+A placeholder inside a running library is a diagnostic, `NotDownloaded`, not
+a missing snippet with nothing said. The watch sees the download replace it.
+`crates/aralo-core/tests/library_move.rs` plays both providers in a temporary
+home folder: a move into iCloud Drive with the counts carried, eviction and
+download while the app runs, a move into Dropbox after which a conflict copy
+merges against the carried base, delivery through a hidden temporary file,
+the refusals, and a file that cannot be read. `crates/aralo-ffi/tests/library_move.rs`
+checks that expansion, recents and the watch follow the move through the
+bridge.
+
 ### Editing
 
 `Core`'s editing calls are the other half of ADR-0006: every one of them writes
@@ -1231,6 +1295,7 @@ the event tap.
 | `ExpansionSession`, AI blocks | `ai_blocks()`, `answer_block(index, text)`, `fall_back(index, reason)`, `preview_blocks(answers, drafts) -> BlockPreview`: the text, and where each block's text is in UTF-16 code units. `SessionAction.Ai { blocks }` is the step that asks for them | Synchronous |
 | `Core`, interchange | `import(source, settings)`, `export(format, group)` | Synchronous |
 | `Core`, sync conflicts | `conflicts()`, `conflict(copy) -> ConflictDetail`, `resolve_conflict(copy, ConflictChoice)`: `KeepOriginal`, `KeepCopy` or `Write { text }` | Synchronous |
+| `Core`, the library's location | `move_library(to) -> LibraryMove` (`from`, `to`, `files`, `snippets`, `changed_after_copy`, `index_problem`), `switch_library(path)`; the function `inspect_library_location(path) -> LibraryLocation` (`provider`, `contents`: `Empty`, `Library { snippets }` or `Occupied`). See [moving the library](#moving-the-library) | Synchronous; the shell runs a move off the main thread |
 | `CoreEvents` | `library_changed(event)`: `Outside`, `Edited`, `Reloaded`, `Failed`, `Merged`, `Indexed`. The shell implements it | Called on a background thread |
 | `Trash` | `discard(path)`: moves a merged or resolved conflict copy out of the library. The shell implements it | Called on whichever thread read the folder, with the library locked |
 | `AiProfiles` | `open(path?, KeyStorage)` (constructor), `reload()`, `switches()`, `set_switches`, `profiles()`, `save(draft, AiKeyChange)`, `delete`, `set_default` | Synchronous |

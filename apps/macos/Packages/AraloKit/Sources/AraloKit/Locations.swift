@@ -13,8 +13,16 @@ public extension AraloService {
         if let override = ProcessInfo.processInfo.environment["ARALO_LIBRARY"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
+        if let chosen = UserDefaults.standard.string(forKey: libraryPathKey), !chosen.isEmpty {
+            return URL(fileURLWithPath: chosen, isDirectory: true)
+        }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Aralo", isDirectory: true)
     }
+
+    /// Where the library the user moved or switched to is remembered, in
+    /// Aralo's own preferences (plan 5.2). The one place Aralo keeps a path
+    /// outside the library: the library cannot say where it is.
+    static let libraryPathKey = "AraloLibraryPath"
 
     /// Where the search index and the rest of what Aralo can rebuild goes.
     /// Nothing in here is the user's work: deleting it costs a rebuild.

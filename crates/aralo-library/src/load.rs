@@ -207,6 +207,10 @@ impl Loader<'_> {
             let Some(name) = name.to_str() else {
                 continue;
             };
+            if let Some(evicted) = evicted_snippet(name) {
+                self.report(&relative.join(evicted), Issue::NotDownloaded);
+                continue;
+            }
             if name.starts_with('.') || name.starts_with('_') {
                 continue;
             }
@@ -300,6 +304,29 @@ impl Loader<'_> {
             file,
         });
     }
+}
+
+/// The name of the file an iCloud Drive placeholder stands for, when `name` is
+/// one: iCloud Drive replaces a file it has moved to the cloud with a hidden
+/// `.{name}.icloud` beside where it was, and puts the file back when it is
+/// opened or downloaded.
+///
+/// Newer versions of macOS keep the file's own name and mark it dataless
+/// instead, which only the file's flags show; moving a library checks those
+/// too.
+pub fn icloud_placeholder(name: &str) -> Option<&str> {
+    let original = name.strip_prefix('.')?.strip_suffix(".icloud")?;
+    (!original.is_empty() && !original.starts_with('.')).then_some(original)
+}
+
+/// The snippet an iCloud Drive placeholder stands for, when it stands for one.
+fn evicted_snippet(name: &str) -> Option<&str> {
+    icloud_placeholder(name).filter(|original| {
+        !original.starts_with('_')
+            && Path::new(original)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case(SNIPPET_EXTENSION))
+    })
 }
 
 /// The identity of a snippet whose file carries none.

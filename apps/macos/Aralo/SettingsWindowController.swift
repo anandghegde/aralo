@@ -2,14 +2,16 @@ import AppKit
 import AraloKit
 import SwiftUI
 
-/// Settings. It has one tab so far, AI; the rest of Aralo's settings join it
-/// as they get panes of their own.
+/// Settings: AI, and where the library is. The rest of Aralo's settings join
+/// them as they get panes of their own.
 @MainActor
 final class SettingsWindowController: NSWindowController {
     private let aiSettings: AISettingsStore
+    private let location: LibraryLocationStore
 
-    init(aiSettings: AISettingsStore) {
+    init(aiSettings: AISettingsStore, location: LibraryLocationStore) {
         self.aiSettings = aiSettings
+        self.location = location
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 580),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -22,6 +24,7 @@ final class SettingsWindowController: NSWindowController {
         super.init(window: window)
         let tabs = TabView {
             AISettingsView(store: aiSettings).tabItem { Label("AI", systemImage: "sparkles") }
+            LibrarySettingsView(store: location).tabItem { Label("Library", systemImage: "folder") }
         }
         window.contentViewController = NSHostingController(rootView: tabs)
     }

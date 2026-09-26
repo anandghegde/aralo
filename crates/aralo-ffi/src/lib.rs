@@ -635,7 +635,7 @@ impl DraftTrial {
         };
         let mut trial = self.held();
         let id = trial.snippet_id().to_string();
-        let done = self.shared.runtime.read(|core| trial.key(core, event));
+        let done = self.shared.runtime().read(|core| trial.key(core, event));
         match done {
             aralo_core::TrialKey::Typed => TrialAction::Typed,
             aralo_core::TrialKey::Expanded => TrialAction::Expanded,
@@ -818,15 +818,85 @@ pub struct LibraryDiagnostic {
 /// The library both objects share, running: watched, indexed, and read under a
 /// lock the keystroke path only ever holds for the length of one lookup.
 struct Shared {
-    runtime: Runtime,
+    /// Replaced whole when the library moves (plan 5.2). A call takes its own
+    /// handle and lets go of the lock at once, so a move waits for no one and
+    /// no one waits for a move.
+    runtime: RwLock<Arc<Runtime>>,
     compat: RwLock<CompatTable>,
     /// The local counters (plan 5.7), kept beside the index.
     counters: Arc<Counters>,
+    /// What a runtime is started with, kept to start the next one.
+    start: Start,
+    /// The model `use_model` named, for the runtime of a moved library.
+    model: Mutex<Option<(PathBuf, Arc<AiProfiles>)>>,
 }
 
 impl Shared {
+    fn runtime(&self) -> Arc<Runtime> {
+        Arc::clone(&self.runtime.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
     fn compat(&self) -> RwLockReadGuard<'_, CompatTable> {
         self.compat.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Runs the library at `root` in place of the one running now: the old
+    /// runtime's watch and indexer stop, the model is taken up again, and the
+    /// matcher and the shell hear `Reloaded` from the new one.
+    fn switch_to(&self, root: &Path) -> Result<(), BridgeError> {
+        let runtime = Arc::new(self.start.runtime(aralo_core::Core::open(root)?)?);
+        if runtime.index_error().is_some() {
+            self.counters.error(ErrorKind::IndexUnavailable);
+        }
+        if let Some((folder, ai)) = &*self.model.lock().unwrap_or_else(PoisonError::into_inner) {
+            runtime.use_model(folder.clone(), ai.settings());
+        }
+        let old = std::mem::replace(
+            &mut *self.runtime.write().unwrap_or_else(PoisonError::into_inner),
+            Arc::clone(&runtime),
+        );
+        // Stopped here, outside the lock, unless a call still holds it; then
+        // it stops when that call is done.
+        drop(old);
+        runtime.reload()?;
+        Ok(())
+    }
+}
+
+/// How the bridge starts a runtime on a library.
+struct Start {
+    cache: Option<PathBuf>,
+    trash: Option<Arc<dyn Trash>>,
+    listener: Arc<Events>,
+}
+
+impl Start {
+    fn runtime(&self, library: aralo_core::Core) -> Result<Runtime, BridgeError> {
+        let root = library.root().to_path_buf();
+        let options = RuntimeOptions {
+            index: self
+                .cache
+                .as_deref()
+                .map(|cache| aralo_core::state::index_in(cache, &root)),
+            // A shell that has no Trash to offer gets the copies set aside
+            // beside the index, in the folder it named.
+            discard: match &self.trash {
+                Some(trash) => {
+                    Some(Arc::new(ShellTrash(Arc::clone(trash))) as Arc<dyn aralo_core::Discard>)
+                }
+                None => self.cache.as_deref().map(|cache| {
+                    Arc::new(aralo_core::SetAside::new(aralo_core::state::set_aside_in(
+                        cache, &root,
+                    ))) as Arc<dyn aralo_core::Discard>
+                }),
+            },
+            ..RuntimeOptions::default()
+        };
+        Ok(Runtime::with_core(
+            library,
+            options,
+            Arc::clone(&self.listener) as Arc<dyn LibraryListener>,
+        )?)
     }
 }
 
@@ -936,7 +1006,7 @@ impl Engine {
                 trailing,
             } => {
                 let started = std::time::Instant::now();
-                let expand = self.shared.runtime.read(|core| {
+                let expand = self.shared.runtime().read(|core| {
                     core.expand(MatchInfo {
                         snippet_id,
                         delete_count,
@@ -1021,7 +1091,7 @@ impl Engine {
         };
         // The library's lock first and the matcher's second, as everywhere
         // else; neither is held while the other is.
-        let Some(expand) = self.shared.runtime.read(|core| core.insert(id)) else {
+        let Some(expand) = self.shared.runtime().read(|core| core.insert(id)) else {
             return refused(InsertRefusal::SnippetGone);
         };
         let recorded = self
@@ -1073,7 +1143,7 @@ impl Engine {
         let Ok(id) = snippet_id.parse::<SnippetId>() else {
             return;
         };
-        self.shared.runtime.record_expansion(id);
+        self.shared.runtime().record_expansion(id);
         self.shared.counters.add(match method {
             InsertMethod::Typed => Count::InsertedTyped,
             InsertMethod::Pasted => Count::InsertedPasted,
@@ -1217,23 +1287,12 @@ impl Core {
             shell: events,
             counters: Arc::clone(&counters),
         });
-        let options = RuntimeOptions {
-            index: cache
-                .as_deref()
-                .map(|cache| aralo_core::state::index_in(cache, &root)),
-            // A shell that has no Trash to offer gets the copies set aside
-            // beside the index, in the folder it named.
-            discard: match trash {
-                Some(trash) => Some(Arc::new(ShellTrash(trash)) as Arc<dyn aralo_core::Discard>),
-                None => cache.as_deref().map(|cache| {
-                    Arc::new(aralo_core::SetAside::new(aralo_core::state::set_aside_in(
-                        cache, &root,
-                    ))) as Arc<dyn aralo_core::Discard>
-                }),
-            },
-            ..RuntimeOptions::default()
+        let start = Start {
+            cache,
+            trash,
+            listener,
         };
-        let runtime = Runtime::with_core(library, options, listener)?;
+        let runtime = start.runtime(library)?;
         if runtime.index_error().is_some() {
             counters.error(ErrorKind::IndexUnavailable);
         }
@@ -1243,9 +1302,11 @@ impl Core {
             profile: compat.defaults(),
         };
         let shared = Arc::new(Shared {
-            runtime,
+            runtime: RwLock::new(Arc::new(runtime)),
             compat: RwLock::new(compat),
             counters,
+            start,
+            model: Mutex::new(None),
         });
         let engine = Arc::new(Engine {
             matcher,
@@ -1267,7 +1328,7 @@ impl Core {
     /// for a folder that arrived while Aralo was not looking, and for a user
     /// who would rather be sure.
     pub fn reload(&self) -> Result<(), BridgeError> {
-        Ok(self.shared.runtime.reload()?)
+        Ok(self.shared.runtime().reload()?)
     }
 
     /// Replaces the built-in compatibility table with the file at `path`, for
@@ -1287,25 +1348,78 @@ impl Core {
     }
 
     pub fn library_path(&self) -> String {
-        self.shared.runtime.root().to_string_lossy().into_owned()
+        self.shared.runtime().root().to_string_lossy().into_owned()
+    }
+
+    /// Moves the library to `to`, an empty folder or one that does not exist
+    /// yet, and runs it from there (plan 5.2).
+    ///
+    /// Every file is copied and read back, the copy must load as the same
+    /// library, and only then is it put in place and the old folder's watch
+    /// stopped. The counts and recents come along. The old folder is left as
+    /// it was: the shell moves it to the Trash, and only when
+    /// `changed_after_copy` is empty. On failure nothing has changed and the
+    /// library runs where it was.
+    pub fn move_library(&self, to: String) -> Result<LibraryMove, BridgeError> {
+        let runtime = self.shared.runtime();
+        // What was counted so far is in the index before it is copied.
+        runtime.flush();
+        let moved = aralo_core::move_library(
+            &runtime.root(),
+            Path::new(&to),
+            self.shared.start.cache.as_deref(),
+        )
+        .map_err(|error| BridgeError::Library {
+            message: error.to_string(),
+        })?;
+        drop(runtime);
+        self.shared.switch_to(&moved.to)?;
+        Ok(LibraryMove {
+            from: moved.from.to_string_lossy().into_owned(),
+            to: moved.to.to_string_lossy().into_owned(),
+            files: moved.files as u32,
+            snippets: moved.snippets as u32,
+            changed_after_copy: moved
+                .changed_since()
+                .iter()
+                .map(|path| aralo_core::slashed(path))
+                .collect(),
+            index_problem: moved.index_problem,
+        })
+    }
+
+    /// Runs the library that is already at `path`, another Mac's synced
+    /// there, say, in place of this one. Nothing is copied, and the library
+    /// that was running is left where it is.
+    pub fn switch_library(&self, path: String) -> Result<(), BridgeError> {
+        let root = PathBuf::from(path);
+        if !matches!(
+            aralo_core::relocate::inspect(&root).contents,
+            aralo_core::Contents::Library { .. }
+        ) {
+            return Err(BridgeError::Library {
+                message: format!("{} is not an Aralo library", root.display()),
+            });
+        }
+        self.shared.switch_to(&root)
     }
 
     /// The commands to run on selected text: the built-in ones, then the
     /// library's `type: command` snippets.
     pub fn commands(&self) -> Vec<AiCommand> {
         self.shared
-            .runtime
+            .runtime()
             .read(|core| core.commands().iter().map(AiCommand::from).collect())
     }
 
     pub fn snippets(&self) -> Vec<SnippetSummary> {
         self.shared
-            .runtime
+            .runtime()
             .read(|core| core.snippets().iter().map(summarise).collect())
     }
 
     pub fn diagnostics(&self) -> Vec<LibraryDiagnostic> {
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             core.diagnostics()
                 .map(|diagnostic| {
                     let (level, message) = describe(&diagnostic.issue);
@@ -1326,7 +1440,7 @@ impl Core {
 impl Core {
     /// The conflict copies waiting for the user, in path order.
     pub fn conflicts(&self) -> Vec<ConflictSummary> {
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             let mut conflicts: Vec<_> = core
                 .conflicts()
                 .iter()
@@ -1344,7 +1458,7 @@ impl Core {
     /// Both sides of the conflict copy at `copy`, a path relative to the
     /// library root, for the resolver to show.
     pub fn conflict(&self, copy: String) -> Result<ConflictDetail, BridgeError> {
-        let sides = self.shared.runtime.conflict(&PathBuf::from(copy))?;
+        let sides = self.shared.runtime().conflict(&PathBuf::from(copy))?;
         Ok(ConflictDetail {
             copy: sides.conflict.copy.to_string_lossy().into_owned(),
             original: sides.conflict.original.to_string_lossy().into_owned(),
@@ -1372,7 +1486,7 @@ impl Core {
         };
         Ok(self
             .shared
-            .runtime
+            .runtime()
             .resolve_conflict(&PathBuf::from(copy), resolution)?)
     }
 }
@@ -1485,7 +1599,7 @@ impl aralo_core::Discard for ShellTrash {
 impl Core {
     /// Every group in the library, root first, then in folder order.
     pub fn groups(&self) -> Vec<GroupSummary> {
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             core.library()
                 .groups()
                 .iter()
@@ -1505,7 +1619,7 @@ impl Core {
     /// there is no snippet with that ID.
     pub fn snippet(&self, id: String) -> Option<SnippetDetail> {
         let id = id.parse::<SnippetId>().ok()?;
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             let snippet = core.library().snippet(id)?;
             Some(SnippetDetail {
                 id: snippet.id.to_string(),
@@ -1541,7 +1655,7 @@ impl Core {
         let draft = Draft::from(&draft);
         let id = self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.create_snippet(&group, &draft))?;
         Ok(id.to_string())
     }
@@ -1554,7 +1668,7 @@ impl Core {
         let draft = Draft::from(&draft);
         let saved = self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.save_snippet(id, &draft))?;
         Ok(saved.to_string())
     }
@@ -1575,7 +1689,7 @@ impl Core {
         let draft = Draft::from(&draft);
         let saved = self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.save_snippet_since(id, &opened, &draft))?;
         Ok(match saved {
             aralo_core::Saved::Written(id) => SaveOutcome::Written { id: id.to_string() },
@@ -1597,7 +1711,7 @@ impl Core {
     /// using `snippet()`'s path, and calls `reload()`.
     pub fn delete_snippet(&self, id: String) -> Result<(), BridgeError> {
         let id = snippet_id(&id)?;
-        self.shared.runtime.edit(|core| core.delete_snippet(id))?;
+        self.shared.runtime().edit(|core| core.delete_snippet(id))?;
         Ok(())
     }
 
@@ -1605,7 +1719,7 @@ impl Core {
     pub fn move_snippet(&self, id: String, group: Vec<String>) -> Result<(), BridgeError> {
         let id = snippet_id(&id)?;
         self.shared
-            .runtime
+            .runtime()
             .edit(|core| core.move_snippet(id, &group))?;
         Ok(())
     }
@@ -1613,7 +1727,7 @@ impl Core {
     pub fn set_snippet_enabled(&self, id: String, enabled: bool) -> Result<(), BridgeError> {
         let id = snippet_id(&id)?;
         self.shared
-            .runtime
+            .runtime()
             .edit(|core| core.set_snippet_enabled(id, enabled))?;
         Ok(())
     }
@@ -1621,7 +1735,9 @@ impl Core {
     /// Creates an empty group: one folder, and no `_group.yaml` until
     /// something in it is set.
     pub fn create_group(&self, group: Vec<String>) -> Result<(), BridgeError> {
-        self.shared.runtime.edit(|core| core.create_group(&group))?;
+        self.shared
+            .runtime()
+            .edit(|core| core.create_group(&group))?;
         Ok(())
     }
 
@@ -1633,7 +1749,7 @@ impl Core {
     ) -> Result<Vec<String>, BridgeError> {
         Ok(self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.rename_group(&group, &name))?)
     }
 
@@ -1646,7 +1762,7 @@ impl Core {
     ) -> Result<Vec<String>, BridgeError> {
         Ok(self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.move_group(&group, &into))?)
     }
 
@@ -1654,7 +1770,10 @@ impl Core {
     /// that went. `group_contents` says how much there is, so a shell can ask
     /// the user first.
     pub fn delete_group(&self, group: Vec<String>) -> Result<Vec<String>, BridgeError> {
-        let removed = self.shared.runtime.edit(|core| core.delete_group(&group))?;
+        let removed = self
+            .shared
+            .runtime()
+            .edit(|core| core.delete_group(&group))?;
         Ok(removed
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
@@ -1665,7 +1784,7 @@ impl Core {
     /// whatever a group further down says.
     pub fn set_group_enabled(&self, group: Vec<String>, enabled: bool) -> Result<(), BridgeError> {
         self.shared
-            .runtime
+            .runtime()
             .edit(|core| core.set_group_enabled(&group, enabled))?;
         Ok(())
     }
@@ -1677,7 +1796,7 @@ impl Core {
         colour: Option<String>,
         icon: Option<String>,
     ) -> Result<(), BridgeError> {
-        self.shared.runtime.edit(|core| {
+        self.shared.runtime().edit(|core| {
             core.edit_group(&group, |file| {
                 file.colour = colour;
                 file.icon = icon;
@@ -1688,7 +1807,9 @@ impl Core {
 
     /// How many snippets a group holds, counting the groups inside it.
     pub fn group_contents(&self, group: Vec<String>) -> u32 {
-        self.shared.runtime.read(|core| core.group_contents(&group)) as u32
+        self.shared
+            .runtime()
+            .read(|core| core.group_contents(&group)) as u32
     }
 
     /// What the editor should say about a draft before it is saved: blank and
@@ -1700,7 +1821,7 @@ impl Core {
     pub fn check_draft(&self, draft: SnippetDraft, editing: Option<String>) -> Vec<DraftProblem> {
         let draft = Draft::from(&draft);
         let editing = editing.and_then(|id| id.parse::<SnippetId>().ok());
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             core.check_draft(&draft, editing)
                 .into_iter()
                 .map(DraftProblem::from)
@@ -1725,7 +1846,7 @@ impl Core {
         let editing = editing.and_then(|id| id.parse::<SnippetId>().ok());
         let trial = self
             .shared
-            .runtime
+            .runtime()
             .read(|core| core.try_draft(&draft, &group, editing));
         Arc::new(DraftTrial {
             trial: Mutex::new(trial),
@@ -1738,7 +1859,7 @@ impl Core {
     /// letters in it.
     pub fn suggest_abbreviation(&self, label: String) -> String {
         self.shared
-            .runtime
+            .runtime()
             .read(|core| core.suggest_abbreviation(&label))
     }
 
@@ -1754,7 +1875,7 @@ impl Core {
         if query.limit > 0 {
             search.limit = Some(query.limit as usize);
         }
-        self.shared.runtime.read(|core| {
+        self.shared.runtime().read(|core| {
             core.search(&search)
                 .into_iter()
                 .map(SearchResult::from)
@@ -1765,13 +1886,13 @@ impl Core {
     /// What a snippet expands to, for the editor's preview pane.
     pub fn preview(&self, id: String) -> Option<String> {
         let id = id.parse::<SnippetId>().ok()?;
-        self.shared.runtime.read(|core| core.preview(id))
+        self.shared.runtime().read(|core| core.preview(id))
     }
 
     /// What a body that is still being typed would expand to. The file is not
     /// consulted, so the editor's preview keeps up with the keystroke.
     pub fn preview_draft(&self, body: String) -> String {
-        self.shared.runtime.read(|core| core.preview_body(&body))
+        self.shared.runtime().read(|core| core.preview_body(&body))
     }
 
     /// What the editor draws over the body being typed: where its placeholders
@@ -1782,7 +1903,7 @@ impl Core {
     /// It is the same parse an expansion runs, so what the editor underlines is
     /// what typing the abbreviation would do (PRD L10).
     pub fn outline_draft(&self, body: String) -> BodyOutline {
-        BodyOutline::from(self.shared.runtime.read(|core| core.outline_body(&body)))
+        BodyOutline::from(self.shared.runtime().read(|core| core.outline_body(&body)))
     }
 
     /// Writes dates and times in `tag`, for example `de_DE`. The shell passes
@@ -1792,19 +1913,21 @@ impl Core {
     /// An unknown tag falls back to the nearest language, then to `en_US`, so
     /// a locale Aralo has no month names for still expands.
     pub fn set_locale(&self, tag: String) {
-        self.shared.runtime.configure(|core| core.set_locale(&tag));
+        self.shared
+            .runtime()
+            .configure(|core| core.set_locale(&tag));
     }
 
     /// The locale dates are being written in.
     pub fn locale(&self) -> String {
-        self.shared.runtime.read(|core| core.locale().to_owned())
+        self.shared.runtime().read(|core| core.locale().to_owned())
     }
 
     /// The snippets expanded most recently, most recent first. Empty when
     /// there is no index; `index_problem` says why.
     pub fn recents(&self, limit: u32) -> Vec<String> {
         self.shared
-            .runtime
+            .runtime()
             .recents(limit as usize)
             .unwrap_or_default()
             .into_iter()
@@ -1816,7 +1939,7 @@ impl Core {
     /// counts and search by meaning are what is lost; everything else works
     /// without it.
     pub fn index_problem(&self) -> Option<String> {
-        self.shared.runtime.index_error().map(str::to_owned)
+        self.shared.runtime().index_error().map(str::to_owned)
     }
 
     /// Searches by meaning as well as by words, with the embedding model in
@@ -1831,21 +1954,26 @@ impl Core {
     /// through `AiProfiles.set_switches` and `reload`.
     pub fn use_model(&self, folder: String, ai: Arc<AiProfiles>) {
         self.shared
-            .runtime
-            .use_model(PathBuf::from(folder), ai.settings());
+            .runtime()
+            .use_model(PathBuf::from(&folder), ai.settings());
+        *self
+            .shared
+            .model
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some((PathBuf::from(folder), ai));
     }
 
     /// Why search is going by words alone although a model was given: it
     /// would not load, or there is no index to keep its vectors in.
     pub fn meaning_problem(&self) -> Option<String> {
-        self.shared.runtime.meaning_error()
+        self.shared.runtime().meaning_error()
     }
 
     /// Waits until the background indexer has done everything asked of it so
     /// far: the index caught up, a model loaded, the library embedded. Tests
     /// use it; an app has no reason to wait.
     pub fn wait_for_index(&self) {
-        self.shared.runtime.flush();
+        self.shared.runtime().flush();
     }
 
     /// Reads a file from another expander into the library. A dry run reports
@@ -1876,7 +2004,7 @@ impl Core {
         let source = PathBuf::from(source);
         let report = self
             .shared
-            .runtime
+            .runtime()
             .edit(|core| core.import(&source, &settings))
             .inspect_err(|_| self.shared.counters.error(ErrorKind::ImportFailed))?;
         let mut summary = ImportSummary::from(&report);
@@ -1884,7 +2012,7 @@ impl Core {
         if !summary.dry_run {
             // The library has been read again by now, so every file the import
             // wrote is a snippet with an ID.
-            self.shared.runtime.read(|core| {
+            self.shared.runtime().read(|core| {
                 let ids: HashMap<&Path, SnippetId> = core
                     .snippets()
                     .iter()
@@ -1909,7 +2037,7 @@ impl Core {
             format: parse_format(&format)?,
             group,
         };
-        Ok(self.shared.runtime.read(|core| core.export(&options))?)
+        Ok(self.shared.runtime().read(|core| core.export(&options))?)
     }
 }
 
@@ -2209,6 +2337,59 @@ pub struct PlaceholderChoice {
 }
 
 const PREVIEW_CHARS: usize = 120;
+
+/// What `Core::move_library` did.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LibraryMove {
+    pub from: String,
+    pub to: String,
+    pub files: u32,
+    pub snippets: u32,
+    /// Files in the old folder that changed after they were copied, or that
+    /// could not be read to tell. While there are any, the old folder holds
+    /// something the new one does not, and it is not moved to the Trash.
+    pub changed_after_copy: Vec<String>,
+    /// Why the counts and recents did not come along, when they did not.
+    pub index_problem: Option<String>,
+}
+
+/// What is at a folder the user picked for the library.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LibraryLocation {
+    pub path: String,
+    /// The sync client that looks after the folder, in its own words
+    /// ("iCloud Drive", "Dropbox"), when its path says so.
+    pub provider: Option<String>,
+    pub contents: LocationContents,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LocationContents {
+    /// Nothing there: the library can be moved here.
+    Empty,
+    /// A library already, which can be used as it is.
+    Library { snippets: u32 },
+    /// Other files: neither a move nor a switch goes here.
+    Occupied,
+}
+
+/// What is at `path`, for the library picker to say what choosing it would
+/// do before anything is done.
+#[uniffi::export]
+pub fn inspect_library_location(path: String) -> LibraryLocation {
+    let location = aralo_core::relocate::inspect(Path::new(&path));
+    LibraryLocation {
+        path,
+        provider: location.provider.map(|provider| provider.name().to_owned()),
+        contents: match location.contents {
+            aralo_core::Contents::Empty => LocationContents::Empty,
+            aralo_core::Contents::Library { snippets } => LocationContents::Library {
+                snippets: snippets as u32,
+            },
+            aralo_core::Contents::Occupied => LocationContents::Occupied,
+        },
+    }
+}
 
 /// The version of the Rust core, for the About window and bug reports.
 #[uniffi::export]
@@ -2643,6 +2824,10 @@ fn describe(issue: &aralo_core::Issue) -> (DiagnosticLevel, String) {
         Issue::SymlinkedFolder => (
             Warning,
             "Symbolic links to folders are not followed.".to_owned(),
+        ),
+        Issue::NotDownloaded => (
+            Warning,
+            "In iCloud Drive but not downloaded to this Mac. It loads once it is.".to_owned(),
         ),
         Issue::UnsupportedKind(kind) => (
             Warning,
